@@ -78,6 +78,6 @@ describe("managed agent adapter parity", () => {
       semanticSourceGranularity: "estimated",
       evidenceBasis: "runtime",
     });
-    expect(direct.descriptor.supportedProfiles).toEqual(harness.descriptor.supportedProfiles);
+    expect(direct.descriptor.supportedAccess).toEqual(harness.descriptor.supportedAccess);
   });
 });

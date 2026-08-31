@@ -5,7 +5,7 @@ reproducible external evidence. It is not a leaderboard integration layer and
 not a marketing report generator.
 
 Kiln is a governed control plane, so every benchmark run must state which Kiln
-surface is being measured, which authority profile was active, which
+surface is being measured, which access level was active, which
 provider/model or route policy was used, which tool catalog was admitted, and
 which evidence artifacts prove the result.
 
@@ -73,7 +73,7 @@ Each profile declares:
 
 - stable id and version
 - measured surface
-- authority profile
+- access level
 - required scorers
 - minimum pass^k threshold and k
 - reproducibility requirements
@@ -270,7 +270,7 @@ Every public benchmark report must include:
 - Kiln version and commit
 - benchmark-facing profile id and version
 - provider/model or route policy
-- authority profile and tool catalog snapshot
+- access level and tool catalog snapshot
 - dataset version
 - scorer set and thresholds
 - pass^1 and pass^k when applicable

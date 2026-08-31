@@ -586,8 +586,8 @@ describe("GatewaySession canonical session events", () => {
         turnId: "session-1:turn:live",
         payload: {
           invocationId: "inv-1",
-          agentId: "codex-oauth:foundation-readonly-plan",
-          profile: "foundation-readonly-plan",
+          agentId: "codex-oauth:read-only",
+          access: "read-only",
           providerRoute: {
             providerId: "codex-oauth",
             model: "gpt-5.4-mini",
@@ -660,10 +660,10 @@ describe("GatewaySession canonical session events", () => {
         activity: "agent_invocation_completed",
         sessionId: "session-1",
         turnId: "session-1:turn:live",
-        details: "foundation-readonly-plan via codex-oauth/gpt-5.4-mini (direct-provider) · Inspection completed.",
+        details: "read-only via codex-oauth/gpt-5.4-mini (direct-provider) · Inspection completed.",
         input: expect.objectContaining({
-          agentId: "codex-oauth:foundation-readonly-plan",
-          profile: "foundation-readonly-plan",
+          agentId: "codex-oauth:read-only",
+          access: "read-only",
         }),
         surfaces: ["conversation_inline", "activity_panel", "inspector"],
         sessionEvent: expect.objectContaining({

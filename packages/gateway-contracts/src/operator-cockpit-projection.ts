@@ -3267,7 +3267,7 @@ function managedToolMetadataPayload(
       routeSource: readString(metadata.routeSource) ?? readString(capabilitySnapshot.routeSource),
       providerId: readString(asRecord(metadata.providerRoute).providerId),
       model: readString(asRecord(metadata.providerRoute).model),
-      profile: readString(metadata.profile),
+      access: readString(metadata.access),
       contextMode: readString(asRecord(metadata.context).mode) ?? readString(capabilitySnapshot.contextMode),
       authorityProfileId: readString(metadata.authorityProfileId),
       timeoutMs,
@@ -3300,7 +3300,7 @@ function managedToolMetadataPayload(
     timeoutSource,
     childSessionId,
     childTurnId,
-    profile: readString(metadata.profile),
+    access: readString(metadata.access),
     providerRoute: asOptionalRecord(metadata.providerRoute),
     adapterKind: readString(metadata.adapterKind),
     executionMode: readString(metadata.executionMode),
@@ -3342,7 +3342,7 @@ function managedListItemPayload(
     timeoutSource,
     childSessionId,
     childTurnId,
-    profile: readString(item.profile),
+    access: readString(item.access),
     providerRoute: asOptionalRecord(item.providerRoute),
     adapterKind: readString(item.adapterKind),
     executionMode: readString(item.executionMode),
@@ -3492,8 +3492,8 @@ function parseJsonRecord(value: string): Record<string, unknown> {
 
 function managedToolAgentId(metadata: Record<string, unknown>): string | undefined {
   const routeId = readString(metadata.routeId);
-  const profile = readString(metadata.profile);
-  return routeId && profile ? `${routeId}:${profile}` : undefined;
+  const access = readString(metadata.access);
+  return routeId && access ? `${routeId}:${access}` : undefined;
 }
 
 function readInvocationStatus(

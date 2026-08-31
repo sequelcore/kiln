@@ -35,11 +35,11 @@ const READONLY_POLICY: KilnPermissionPolicy = {
 };
 const FIXTURE_OBSERVED_AT = "2026-07-01T12:00:00.000Z";
 
-function profileByAdmission(
+function profileByAccess(
   route: ManagedInvocationToolRoute | undefined,
-  admissionProfile: string,
+  access: string,
 ) {
-  return route?.profiles.find((profile) => profile.admissionProfile === admissionProfile);
+  return route?.profiles.find((profile) => profile.access === access);
 }
 
 function makeExecutionTargetCatalog(
@@ -122,7 +122,7 @@ function makeAdapter(): ManagedAgentRuntimeAdapter {
       adapterDescriptorId: "adapter:opencode-go:direct",
       providerId: "opencode-go",
       adapterKind: "direct",
-      supportedProfiles: ["foundation-readonly-plan"],
+      supportedAccess: ["read-only"],
       supportedExecutionModes: ["direct-provider"],
       lifecycle: {
         exposesStart: true,
@@ -272,7 +272,7 @@ function makeConfig(network: boolean): ManagedAgentRouteConfigSource {
     },
     authorityProfiles: [{
       id: "readonly-plan",
-      admissionProfile: "foundation-readonly-plan",
+      access: "read-only",
       workingDirectory: "project",
       tools: { allowed: ["read", "web_search"], network, writes: false },
       memory: { access: "read-only" },
@@ -310,7 +310,7 @@ function makeIsolatedWorktreeWriteConfig(
     },
     authorityProfiles: [{
       id: "approved-write",
-      admissionProfile: "foundation-apply-approved-writes",
+      access: "approved-write",
       workingDirectory: "isolated-worktree",
       tools: { allowed: ["read", "grep", "glob", "apply-patch"], network: false, writes: true },
       memory: { access: "read-only" },
@@ -425,13 +425,13 @@ describe("managed agent route catalog", () => {
       .toBe("Provider/model eligibility evidence is pending for direct managed invocation route 'opencode-go-research-readonly'.");
 
     await catalog.refreshNow();
-    expect(profileByAdmission(catalog.managedInvocation?.routes[0], "foundation-readonly-plan")?.networkAllowed).toBe(false);
+    expect(profileByAccess(catalog.managedInvocation?.routes[0], "read-only")?.networkAllowed).toBe(false);
 
     currentConfig = makeConfig(true);
     await catalog.refreshNow();
     const refreshedComposition = createManagedAccountRuntimeComposition(currentConfig, cwd);
 
-    expect(profileByAdmission(catalog.managedInvocation?.routes[0], "foundation-readonly-plan")?.networkAllowed).toBe(true);
+    expect(profileByAccess(catalog.managedInvocation?.routes[0], "read-only")?.networkAllowed).toBe(true);
     expect(refreshedComposition?.authority).toBe(initialComposition?.authority);
     expect(refreshedComposition?.routing).toBe(initialComposition?.routing);
   });
@@ -539,7 +539,7 @@ describe("managed agent route catalog", () => {
       },
       authorityProfiles: [{
         id: "frontend-reference-readonly",
-        admissionProfile: "foundation-readonly-plan",
+        access: "read-only",
         workingDirectory: "project",
         tools: { allowed: ["read", "grep", "glob", "web_search"], network: true, writes: false },
         readAuthority: {
@@ -573,8 +573,7 @@ describe("managed agent route catalog", () => {
     });
 
     expect(resolution.routeHealth[0]).toMatchObject({ available: true });
-    expect(profileByAdmission(resolution.managedInvocation?.routes[0], "foundation-readonly-plan")).toMatchObject({
-      permissionProfile: "read-only",
+    expect(profileByAccess(resolution.managedInvocation?.routes[0], "read-only")).toMatchObject({
       readAuthority: {
         workspace: {
           allowedPaths: [
@@ -637,7 +636,7 @@ describe("managed agent route catalog", () => {
     });
 
     expect(resolution.routeHealth[0]).toMatchObject({ available: true });
-    const profile = profileByAdmission(resolution.managedInvocation?.routes[0], "foundation-apply-approved-writes");
+    const profile = profileByAccess(resolution.managedInvocation?.routes[0], "approved-write");
 
     expect(profile?.workingDirectory).toEqual({
       path: worktreeRootPath,
@@ -746,7 +745,7 @@ describe("managed agent route catalog", () => {
     };
     await catalog.refreshNow();
 
-    const profile = profileByAdmission(catalog.managedInvocation?.routes[0], "foundation-apply-approved-writes");
+    const profile = profileByAccess(catalog.managedInvocation?.routes[0], "approved-write");
     expect(initialService).toBeInstanceOf(RuntimeManagedAgentInvocationService);
     expect(catalog.managedInvocation?.invocationService).toBeInstanceOf(RuntimeManagedAgentInvocationService);
     expect(catalog.managedInvocation?.invocationService).not.toBe(initialService);

@@ -357,7 +357,7 @@ describe("native-agent-projection", () => {
         goal: "Review implementation quality",
         tier: "reasoning",
         targetId: "codex-unproven",
-        authorityProfileId: "foundation-readonly-plan",
+        authorityProfileId: "read-only",
         instructions: "Review only.",
         scope: "project",
       },
@@ -406,7 +406,7 @@ describe("native-agent-projection", () => {
         goal: "Map local context",
         tier: "fast",
         targetId: "opencode-unproven",
-        authorityProfileId: "foundation-readonly-plan",
+        authorityProfileId: "read-only",
         instructions: "Scout only.",
         scope: "project",
       },
@@ -442,7 +442,7 @@ describe("native-agent-projection", () => {
         goal: "Map local context",
         tier: "fast",
         targetId: "opencode-unproven",
-        authorityProfileId: "foundation-readonly-plan",
+        authorityProfileId: "read-only",
         instructions: "Scout only.",
         scope: "project",
       },
@@ -483,7 +483,7 @@ describe("native-agent-projection", () => {
     loadAgentDefinitionsMock.mockResolvedValueOnce([{
       ...agent,
       targetId: "opencode-unproven",
-      authorityProfileId: "foundation-readonly-plan",
+      authorityProfileId: "read-only",
     }]);
 
     const result = await syncAgents({ force: true });
@@ -505,7 +505,7 @@ describe("native-agent-projection", () => {
       goal: "Produce a verified implementation plan",
       tier: "reasoning" as const,
       targetId: "opencode-unproven",
-      authorityProfileId: "foundation-readonly-plan",
+      authorityProfileId: "read-only",
       instructions: "Plan first.",
       scope: "project" as const,
     }]);
@@ -537,7 +537,7 @@ describe("native-agent-projection", () => {
     loadAgentDefinitionsMock.mockResolvedValueOnce([{
       ...agent,
       targetId: "opencode-unproven",
-      authorityProfileId: "foundation-readonly-plan",
+      authorityProfileId: "read-only",
     }]);
 
     const result = await syncAgents({ dryRun: true });

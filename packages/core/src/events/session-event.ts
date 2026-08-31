@@ -13,7 +13,7 @@ import type { ExecutionAccountCapacityRejectionReason } from "../agents/executio
 
 import type {
   ManagedAgentAdapterKind,
-  ManagedAgentAdmissionProfile,
+  ManagedAgentAccess,
   ManagedAgentCapabilitySnapshot,
   ManagedAgentCoordinationUsageReport,
   ManagedAgentInvocationContextMode,
@@ -495,7 +495,7 @@ export interface SessionAgentInvocationIdentity {
   readonly requestedBy?: string;
   readonly requestSource?: string;
   readonly requestedAuthority?: ManagedAgentRequestedAuthority;
-  readonly profile?: ManagedAgentAdmissionProfile;
+  readonly access?: ManagedAgentAccess;
   readonly providerRoute?: ManagedAgentProviderRoute;
   readonly adapterKind?: ManagedAgentAdapterKind;
   readonly executionMode?: ManagedAgentExecutionMode;

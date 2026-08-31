@@ -115,7 +115,7 @@ export async function statusCommand(
       const economicBoundary = route.kind === "harness"
         ? "; provider consumption is not bounded by Kiln's managed economic ceiling"
         : "";
-      console.log(`    - ${route.routeId}: ${route.kind}/${route.provider}${route.model ? ` ${route.model}` : ""} [${route.profiles.join(", ")}] ${status}${economicBoundary}`);
+      console.log(`    - ${route.routeId}: ${route.kind}/${route.provider}${route.model ? ` ${route.model}` : ""} [${route.accessLevels.join(", ")}] ${status}${economicBoundary}`);
     }
   }
   if (managedInvocationResolution.agentHealth?.length) {

@@ -246,7 +246,7 @@ export class FilesystemAgentTaskStore implements AgentTaskStore {
     return this.withLock(async (lease) => { const memory = await this.loadMemory(); const job = await memory.completeSuccess(id, result, updatedAt); await this.saveMemory(memory, lease); return job; });
   }
   async listNonterminal(): Promise<readonly AgentTaskRecord[]> { return this.withLock(async () => (await this.loadMemory()).listNonterminal()); }
-  /** Inspection-only store projection; a task owns exactly one run in V15. */
+  /** Inspection-only store projection; a task owns exactly one run in V16. */
   async all(): Promise<readonly AgentTaskRecord[]> { return this.withLock(async () => (await this.loadMemory()).all()); }
   private async loadMemory(): Promise<InMemoryAgentTaskStore> {
     const target = resolve(this.root, "agent-tasks", "agent-tasks.json");

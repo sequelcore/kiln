@@ -67,13 +67,13 @@ describe("benchmark baseline readiness", () => {
     ]);
     expect(KILN_BENCHMARK_PROFILES[0]).toMatchObject({
       version: "3",
-      authorityProfile: "foundation-readonly-plan",
+      access: "read-only",
       requiredScorers: expect.arrayContaining(["tool-calling-accuracy", "tool-trajectory"]),
     });
     expect(KILN_BENCHMARK_PROFILES[0]?.requiredScorers).not.toContain("cache-topology");
     expect(KILN_BENCHMARK_PROFILES.find((profile) => profile.id === "kiln-model-roster")).toMatchObject({
       version: "2",
-      authorityProfile: "foundation-readonly-plan",
+      access: "read-only",
       requiredScorers: expect.arrayContaining([
         "evidence-coverage",
         "citation-grounding",
@@ -82,21 +82,21 @@ describe("benchmark baseline readiness", () => {
     });
     expect(KILN_BENCHMARK_PROFILES.find((profile) => profile.id === "kiln-model-roster-backend-write")).toMatchObject({
       version: "2",
-      authorityProfile: "foundation-apply-approved-writes",
+      access: "approved-write",
       minimumDatasetItems: 8,
       admissionScorers: ["test-verification", "diff-integrity", "execution-integrity"],
       requiredScorers: expect.arrayContaining(["test-verification", "diff-integrity", "execution-integrity"]),
     });
     expect(KILN_BENCHMARK_PROFILES.find((profile) => profile.id === "kiln-model-roster-frontend-render")).toMatchObject({
       version: "2",
-      authorityProfile: "foundation-apply-approved-writes",
+      access: "approved-write",
       minimumDatasetItems: 8,
       admissionScorers: ["render-verification", "frontend-diff-integrity", "execution-integrity"],
       requiredScorers: expect.arrayContaining(["render-verification", "frontend-diff-integrity"]),
     });
     expect(KILN_BENCHMARK_PROFILES.find((profile) => profile.id === "kiln-formal-verification-pilot")).toMatchObject({
       version: "2",
-      authorityProfile: "foundation-apply-approved-writes",
+      access: "approved-write",
       minimumDatasetItems: 16,
       minimumK: 2,
       maxInvalidAttempts: 0,

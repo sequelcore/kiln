@@ -613,7 +613,7 @@ describe("AppShell sidebar modes", () => {
               summary: "Inspect work item resource",
               status: "blocked",
               workflowProfile: "verification-heavy",
-              authorityProfile: "authority:foundation-readonly-plan",
+              access: "read-only",
               expectedEvidence: ["surface-map"],
               providedEvidence: [],
               verificationGates: ["bun test"],

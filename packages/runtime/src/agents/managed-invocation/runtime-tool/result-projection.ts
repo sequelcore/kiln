@@ -11,7 +11,7 @@ import type {
   ManagedAgentInvocationContextMode,
   ManagedAgentInvocationRecord,
   ManagedAgentInvocationRequest,
-  ManagedAgentAdmissionProfile,
+  ManagedAgentAccess,
   ManagedAgentRouteSource,
   WorkItemPauseRequirement,
 } from "@kilnai/core";
@@ -82,7 +82,7 @@ export function projectManagedInvocationSnapshot(snapshot: ManagedAgentRuntimeIn
     routeSource: capabilitySnapshot.routeSource,
     ...projectManagedInvocationTimeoutEvidence(capabilitySnapshot.authorityProfile),
     ...projectManagedInvocationChildLineage(snapshot.record),
-    profile: snapshot.profile,
+    access: snapshot.access,
     providerRoute: snapshot.providerRoute,
     adapterKind: snapshot.adapterKind,
     executionMode: snapshot.executionMode,
@@ -115,7 +115,7 @@ export function managedInvocationSnapshotErrorMetadata(
     routeSource: capabilitySnapshot.routeSource,
     ...projectManagedInvocationTimeoutEvidence(capabilitySnapshot.authorityProfile),
     ...projectManagedInvocationChildLineage(snapshot.record),
-    profile: snapshot.profile,
+    access: snapshot.access,
     providerRoute: snapshot.providerRoute,
     adapterKind: snapshot.adapterKind,
     executionMode: snapshot.executionMode,
@@ -229,7 +229,7 @@ export function terminalManagedInvocationResult(input: {
       ...timeoutEvidence,
       status: projectedStatus,
       lifecycleState: input.record.lifecycleState,
-      profile: input.record.profile,
+      access: input.record.access,
       providerRoute: input.record.providerRoute,
       ...(input.voiceProfile ? { voiceProfile: input.voiceProfile } : {}),
       adapterKind: input.record.adapterKind,
@@ -257,7 +257,7 @@ export function terminalManagedInvocationResult(input: {
         sourceToolName: input.toolName,
         routeId: input.routeId,
         routeSource,
-        profile: input.record.profile,
+        access: input.record.access,
         providerId: input.record.providerRoute.providerId,
         model: input.record.providerRoute.model,
         contextMode: input.contextMode,
@@ -327,7 +327,7 @@ export function buildManagedInvocationPresentationIntent(input: {
   readonly sourceToolName: string;
   readonly routeId: string;
   readonly routeSource: ManagedAgentRouteSource;
-  readonly profile: ManagedAgentAdmissionProfile;
+  readonly access: ManagedAgentAccess;
   readonly providerId: string;
   readonly model?: string;
   readonly contextMode?: ManagedAgentInvocationContextMode;
@@ -346,7 +346,7 @@ export function buildManagedInvocationPresentationIntent(input: {
       { key: "routeSource", label: "Source", valueKind: "text" },
       { key: "provider", label: "Provider", valueKind: "text" },
       { key: "model", label: "Model", valueKind: "text" },
-      { key: "profile", label: "Profile", valueKind: "text" },
+      { key: "access", label: "Access", valueKind: "text" },
       { key: "contextMode", label: "Context", valueKind: "text" },
       { key: "status", label: "Status", valueKind: "status" },
       { key: "substantiveEvidence", label: "Evidence", valueKind: "boolean" },
@@ -357,7 +357,7 @@ export function buildManagedInvocationPresentationIntent(input: {
       routeSource: input.routeSource,
       provider: input.providerId,
       model: input.model ?? "",
-      profile: input.profile,
+      access: input.access,
       contextMode: input.contextMode ?? "",
       status: input.status,
       substantiveEvidence: input.substantiveEvidence,

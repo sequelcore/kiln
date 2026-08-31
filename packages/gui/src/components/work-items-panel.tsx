@@ -92,7 +92,8 @@ export function WorkItemsPanel(props: WorkItemsPanelProps) {
                     {item.id} / {item.workflowProfile}
                     {item.surface ? ` / ${item.surface}` : ""}
                     {item.assignedAgentProfile ? ` / ${item.assignedAgentProfile}` : ""}
-                    {item.authorityProfile ? ` / ${item.authorityProfile}` : ""}
+                    {item.authority ? ` / authority:${item.authority}` : ""}
+                    {item.access ? ` / access:${item.access}` : ""}
                   </TaskItem>
                   {item.resourceUri ? (
                     <div>

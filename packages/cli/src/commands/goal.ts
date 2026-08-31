@@ -396,7 +396,8 @@ function formatGoalResume(goal: GoalRun, step: GoalExecutionStep): string {
       `Resource: ${workItemResourceUri(step.workItem.id)}`,
       step.workItem.routeId ? `Route: ${step.workItem.routeId}` : undefined,
       step.workItem.assignedAgentProfile ? `Agent profile: ${step.workItem.assignedAgentProfile}` : undefined,
-      step.workItem.authorityProfile ? `Authority profile: ${step.workItem.authorityProfile}` : undefined,
+      step.workItem.authority ? `Authority: ${step.workItem.authority}` : undefined,
+      step.workItem.access ? `Access: ${step.workItem.access}` : undefined,
       `Missing evidence: ${missingWorkItemEvidence(step.workItem).join(", ") || "none"}`,
     ].filter((line): line is string => line !== undefined).join("\n");
   }
@@ -423,7 +424,8 @@ function formatInspectableWorkItem(item: WorkItem): readonly string[] {
   return [
     `Work item ${item.id}: ${item.status} - ${item.summary}`,
     `Work item resource: ${workItemResourceUri(item.id)}`,
-    item.authorityProfile ? `Work item authority: ${item.authorityProfile}` : undefined,
+    item.authority ? `Work item authority: ${item.authority}` : undefined,
+    item.access ? `Work item access: ${item.access}` : undefined,
     item.routeId ? `Work item route: ${item.routeId}` : undefined,
     item.assignedAgentProfile ? `Work item agent profile: ${item.assignedAgentProfile}` : undefined,
     `Work item evidence: ${item.providedEvidence.length}/${item.expectedEvidence.length}`,

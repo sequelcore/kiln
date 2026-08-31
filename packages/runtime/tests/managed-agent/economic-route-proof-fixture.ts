@@ -110,7 +110,7 @@ export async function proveEconomicRouteLifecycle(input: EconomicRouteProofInput
       admissionBundle,
       effectIdentity: "managed-economic-proof:provider-dispatch",
       adoption,
-      admissionProfile: "foundation-readonly-plan",
+      access: "read-only",
       authorityProfileId: "economic-route-proof",
       invocationId: `economic-route-proof:${input.providerId}`,
       lifecycleEvents,

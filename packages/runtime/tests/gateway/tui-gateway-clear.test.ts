@@ -331,7 +331,7 @@ function makeManagedInvocationOptions(): ManagedInvocationToolOptions {
       adapterDescriptorId: "adapter:opencode:harness",
       providerId: "opencode",
       adapterKind: "harness",
-      supportedProfiles: ["foundation-readonly-plan"],
+      supportedAccess: ["read-only"],
       supportedExecutionModes: ["cli-harness"],
       lifecycle: {
         exposesStart: true,
@@ -373,7 +373,7 @@ function makeManagedInvocationOptions(): ManagedInvocationToolOptions {
         agentId: request.agentId,
         parentSessionId: request.parentSessionId,
         parentTurnId: request.parentTurnId,
-        profile: request.profile,
+        access: request.access,
         lifecycleState: "completed",
         providerRoute: request.providerRoute,
         adapterKind: request.adapterKind,
@@ -414,15 +414,14 @@ function makeManagedInvocationOptions(): ManagedInvocationToolOptions {
         supportsRecursion: true,
         supportsAttachments: false,
         supportsWrite: false,
-        proof: { status: "configured", source: "test-fixture", provenProfiles: ["foundation-readonly-plan"] },
+        proof: { status: "configured", source: "test-fixture", provenAccess: ["read-only"] },
         capacity: { kind: "accountless" },
         settlement: { kind: "not-required" },
       },
       createAdapter: async () => adapter,
       profiles: [{
-          authorityProfileId: "authority:opencode-readonly:foundation-readonly-plan",
-          admissionProfile: "foundation-readonly-plan",
-          permissionProfile: "read-only",
+          authorityProfileId: "authority:opencode-readonly:read-only",
+          access: "read-only",
           allowedToolNames: ["read", "grep", "glob"],
           writeAllowed: false,
           networkAllowed: false,
@@ -989,7 +988,7 @@ describe("TUI gateway message fail-closed behavior", () => {
       });
 
       const toolResult = await managedInvoke({
-        profile: "foundation-readonly-plan",
+        access: "read-only",
         routeId: "opencode-readonly",
         providerRoute: {
           providerId: "opencode",
@@ -1155,7 +1154,7 @@ describe("TUI gateway message fail-closed behavior", () => {
             throw new Error("managed_agent.start was not attached to the TUI turn surface");
           }
           const started = await startManagedAgent({
-            profile: "foundation-readonly-plan",
+            access: "read-only",
             routeId: "opencode-readonly",
             providerRoute: {
               providerId: "opencode",

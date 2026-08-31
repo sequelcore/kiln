@@ -1,7 +1,7 @@
-# Deterministic V6 operator intent for the GUI startup profile.
+# Deterministic V7 operator intent for the GUI startup profile.
 # Managed discovery, data-policy, and economic facts are published separately
 # in the content-addressed evidence snapshot seeded by profile-startup.test.ts.
-version: "6"
+version: "7"
 
 ui:
   appearance:

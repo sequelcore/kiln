@@ -1,4 +1,4 @@
-import type { ManagedAgentAdmissionProfile } from "@kilnai/core";
+import type { ManagedAgentAccess } from "@kilnai/core";
 import { digestManagedEconomicValue } from "@kilnai/core/cost";
 import { defineEffectiveAuthorityAdmissionBundle, type EffectiveAuthorityAdmissionBundle } from "../session/effective-authority-admission-bundle.js";
 import {
@@ -15,12 +15,12 @@ import {
 import { AgentTaskApplicationError } from "./errors.js";
 import {
   hasOnly,
-  isApprovedWriteProfile,
+  isApprovedWriteAccess,
   isCanonicalHash,
   isDiagnostic,
   isIdentifier,
   isIso,
-  isManagedAgentAdmissionProfile,
+  isManagedAgentAccess,
   isNativeHarnessDispatchFenceId,
   isRecord,
   isValidLifecycle,
@@ -40,7 +40,7 @@ export interface StoredAgentTaskValidators {
   readonly identifier: (value: unknown) => value is string;
   readonly iso: (value: unknown) => value is string;
   readonly canonicalHash: (value: unknown) => value is string;
-  readonly admissionProfile: (value: unknown) => value is ManagedAgentAdmissionProfile;
+  readonly access: (value: unknown) => value is ManagedAgentAccess;
   readonly dispatch: (value: unknown) => value is AgentTaskDispatch;
   readonly diagnostic: (value: unknown) => boolean;
   readonly failureEvidence: (value: unknown) => value is AgentTaskFailureEvidence;
@@ -48,7 +48,7 @@ export interface StoredAgentTaskValidators {
   readonly lifecycle: (
     value: unknown,
     state: AgentTaskState,
-    profile: ManagedAgentAdmissionProfile,
+    profile: ManagedAgentAccess,
     createdAt: string,
     updatedAt: string,
   ) => value is readonly AgentTaskLifecycleEntry[];
@@ -57,14 +57,14 @@ export interface StoredAgentTaskValidators {
     right: Extract<AgentTaskDispatch, { readonly kind: "economic" }>["constraints"],
   ) => boolean;
   readonly nativeFenceId: (value: unknown) => boolean;
-  readonly approvedWriteProfile: (value: ManagedAgentAdmissionProfile) => boolean;
+  readonly approvedWriteAccess: (value: ManagedAgentAccess) => boolean;
   readonly result: (value: unknown, task: AgentTaskRecord, updatedAt: string) => value is AgentTaskResult;
 }
 
 export function validateStoredAgentTask(value: unknown, v: StoredAgentTaskValidators): AgentTaskRecord {
   const allowed = [
     "version", "id", "adoptedDecisionAt", "state", "objective", "projectId", "callerId",
-    "configuredAgentProfileId", "admissionProfileId", "dispatch", "governanceSource", "admissionId",
+    "configuredAgentProfileId", "access", "dispatch", "governanceSource", "admissionId",
     "admissionBundle", "requestFingerprint", "idempotencyKeyHash", "createdAt", "updatedAt", "parent", "capability", "diagnostic",
     "failureEvidence", "result", "writeApproval", "lifecycle", "run",
   ];
@@ -81,7 +81,7 @@ export function validateStoredAgentTask(value: unknown, v: StoredAgentTaskValida
     || !v.identifier(value.projectId)
     || !v.identifier(value.callerId)
     || !v.identifier(value.configuredAgentProfileId)
-    || !v.admissionProfile(value.admissionProfileId)
+    || !v.access(value.access)
     || (value.capability !== undefined && !isValidAgentTaskCapabilityRequest(value.capability))
     || !v.dispatch(value.dispatch)
     || !v.record(value.run)
@@ -105,7 +105,7 @@ export function validateStoredAgentTask(value: unknown, v: StoredAgentTaskValida
     || (value.failureEvidence !== undefined && !v.failureEvidence(value.failureEvidence))
     || (value.writeApproval !== undefined && !v.writeApproval(value.writeApproval))
     || !validParent(value.parent, v)
-    || !v.lifecycle(value.lifecycle, value.state as AgentTaskState, value.admissionProfileId, value.createdAt, value.updatedAt)
+    || !v.lifecycle(value.lifecycle, value.state as AgentTaskState, value.access, value.createdAt, value.updatedAt)
   ) throw new Error("invalid_stored_agent_task");
 
   const task = value as unknown as AgentTaskRecord;
@@ -113,7 +113,7 @@ export function validateStoredAgentTask(value: unknown, v: StoredAgentTaskValida
     task.dispatch.kind === "economic" ? (
       task.dispatch.candidateSet.economicPolicyId !== task.dispatch.economicPolicyId
       || task.dispatch.candidateSet.economicPolicyRevision !== task.dispatch.economicPolicyRevision
-      || task.dispatch.candidateSet.admissionProfileId !== task.admissionProfileId
+      || task.dispatch.candidateSet.access !== task.access
       || !v.sameConstraints(task.dispatch.candidateSet.constraints, task.dispatch.constraints)
       || !isValidAuthorityAdmissionBundle(task.dispatch.admissionBundle)
       || task.dispatch.admissionBundle.admissionId !== task.admissionId
@@ -126,7 +126,7 @@ export function validateStoredAgentTask(value: unknown, v: StoredAgentTaskValida
           || task.dispatch.actionClaim.attemptId !== task.dispatch.economicAttemptId
           || task.dispatch.actionClaim.effectIdentity !== "agent-task:managed-provider-dispatch"))
     ) : (
-      task.dispatch.admissionProfileId !== task.admissionProfileId
+      task.dispatch.access !== task.access
       || (task.dispatch.dispatchFenceId !== undefined && !v.nativeFenceId(task.dispatch.dispatchFenceId))
       || (task.state === "running" && task.dispatch.actionClaim === undefined)
       || (task.dispatch.actionClaim !== undefined
@@ -142,8 +142,8 @@ export function validateStoredAgentTask(value: unknown, v: StoredAgentTaskValida
     )
     || (task.state === "succeeded" && !task.result)
     || (task.state !== "succeeded" && task.result !== undefined)
-    || (v.approvedWriteProfile(task.admissionProfileId) && task.state !== "awaiting_approval" && task.writeApproval === undefined)
-    || (!v.approvedWriteProfile(task.admissionProfileId) && task.writeApproval !== undefined)
+    || (v.approvedWriteAccess(task.access) && task.state !== "awaiting_approval" && task.writeApproval === undefined)
+    || (!v.approvedWriteAccess(task.access) && task.writeApproval !== undefined)
     || (task.state !== "failed" && task.state !== "timed_out" && task.failureEvidence !== undefined)
     || (task.state === "interrupted" && task.diagnostic !== "result_pending")
     || (task.failureEvidence === undefined && task.lifecycle.some((entry) => entry.failureEvidence !== undefined))
@@ -176,7 +176,7 @@ function nativeActionClaimIntent(
     admissionId: task.admissionId,
     route: {
       kind: task.dispatch.kind,
-      admissionProfileId: task.dispatch.admissionProfileId,
+      access: task.dispatch.access,
       routeId: task.dispatch.routeId,
       routeRevision: task.dispatch.routeRevision,
       providerId: task.dispatch.providerId,
@@ -217,7 +217,7 @@ export function validateStoredJob(value: unknown): AgentTaskRecord {
       identifier: isIdentifier,
       iso: isIso,
       canonicalHash: isCanonicalHash,
-      admissionProfile: isManagedAgentAdmissionProfile,
+      access: isManagedAgentAccess,
       dispatch: isValidAgentTaskDispatch,
       diagnostic: isDiagnostic,
       failureEvidence: isValidAgentTaskFailureEvidence,
@@ -225,7 +225,7 @@ export function validateStoredJob(value: unknown): AgentTaskRecord {
       lifecycle: isValidLifecycle,
       sameConstraints: sameAgentTaskConstraints,
       nativeFenceId: isNativeHarnessDispatchFenceId,
-      approvedWriteProfile: isApprovedWriteProfile,
+      approvedWriteAccess: isApprovedWriteAccess,
       result: isValidAgentTaskResult,
     });
   } catch {

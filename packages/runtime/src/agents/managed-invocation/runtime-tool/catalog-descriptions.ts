@@ -18,13 +18,13 @@ export function buildManagedRouteCatalogDescription(options: ManagedInvocationTo
         .map((route) => {
           const suitability = formatTaskSuitability(route.taskSuitability, managedInvocationSkillNames(options));
           const timeoutSummary = formatRouteTimeoutSummary(route.profiles);
-          return `- ${route.routeId}: routeSource=${route.routeSource}, providerRoute.providerId=${route.providerId}${route.model ? `, model=${route.model}` : ""}, surface=${route.surface ?? "configured"}, profiles=${route.profiles.map((profile) => `${profile.authorityProfileId}:${profile.admissionProfile}`).join(",")}${timeoutSummary ? `, ${timeoutSummary}` : ""}${suitability ? `, taskSuitability=${suitability}` : ""}`;
+          return `- ${route.routeId}: routeSource=${route.routeSource}, providerRoute.providerId=${route.providerId}${route.model ? `, model=${route.model}` : ""}, surface=${route.surface ?? "configured"}, access=${route.profiles.map((profile) => `${profile.authorityProfileId}:${profile.access}`).join(",")}${timeoutSummary ? `, ${timeoutSummary}` : ""}${suitability ? `, taskSuitability=${suitability}` : ""}`;
         })
         .join("\n")
     : "- none";
   const unavailable = options.unavailableRoutes && options.unavailableRoutes.length > 0
     ? options.unavailableRoutes
-        .map((route) => `- ${route.routeId}: routeSource=${route.routeSource}, providerRoute.providerId=${route.providerId}${route.model ? `, model=${route.model}` : ""}, profiles=${route.profiles.join(",")}, reason=${route.reason}`)
+        .map((route) => `- ${route.routeId}: routeSource=${route.routeSource}, providerRoute.providerId=${route.providerId}${route.model ? `, model=${route.model}` : ""}, access=${route.accessLevels.join(",")}, reason=${route.reason}`)
         .join("\n")
     : "- none";
   return [
@@ -40,7 +40,7 @@ export function formatRouteTimeoutSummary(
 ): string | undefined {
   const entries = profiles
     .map((value) => ({
-      profile: `${value.authorityProfileId}:${value.admissionProfile}`,
+      profile: `${value.authorityProfileId}:${value.access}`,
       timeoutMs: value.timeoutMs,
       ...(value.timeoutSource ? { timeoutSource: value.timeoutSource } : {}),
     }))
@@ -279,6 +279,6 @@ export function resolveUnavailableRoute(
     route.providerId === input.providerRoute.providerId
     && (!input.routeId || route.routeId === input.routeId)
     && (!input.providerRoute.model || route.model === input.providerRoute.model)
-    && route.profiles.includes(input.profile)
+    && route.accessLevels.includes(input.access)
   );
 }

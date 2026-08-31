@@ -140,7 +140,7 @@ const registryMocks = vi.hoisted(() => {
 
 const configMocks = vi.hoisted(() => ({
   globalConfig: null as KilnGlobalConfig | null,
-  defaultGlobalConfig: vi.fn(() => ({ version: "6" })),
+  defaultGlobalConfig: vi.fn(() => ({ version: "7" })),
   readGlobalConfig: vi.fn(() => configMocks.globalConfig),
   resolveGlobalDefaultProvider: vi.fn((config: { targetRouting?: { defaultTargetId?: string }; targetCatalog?: { targets?: readonly { id: string; providerId: string }[] } } | null) => {
     const provider = config?.targetCatalog?.targets?.find((target) => target.id === config.targetRouting?.defaultTargetId)?.providerId ?? "";
@@ -753,7 +753,7 @@ describe("GUI dashboard provider availability", () => {
       ...makeOperatorSurfaceGlobalConfig("codex", "gpt-5.3-codex-spark"),
       managedAgents: {
         enabled: true,
-        defaultAuthorityProfileId: "foundation-readonly-plan",
+        defaultAuthorityProfileId: "read-only",
         requireApproval: true,
       },
     };

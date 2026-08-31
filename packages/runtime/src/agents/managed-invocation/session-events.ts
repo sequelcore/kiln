@@ -767,7 +767,7 @@ function managedInvocationIdentity(
   source: ManagedAgentInvocationRequest | ManagedAgentInvocationRecord,
   request?: ManagedAgentInvocationRequest,
   capabilitySnapshot?: ManagedAgentCapabilitySnapshot,
-): Pick<CanonicalAgentInvocationStartedEvent, "parentTurnId" | "routeId" | "routeSource" | "profile" | "providerRoute" | "adapterKind" | "executionMode" | "requestedAuthority" | "authorityProfileId" | "capabilitySnapshot" | "invocationContext" | "handoffContract" | "executionScope"> {
+): Pick<CanonicalAgentInvocationStartedEvent, "parentTurnId" | "routeId" | "routeSource" | "access" | "providerRoute" | "adapterKind" | "executionMode" | "requestedAuthority" | "authorityProfileId" | "capabilitySnapshot" | "invocationContext" | "handoffContract" | "executionScope"> {
   const invocationContext = "input" in source
     ? source.input.context
     : request?.input.context;
@@ -788,7 +788,7 @@ function managedInvocationIdentity(
   return {
     parentTurnId: source.parentTurnId,
     ...(snapshot ? { routeId: snapshot.routeId, routeSource: snapshot.routeSource } : {}),
-    profile: source.profile,
+    access: source.access,
     providerRoute: source.providerRoute,
     adapterKind: source.adapterKind,
     executionMode: source.executionMode,
@@ -905,7 +905,7 @@ function collectDeniedEvidence(
       routeSource: decision.routeSource,
       providerId: request.providerRoute.providerId,
       ...(request.providerRoute.model !== undefined ? { model: request.providerRoute.model } : {}),
-      profile: request.profile,
+      access: request.access,
       contextMode: request.input.context?.mode ?? "isolated",
       authorityProfileId: request.authority.authorityProfileId,
       resourceLease: durableResourceLease,

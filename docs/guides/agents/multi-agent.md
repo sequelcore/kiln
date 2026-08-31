@@ -76,7 +76,7 @@ Each team member is a work item with:
 - a bounded `roleIntent` and child-local `task`;
 - an admitted `agentProfile` or explicit `routeId`;
 - dependency ids;
-- one request-level authority profile and evidence contract.
+- one request-level access level and evidence contract.
 
 Runtime resolves and validates every member independently. Successful producer
 handoffs and resource URIs become governed inputs to their dependents. Failed

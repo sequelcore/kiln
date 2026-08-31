@@ -101,8 +101,8 @@ describe("ActivityLogPanel", () => {
         tone: "success",
         details: {
           invocationId: "inv-1",
-          agentId: "codex-oauth:foundation-readonly-plan",
-          profile: "foundation-readonly-plan",
+          agentId: "codex-oauth:read-only",
+          access: "read-only",
           providerRoute: {
             providerId: "codex-oauth",
             model: "gpt-5.4-mini",
@@ -115,7 +115,7 @@ describe("ActivityLogPanel", () => {
             providerModelProof: { status: "live-proven" },
             resourcePlane: { available: true, resourceUris: [] },
             childIdentity: {
-              agentId: "codex-oauth:foundation-readonly-plan",
+              agentId: "codex-oauth:read-only",
               displayName: "Piama",
             },
           },

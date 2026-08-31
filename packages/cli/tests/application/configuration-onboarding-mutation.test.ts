@@ -21,7 +21,7 @@ describe("project.adopt mutation", () => {
     globalHome = mkdtempSync(join(tmpdir(), "kiln-project-adopt-global-"));
     mkdirSync(join(globalHome, "kiln"), { recursive: true });
     writeFileSync(join(globalHome, "kiln", "config.yaml"), [
-      "version: '6'",
+      "version: '7'",
       "permissions:",
       "  approval: on-request",
       "  sandbox: read-only",
@@ -93,7 +93,7 @@ describe("project.adopt mutation", () => {
 
   it("preserves an untrusted global approval bound in the adopted project", async () => {
     writeFileSync(join(globalHome, "kiln", "config.yaml"), [
-      "version: '6'",
+      "version: '7'",
       "permissions:",
       "  approval: untrusted",
       "  sandbox: read-only",
@@ -128,7 +128,7 @@ describe("project.adopt mutation", () => {
 
   it("preserves an on-failure global approval bound in the adopted project", async () => {
     writeFileSync(join(globalHome, "kiln", "config.yaml"), [
-      "version: '6'",
+      "version: '7'",
       "permissions:",
       "  approval: on-failure",
       "  sandbox: read-only",

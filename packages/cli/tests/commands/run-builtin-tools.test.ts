@@ -2280,7 +2280,7 @@ function parallelManagedInvocation() {
           proof: {
             status: "configured",
             source: "run-builtin-tools-test",
-            provenProfiles: ["foundation-apply-approved-writes"],
+            provenAccess: ["approved-write"],
           },
           capacity: { kind: "accountless" },
           settlement: { kind: "not-required" },
@@ -2295,8 +2295,8 @@ function parallelManagedInvocation() {
         }),
         profiles: [
           {
-            authorityProfileId: "authority:codex-isolated:foundation-apply-approved-writes",
-            admissionProfile: "foundation-apply-approved-writes",
+            authorityProfileId: "authority:codex-isolated:approved-write",
+            access: "approved-write",
             workingDirectory: {
               mode: "isolated-worktree",
             },

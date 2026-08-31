@@ -245,7 +245,7 @@ export function formatManagedInvocationTranscript(record: ManagedAgentInvocation
     `Parent session: ${record.parentSessionId}`,
     `Parent turn: ${record.parentTurnId}`,
     `Status: ${record.lifecycleState}`,
-    `Profile: ${record.profile}`,
+    `Access: ${record.access}`,
     `Provider: ${record.providerRoute.providerId}`,
     record.providerRoute.model ? `Model: ${record.providerRoute.model}` : undefined,
     `Surface: ${record.providerRoute.surface}`,

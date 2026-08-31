@@ -20,6 +20,7 @@ import {
   type BenchmarkEvidenceArtifact,
   type BenchmarkEvidenceArtifactKind,
   type BenchmarkItemExecutor,
+  type ManagedAgentAccess,
   defineDeliberationLevelId,
 } from "@kilnai/core";
 import { createFileArtifactResourceStore } from "@kilnai/runtime";
@@ -458,7 +459,7 @@ async function runInternalBenchmark(
             postRunFixtureVerification: true,
           } : { mode: "repository-worktree-v1" },
           k,
-          authorityProfile: profile.authorityProfile,
+          access: profile.access,
           permissionPolicy: benchmarkPermissionPolicy,
           executionEnvelope: BENCHMARK_EXECUTION_ENVELOPE,
           ...(profile.id === "kiln-model-roster-backend-write" ? {
@@ -670,7 +671,7 @@ function computeFormalScreeningConfigHash(input: {
   readonly profile: {
     readonly id: string;
     readonly version: string;
-    readonly authorityProfile: string;
+    readonly access: ManagedAgentAccess;
     readonly maxInvalidAttempts: number;
   };
   readonly dataset: { readonly items: readonly unknown[] };
@@ -727,7 +728,7 @@ function computeFormalScreeningConfigHash(input: {
     profile: {
       id: input.profile.id,
       version: input.profile.version,
-      authorityProfile: input.profile.authorityProfile,
+      access: input.profile.access,
     },
     dataset: {
       name: "private-formal-screening",
@@ -759,7 +760,6 @@ function computeFormalScreeningConfigHash(input: {
       envelope: FORMAL_SCREENING_EXECUTION_ENVELOPE,
       budget: FORMAL_SCREENING_BUDGET,
       deliberationLevel: input.deliberationLevel ?? "provider-default",
-      permissionProfile: input.profile.authorityProfile,
     },
   });
 }

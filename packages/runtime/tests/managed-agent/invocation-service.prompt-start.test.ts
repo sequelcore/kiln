@@ -33,7 +33,7 @@ describe("RuntimeManagedAgentInvocationService prompt and start", () => {
       agentId: "agent-reviewer",
       parentSessionId: "session-parent",
       parentTurnId: "turn-parent",
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       lifecycleState: "running",
     });
     expect(started.decision.capabilitySnapshot.resourceLease).toEqual({

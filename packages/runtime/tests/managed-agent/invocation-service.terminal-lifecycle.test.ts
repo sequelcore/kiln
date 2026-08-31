@@ -47,7 +47,7 @@ describe("RuntimeManagedAgentInvocationService terminal lifecycle", () => {
     const denied = await new RuntimeManagedAgentInvocationService().start(
       request,
       {
-        descriptor: makeDescriptor({ supportedProfiles: ["foundation-propose-writes"] }),
+        descriptor: makeDescriptor({ supportedAccess: ["propose"] }),
         invoke: vi.fn(),
       },
       makeSnapshotInput(),

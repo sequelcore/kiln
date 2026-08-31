@@ -20,7 +20,7 @@ const caller: CallerAuthorityProfile = {
 };
 const work: RequestedWorkContract = {
   evaluatedAt,
-  profile: "foundation-readonly-plan",
+  access: "read-only",
   requestedAuthority: "audited",
   requiredToolNames: ["read_file"],
   requiresRecursion: false,
@@ -45,7 +45,7 @@ function route(overrides: Partial<RouteCapability> = {}): RouteCapability {
       freshness: "fresh",
       observedAt: "2026-08-07T00:00:00.000Z",
       expiresAt: "2026-08-09T00:00:00.000Z",
-      provenProfiles: ["foundation-readonly-plan"],
+      provenAccess: ["read-only"],
     },
     capacity: { kind: "accountless" },
     settlement: { kind: "not-required" },
@@ -63,7 +63,7 @@ describe("admitManagedRoute", () => {
   });
 
   it("does not let readonly proof authorize a write work profile", () => {
-    const decision = admitManagedRoute({ route: route({ authorityCeiling: "read_only", supportsWrite: false }), work: { ...work, profile: "foundation-apply-approved-writes", requestedAuthority: "audited", requiresWrite: true }, caller: { ...caller, allowsWrite: true } });
+    const decision = admitManagedRoute({ route: route({ authorityCeiling: "read_only", supportsWrite: false }), work: { ...work, access: "approved-write", requestedAuthority: "audited", requiresWrite: true }, caller: { ...caller, allowsWrite: true } });
 
     expect(decision).toEqual({
       status: "unavailable",
@@ -71,18 +71,18 @@ describe("admitManagedRoute", () => {
       reasons: [
         { code: "authority-exceeds-route-ceiling" },
         { code: "write-not-supported-by-route" },
-        { code: "profile-unproven", profile: "foundation-apply-approved-writes" },
+        { code: "access-unproven", access: "approved-write" },
       ],
     });
   });
 
   it("does not let live proof for readonly authorize an apply-approved-writes profile", () => {
-    const decision = admitManagedRoute({ route: route(), work: { ...work, profile: "foundation-apply-approved-writes", requestedAuthority: "destructive", requiresWrite: true }, caller: { ...caller, authorityCeiling: "destructive", allowsWrite: true } });
+    const decision = admitManagedRoute({ route: route(), work: { ...work, access: "approved-write", requestedAuthority: "destructive", requiresWrite: true }, caller: { ...caller, authorityCeiling: "destructive", allowsWrite: true } });
 
     expect(decision).toEqual({
       status: "unavailable",
       routeId: "route-alpha",
-      reasons: [{ code: "profile-unproven", profile: "foundation-apply-approved-writes" }],
+      reasons: [{ code: "access-unproven", access: "approved-write" }],
     });
   });
 
@@ -94,7 +94,7 @@ describe("admitManagedRoute", () => {
         freshness: "fresh",
         observedAt: "2026-08-07T00:00:00.000Z",
         expiresAt: "2026-08-07T23:59:59.000Z",
-        provenProfiles: ["foundation-readonly-plan"],
+        provenAccess: ["read-only"],
       },
     }), work, caller });
 

@@ -1,6 +1,6 @@
 import type {
   DeliberationResolution,
-  ManagedAgentAdmissionProfile,
+  ManagedAgentAccess,
   ManagedAgentCallerAttachmentIdentity,
   ManagedAgentResultHandoff,
   ManagedAgentWriteEvidence,
@@ -21,7 +21,7 @@ import type { EffectiveAuthorityAdmissionBundle } from "../session/effective-aut
 
 
 export const AGENT_TASK_STATES = ["awaiting_approval", "queued", "running", "succeeded", "failed", "timed_out", "interrupted", "cancelled"] as const;
-export const AGENT_TASK_SCHEMA_VERSION = 15 as const;
+export const AGENT_TASK_SCHEMA_VERSION = 16 as const;
 /** Recovery redispatches only unfenced economic work. A durable economic
  * action fence becomes an explicit unknown projection, and native-harness
  * work is never resumed after a process restart. */
@@ -119,7 +119,7 @@ export interface AgentTaskEconomicProfile {
   readonly supportedCapabilityIds?: readonly string[];
   readonly economicPolicyId: string;
   readonly economicPolicyRevision: string;
-  readonly admissionProfileId: ManagedAgentAdmissionProfile;
+  readonly access: ManagedAgentAccess;
   readonly economicSpendApproval?: "required";
   readonly workLimits?: {
     readonly maxTurns?: number;
@@ -174,7 +174,7 @@ export interface AgentTaskNativeHarnessAcknowledgement {
   readonly routeRevision: string;
   readonly providerId: string;
   readonly model: string;
-  readonly admissionProfileId: ManagedAgentAdmissionProfile;
+  readonly access: ManagedAgentAccess;
   readonly adapterCapabilityId: string;
   readonly adapterCapabilityVersion: string;
   /** Exact native override admitted from versioned route capability evidence. */
@@ -203,7 +203,7 @@ export interface AgentTaskNativeHarnessProfile {
   readonly authorityProfileId: string;
   /** Capability contracts this profile has explicitly admitted for execution. Absent means none. */
   readonly supportedCapabilityIds?: readonly string[];
-  readonly admissionProfileId: ManagedAgentAdmissionProfile;
+  readonly access: ManagedAgentAccess;
   readonly routeId: string;
   readonly routeRevision: string;
   readonly providerId: string;
@@ -258,7 +258,7 @@ export type AgentTaskDispatch =
       readonly routeRevision: string;
       readonly providerId: string;
       readonly model: string;
-      readonly admissionProfileId: ManagedAgentAdmissionProfile;
+      readonly access: ManagedAgentAccess;
       readonly adapterCapabilityId: string;
       readonly adapterCapabilityVersion: string;
       readonly acknowledgement: AgentTaskNativeHarnessAcknowledgement;
@@ -273,7 +273,7 @@ export interface AgentTaskResult {
   readonly jobId: string;
   readonly runtimeInvocationId: string;
   readonly configuredAgentProfileId: string;
-  readonly admissionProfileId: string;
+  readonly access: ManagedAgentAccess;
   readonly routeId: string;
   readonly providerId: string;
   readonly terminalState: "completed";
@@ -320,7 +320,7 @@ export interface AgentTaskLifecycleEntry {
   readonly failureEvidence?: AgentTaskFailureEvidence;
 }
 
-/** The one committed execution attempt. Retry/recovery never creates a second run in V15. */
+/** The one committed execution attempt. Retry/recovery never creates a second run in V16. */
 export interface AgentRun {
   readonly runId: string;
   readonly state: AgentTaskState;
@@ -340,7 +340,7 @@ export interface AgentTaskRecord {
   readonly projectId: string;
   readonly callerId: string;
   readonly configuredAgentProfileId: string;
-  readonly admissionProfileId: ManagedAgentAdmissionProfile;
+  readonly access: ManagedAgentAccess;
   readonly capability?: AgentTaskCapabilityRequest;
   readonly dispatch: AgentTaskDispatch;
   readonly governanceSource: string;
@@ -365,7 +365,7 @@ export interface AgentTaskResultQuery {
   readonly availability: AgentTaskResultAvailability;
   readonly lifecycleState: AgentTaskState;
   readonly configuredAgentProfileId: string;
-  readonly admissionProfileId: string;
+  readonly access: ManagedAgentAccess;
   readonly capability?: AgentTaskCapabilityRequest;
   readonly routeId?: string;
   readonly providerId?: string;
@@ -385,7 +385,7 @@ export interface AgentTaskReplayQuery {
   readonly availability: "available" | "unavailable";
   readonly lifecycleState: AgentTaskState;
   readonly configuredAgentProfileId: string;
-  readonly admissionProfileId: string;
+  readonly access: ManagedAgentAccess;
   readonly capability?: AgentTaskCapabilityRequest;
   readonly routeId?: string;
   readonly providerId?: string;
@@ -406,7 +406,7 @@ export interface AgentTaskReplayQuery {
         readonly routeRevision: string;
         readonly providerId: string;
         readonly model: string;
-        readonly admissionProfileId: ManagedAgentAdmissionProfile;
+        readonly access: ManagedAgentAccess;
         readonly adapterCapabilityId: string;
         readonly adapterCapabilityVersion: string;
         readonly acknowledgement: AgentTaskNativeHarnessAcknowledgement;
@@ -427,7 +427,7 @@ export type AgentTaskEconomicReplay =
 export interface AgentTaskProjectPort { resolve(): Promise<TrustedAgentTaskProject>; }
 export interface AgentTaskGovernancePort {
   resolve(project: TrustedAgentTaskProject): Promise<AgentTaskGovernanceEvidence>;
-  admit(input: { readonly project: TrustedAgentTaskProject; readonly objective: string; readonly configuredAgentProfileId: string; readonly admissionProfileId: string; readonly evidence: AgentTaskGovernanceEvidence }): Promise<{ readonly admitted: true; readonly admissionBundle: EffectiveAuthorityAdmissionBundle; readonly source: string } | { readonly admitted: false }>;
+  admit(input: { readonly project: TrustedAgentTaskProject; readonly objective: string; readonly configuredAgentProfileId: string; readonly access: ManagedAgentAccess; readonly evidence: AgentTaskGovernanceEvidence }): Promise<{ readonly admitted: true; readonly admissionBundle: EffectiveAuthorityAdmissionBundle; readonly source: string } | { readonly admitted: false }>;
 }
 export interface AgentTaskProfilePort { resolve(id: string): Promise<AgentTaskProfile | undefined>; }
 export interface AgentTaskRouteResolutionContext {

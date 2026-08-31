@@ -155,7 +155,7 @@ function makeManagedAdapter(summary = "Delegated vision summary."): ManagedAgent
         agentId: request.agentId,
         parentSessionId: request.parentSessionId,
         parentTurnId: request.parentTurnId,
-        profile: request.profile,
+        access: request.access,
         lifecycleState: "completed",
         providerRoute: request.providerRoute,
         adapterKind: request.adapterKind,
@@ -213,7 +213,7 @@ function makeManagedDescriptor(overrides: Partial<ManagedAgentAdapterDescriptor>
     adapterDescriptorId: "adapter:vision-child:harness",
     providerId: "openai",
     adapterKind: "direct",
-    supportedProfiles: ["foundation-readonly-plan"],
+    supportedAccess: ["read-only"],
     supportedExecutionModes: ["direct-provider"],
     lifecycle: {
       exposesStart: true,
@@ -281,7 +281,7 @@ function makeVisionDelegationRoute(adapter: ManagedAgentRuntimeAdapter): Runtime
   return {
     route: makeAuxiliaryVisionRoute(),
     adapter,
-    profile: "foundation-readonly-plan",
+    access: "read-only",
     requestedAuthority: "read_only",
     providerRoute: {
       providerId: "openai",
@@ -298,7 +298,6 @@ function makeVisionDelegationRoute(adapter: ManagedAgentRuntimeAdapter): Runtime
     },
     authority: {
       authorityProfileId: "authority:managed-vision:readonly",
-      permissionProfile: "read-only",
       toolAuthority: {
         allowedToolNames: ["read"],
         writeAllowed: false,
@@ -968,7 +967,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       multimodalDelegationRoutes: [{
         route: makeAuxiliaryVisionRoute(),
         adapter: managedAdapter,
-        profile: "foundation-readonly-plan",
+        access: "read-only",
         requestedAuthority: "read_only",
         providerRoute: {
           providerId: "openai",
@@ -985,7 +984,6 @@ describe("RuntimeSessionOrchestrator model routing", () => {
         },
         authority: {
           authorityProfileId: "authority:managed-vision:readonly",
-          permissionProfile: "read-only",
           toolAuthority: {
             allowedToolNames: ["read"],
             writeAllowed: false,
@@ -1100,7 +1098,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       multimodalDelegationRoutes: [{
         route: makeAuxiliaryVisionRoute(),
         adapter: managedAdapter,
-        profile: "foundation-readonly-plan",
+        access: "read-only",
         requestedAuthority: "read_only",
         providerRoute: {
           providerId: "openai",
@@ -1117,7 +1115,6 @@ describe("RuntimeSessionOrchestrator model routing", () => {
         },
         authority: {
           authorityProfileId: "authority:managed-vision:readonly",
-          permissionProfile: "read-only",
           toolAuthority: {
             allowedToolNames: ["read"],
             writeAllowed: false,

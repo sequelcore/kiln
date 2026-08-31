@@ -24,7 +24,7 @@ function baseTerminalRecord(
     agentId: request.agentId,
     parentSessionId: request.parentSessionId,
     parentTurnId: request.parentTurnId,
-    profile: request.profile,
+    access: request.access,
     lifecycleState,
     providerRoute: request.providerRoute,
     adapterKind: request.adapterKind,

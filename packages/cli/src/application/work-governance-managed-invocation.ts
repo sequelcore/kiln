@@ -24,15 +24,14 @@ export const VISUAL_REFERENCE_PHASE_ROUTE = "visual-reference-research";
 export const VISUAL_REFERENCE_PHASE_ROUTE_PLACEHOLDER =
   "<read-only web/frontend-reference capable route id>";
 
-export const MANAGED_INVOCATION_PROFILES = [
-  "foundation-readonly-plan",
-  "foundation-propose-writes",
-  "foundation-apply-approved-writes",
-  "foundation-memory-write-proposals",
+export const MANAGED_INVOCATION_ACCESS = [
+  "read-only",
+  "propose",
+  "approved-write",
 ] as const;
 export const MANAGED_INVOCATION_AUTHORITIES = ["auto", "read_only", "audited", "destructive"] as const;
 
-type ManagedInvocationProfile = typeof MANAGED_INVOCATION_PROFILES[number];
+type ManagedInvocationAccess = typeof MANAGED_INVOCATION_ACCESS[number];
 type ManagedInvocationAuthority = typeof MANAGED_INVOCATION_AUTHORITIES[number];
 type ReadyGoalExecutionStep = Extract<GoalExecutionStep, { readonly status: "ready" }>;
 type ManagedInvocationPhaseId =
@@ -93,16 +92,16 @@ export function buildManagedInvocationRequest(
   }
   const expectedEvidence = phase.expectedEvidence;
   const residualRiskRequired = expectedEvidence.includes("residual-risk");
-  const configuredProfile = phaseRequiresReadOnlyVisualResearch
-    ? "foundation-readonly-plan"
-    : readManagedInvocationProfile(step.workItem.authorityProfile)
-    ?? readManagedInvocationProfile(input.managedProfile)
-    ?? "foundation-readonly-plan";
-  const profile = goal.authorityEnvelope.maximumAuthority === "read_only"
-    ? "foundation-readonly-plan"
-    : configuredProfile;
+  const configuredAccess = phaseRequiresReadOnlyVisualResearch
+    ? "read-only"
+    : readManagedInvocationAccess(step.workItem.access)
+    ?? readManagedInvocationAccess(input.managedAccess)
+    ?? "read-only";
+  const access = goal.authorityEnvelope.maximumAuthority === "read_only"
+    ? "read-only"
+    : configuredAccess;
   const request: Record<string, unknown> = {
-    profile,
+    access,
     ...(routeId ? { routeId } : {}),
     ...(phaseRequiresReadOnlyVisualResearch ? { forbiddenInputFields: ["agentProfile"] } : {}),
     ...(providerId
@@ -114,7 +113,7 @@ export function buildManagedInvocationRequest(
         },
       }
       : {}),
-    requestedAuthority: resolveManagedInvocationAuthority(profile, input, goal),
+    requestedAuthority: resolveManagedInvocationAuthority(access, input, goal),
     task: formatManagedInvocationTask(goal, step, phase),
     summary: step.workItem.summary,
     contextMode: resourceUris.length > 0 ? "resources" : "isolated",
@@ -198,12 +197,12 @@ export function validatePhaseRouteContract(input: {
   readonly expectedEvidence: readonly KilnWorkGovernanceEvidence[];
   readonly providedEvidence: readonly KilnWorkGovernanceEvidence[];
   readonly routeId?: string;
-  readonly authorityProfile?: string;
+  readonly access?: string;
   readonly phaseRoutes?: Readonly<Record<string, string>>;
 }): { readonly ok: true } | { readonly ok: false; readonly code: string; readonly message: string } {
   const requiresVisualReference = input.expectedEvidence.includes(VISUAL_REFERENCE_PHASE_ROUTE)
     && !input.providedEvidence.includes(VISUAL_REFERENCE_PHASE_ROUTE);
-  if (!requiresVisualReference || !input.routeId || input.authorityProfile !== "foundation-apply-approved-writes") {
+  if (!requiresVisualReference || !input.routeId || input.access !== "approved-write") {
     return { ok: true };
   }
   if (readText(input.phaseRoutes?.[VISUAL_REFERENCE_PHASE_ROUTE])) {
@@ -217,11 +216,11 @@ export function validatePhaseRouteContract(input: {
 }
 
 function resolveManagedInvocationAuthority(
-  profile: ManagedInvocationProfile,
+  access: ManagedInvocationAccess,
   input: Record<string, unknown>,
   goal: GoalRun,
 ): ManagedInvocationAuthority {
-  if (goal.authorityEnvelope.maximumAuthority === "read_only" || profile === "foundation-readonly-plan") {
+  if (goal.authorityEnvelope.maximumAuthority === "read_only" || access === "read-only") {
     return "read_only";
   }
   const requestedAuthority = readManagedInvocationAuthority(input.requestedAuthority);
@@ -415,9 +414,9 @@ function isRepositoryChromeOnlyEvidence(value: string): boolean {
   return mentionsGithubRepo && !containsFrontendReferenceEvidence(value);
 }
 
-function readManagedInvocationProfile(value: unknown): ManagedInvocationProfile | undefined {
-  return MANAGED_INVOCATION_PROFILES.includes(value as ManagedInvocationProfile)
-    ? value as ManagedInvocationProfile
+export function readManagedInvocationAccess(value: unknown): ManagedInvocationAccess | undefined {
+  return MANAGED_INVOCATION_ACCESS.includes(value as ManagedInvocationAccess)
+    ? value as ManagedInvocationAccess
     : undefined;
 }
 

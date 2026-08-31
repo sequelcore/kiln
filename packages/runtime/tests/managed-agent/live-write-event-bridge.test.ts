@@ -19,7 +19,7 @@ function makeWriteRequest(): ManagedAgentInvocationRequest {
     agentId: "agent-implementer",
     parentSessionId: "session-parent",
     parentTurnId: "session-parent:turn:1",
-    profile: "foundation-apply-approved-writes",
+    access: "approved-write",
     requestedBy: "operator",
     requestSource: "manual",
     providerRoute: {
@@ -30,8 +30,7 @@ function makeWriteRequest(): ManagedAgentInvocationRequest {
     adapterKind: "harness",
     executionMode: "cli-harness",
     authority: {
-      authorityProfileId: "foundation-apply-approved",
-      permissionProfile: "apply-approved-writes",
+      authorityProfileId: "approved-write",
       toolAuthority: {
         allowedToolNames: ["read", "rg", "apply-patch"],
         writeAllowed: true,
@@ -51,7 +50,6 @@ function makeWriteRequest(): ManagedAgentInvocationRequest {
         access: "write-proposals",
       },
       writeAuthority: defineManagedAgentWriteAuthority({
-        profile: "foundation-apply-approved-writes",
         scope: defineManagedAgentWriteScope({
           workspace: {
             mode: "apply-approved",
@@ -59,8 +57,6 @@ function makeWriteRequest(): ManagedAgentInvocationRequest {
             deniedPaths: ["C:/workspace/kiln/.git"],
           },
           memory: {
-            mode: "propose",
-            scope: { kind: "project", id: "kiln" },
             operations: ["create", "update"],
           },
           artifacts: {
@@ -91,11 +87,10 @@ function makeWriteRequest(): ManagedAgentInvocationRequest {
 function makeReadOnlyRequest(): ManagedAgentInvocationRequest {
   return defineManagedAgentInvocationRequest({
     ...makeWriteRequest(),
-    profile: "foundation-readonly-plan",
+    access: "read-only",
     authority: {
       ...makeWriteRequest().authority,
-      authorityProfileId: "foundation-readonly",
-      permissionProfile: "read-only",
+      authorityProfileId: "read-only",
       toolAuthority: {
         allowedToolNames: ["read", "rg"],
         writeAllowed: false,

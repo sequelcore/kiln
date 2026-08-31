@@ -121,10 +121,10 @@ function response(text: string): AgentResponse {
 function request(overrides: Partial<Parameters<typeof defineManagedAgentInvocationRequest>[0]> = {}): ManagedAgentInvocationRequest {
   return defineManagedAgentInvocationRequest({
     invocationId: "child-authority-1",
-    agentId: "child-authority:foundation-readonly-plan",
+    agentId: "child-authority:read-only",
     parentSessionId: "parent-session",
     parentTurnId: "parent-session:turn:1",
-    profile: "foundation-readonly-plan",
+    access: "read-only",
     requestedBy: "assistant",
     requestSource: "test",
     requestedAuthority: "read_only",
@@ -137,7 +137,6 @@ function request(overrides: Partial<Parameters<typeof defineManagedAgentInvocati
     executionMode: "direct-provider",
     authority: {
       authorityProfileId: "authority:child-readonly",
-      permissionProfile: "read-only",
       toolAuthority: {
         allowedToolNames: ["read", "write"],
         writeAllowed: false,
@@ -196,7 +195,7 @@ function bundle(overrides: Partial<Parameters<typeof defineEffectiveAuthorityAdm
       execution: {
         status: "routed",
         target: {
-          targetId: "openai:foundation-readonly-plan",
+          targetId: "openai:read-only",
           providerId: "openai",
           providerModelId: "gpt-test",
           accountSelection: { kind: "operator-override", accountPolicyId: "policy-1", accountId: "authority-test-account" },
@@ -204,7 +203,7 @@ function bundle(overrides: Partial<Parameters<typeof defineEffectiveAuthorityAdm
         dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
         binding: {
           status: "bound",
-          routeId: "openai:foundation-readonly-plan",
+          routeId: "openai:read-only",
           accountId: "authority-test-account",
           credentialId: "authority-test-credential",
           credentialRevision: "authority-test-credential-revision",
@@ -218,7 +217,7 @@ function bundle(overrides: Partial<Parameters<typeof defineEffectiveAuthorityAdm
 function snapshotInput(childRequest: ManagedAgentInvocationRequest) {
   return {
     capturedAt: "2026-08-22T18:00:00.000Z",
-    routeId: `${childRequest.providerRoute.providerId}:${childRequest.profile}`,
+    routeId: `${childRequest.providerRoute.providerId}:${childRequest.access}`,
     routeSource: "explicit-managed-route" as const,
   };
 }
@@ -317,13 +316,12 @@ describe("managed child authority admission", () => {
   it("rejects a child whose requested authority exceeds the parent bundle before provider dispatch", async () => {
     const childRequest = request({
       invocationId: "child-authority-write-1",
-      agentId: "child-authority:foundation-propose-writes",
-      profile: "foundation-propose-writes",
+      agentId: "child-authority:propose",
+      access: "propose",
       requestedAuthority: "destructive",
       authorityApproval: { approved: true },
       authority: {
         ...request().authority,
-        permissionProfile: "propose-writes",
         toolAuthority: { allowedToolNames: ["write"], writeAllowed: true, networkAllowed: false },
         workingDirectory: { path: "C:/repo", mode: "workspace-write" },
       },

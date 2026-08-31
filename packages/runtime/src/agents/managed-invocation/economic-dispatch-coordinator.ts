@@ -7,7 +7,7 @@ import {
   type ManagedEconomicPolicyIdentity,
   type ManagedEconomicSettlement,
   type ManagedEconomicExecutionReport,
-  type ManagedAgentAdmissionProfile,
+  type ManagedAgentAccess,
   type SessionManagedEconomicRejection,
   type SessionManagedEconomicLifecycleTransition,
 } from "@kilnai/core";
@@ -92,7 +92,7 @@ export interface ManagedEconomicDispatchCoordinatorOptions {
   readonly authority: ManagedEconomicDispatchAuthorityPort;
   readonly resolveLifecycleTimeoutMs: (
     commitment: ManagedEconomicCommitment,
-    admissionProfile: ManagedAgentAdmissionProfile,
+    access: ManagedAgentAccess,
     authorityProfileId: string,
   ) => number;
   createAdapter(input: {
@@ -100,7 +100,7 @@ export interface ManagedEconomicDispatchCoordinatorOptions {
     readonly dispatchFenceId: string;
     readonly abortSignal: AbortSignal;
     readonly authorityProfileId: string;
-    readonly admissionProfile: ManagedAgentAdmissionProfile;
+    readonly access: ManagedAgentAccess;
     readonly profileAuthorityDigest: string;
     readonly invocationId: string;
   }): Promise<ManagedAgentRuntimeAdapter | undefined>;
@@ -126,7 +126,7 @@ export interface ManagedEconomicDispatchPrepareInput {
   readonly economicAttemptId: string;
   readonly intentFingerprint: string;
   readonly adoption: ManagedEconomicDispatchAdoption;
-  readonly admissionProfile: ManagedAgentAdmissionProfile;
+  readonly access: ManagedAgentAccess;
   readonly authorityProfileId: string;
   readonly invocationId: string;
   /** Persisted authority-admission receipt bound by the canonical claim. */
@@ -217,7 +217,7 @@ export class ManagedEconomicDispatchCoordinator {
         Math.min(
           this.options.resolveLifecycleTimeoutMs(
             result.record.commitment,
-            input.admissionProfile,
+            input.access,
             input.authorityProfileId,
           ),
           input.workLimitDurationMs ?? Number.POSITIVE_INFINITY,
@@ -253,7 +253,7 @@ export class ManagedEconomicDispatchCoordinator {
         dispatchFenceId,
         abortSignal: lifecycle.signal,
         authorityProfileId: input.authorityProfileId,
-        admissionProfile: input.admissionProfile,
+        access: input.access,
         profileAuthorityDigest: adoptedRoute.admittedIdentity.profileAuthorityDigest,
         invocationId: input.invocationId,
       }), lifecycle.signal);

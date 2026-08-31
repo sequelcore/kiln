@@ -266,7 +266,7 @@ function admitManagedInvocationScope(
     const admission = attachment.governedScopeAdmission?.({
       parentSessionId: context.session.id,
       goalRunId: parsed.input.goalRunId,
-      profile: parsed.input.profile,
+      access: parsed.input.access,
       requestedAuthority,
       ...(parsed.input.workItemId ? { workItemId: parsed.input.workItemId } : {}),
       ...(parsed.input.attemptId ? { attemptId: parsed.input.attemptId } : {}),
@@ -351,14 +351,14 @@ async function resolveManagedInvocationEconomicCommitment(input: {
       ? { deliberationIntent: agentProfile.providerRoute.deliberationIntent }
       : {}),
   };
-  const authorityAdmission = validateManagedInvocationRequestedAuthority(requestedAuthority, parsed.profile, toolName);
+  const authorityAdmission = validateManagedInvocationRequestedAuthority(requestedAuthority, parsed.access, toolName);
   if (!authorityAdmission.ok) {
     return {
       ok: false,
       result: errorResult(
         authorityAdmission.error,
         {
-          profile: parsed.profile,
+          access: parsed.access,
           requestedAuthority,
           economicPolicyId,
         },
@@ -373,7 +373,7 @@ async function resolveManagedInvocationEconomicCommitment(input: {
       result: errorResult(
         contextResolution.error,
         {
-          profile: parsed.profile,
+          access: parsed.access,
           economicPolicyId,
           status: contextResolution.status,
           context: buildManagedInvocationContextMetadata(parsed, contextResolution.resolution),
@@ -388,7 +388,7 @@ async function resolveManagedInvocationEconomicCommitment(input: {
       kind: "economic-policy",
       economicPolicyId,
     },
-    profile: parsed.profile,
+    access: parsed.access,
     context,
     toolName,
   });
@@ -398,7 +398,7 @@ async function resolveManagedInvocationEconomicCommitment(input: {
       result: errorResult(
         authorityApproval.error,
         {
-          profile: parsed.profile,
+          access: parsed.access,
           requestedAuthority,
           economicPolicyId,
         },
@@ -414,7 +414,7 @@ async function resolveManagedInvocationEconomicCommitment(input: {
       configuredAgentProfileId: agentProfile.name,
       authorityProfileId: agentProfile.authorityProfileId,
       invocationId,
-      admissionProfileId: parsed.profile,
+      access: parsed.access,
       ...(parsed.routeId ? { routeId: parsed.routeId } : {}),
       ...(economicProviderRoute.providerId ? { providerRoute: economicProviderRoute } : {}),
       callerIdentity,
@@ -422,7 +422,7 @@ async function resolveManagedInvocationEconomicCommitment(input: {
       ...(parsed.requiredReadPaths ? { requiredReadPaths: parsed.requiredReadPaths } : {}),
       requestedAuthority,
       requiresNetwork: (parsed.requiredToolNames ?? []).some(requiresNetworkCapability),
-      requiresWrite: parsed.profile !== "foundation-readonly-plan",
+      requiresWrite: parsed.access !== "read-only",
     },
     options.routes,
     options.unavailableRoutes,
@@ -465,7 +465,7 @@ async function resolveManagedInvocationEconomicCommitment(input: {
     invocationId,
     toolCallId: context.toolCall.id,
     configuredAgentProfileId: agentProfile.name,
-    profile: parsed.profile,
+    access: parsed.access,
     task: parsed.task,
     summary: parsed.summary,
     deliberationIntent: economicProviderRoute.deliberationIntent ?? null,
@@ -528,7 +528,7 @@ async function resolveManagedInvocationEconomicCommitment(input: {
           route.model === selected.modelId,
       );
       const executionProfile = selectedRoute
-        ? resolveManagedInvocationRouteProfile(selectedRoute, parsed.profile, agentProfile)
+        ? resolveManagedInvocationRouteProfile(selectedRoute, parsed.access, agentProfile)
         : undefined;
       if (
         !selectedCandidate ||
@@ -772,11 +772,11 @@ async function resolveManagedInvocationRouteAndCapability(
       return {
         ok: false,
         result: errorResult(
-          `Managed invocation route '${unavailableRoute.routeId}' is unavailable for provider '${parsed.providerRoute.providerId}' and profile '${parsed.profile}': ${unavailableRoute.reason}`,
+          `Managed invocation route '${unavailableRoute.routeId}' is unavailable for provider '${parsed.providerRoute.providerId}' and access '${parsed.access}': ${unavailableRoute.reason}`,
           {
             routeId: unavailableRoute.routeId,
             routeSource: unavailableRoute.routeSource,
-            profile: parsed.profile,
+            access: parsed.access,
             providerRoute: {
               providerId: unavailableRoute.providerId,
               ...(unavailableRoute.model ? { model: unavailableRoute.model } : {}),
@@ -786,7 +786,7 @@ async function resolveManagedInvocationRouteAndCapability(
               sourceToolName: toolName,
               routeId: unavailableRoute.routeId,
               routeSource: unavailableRoute.routeSource,
-              profile: parsed.profile,
+              access: parsed.access,
               providerId: unavailableRoute.providerId,
               model: unavailableRoute.model,
               status: "unavailable",
@@ -801,19 +801,19 @@ async function resolveManagedInvocationRouteAndCapability(
     return {
       ok: false,
       result: errorResult(
-        `No managed invocation route is configured for provider '${parsed.providerRoute.providerId}' and profile '${parsed.profile}'.`,
+        `No managed invocation route is configured for provider '${parsed.providerRoute.providerId}' and access '${parsed.access}'.`,
         {},
         toolName,
       ),
     };
   }
   const route = routeResolution.route;
-  const profileDefaults = resolveManagedInvocationRouteProfile(route, parsed.profile, agentProfile);
+  const profileDefaults = resolveManagedInvocationRouteProfile(route, parsed.access, agentProfile);
   if (!profileDefaults)
     return {
       ok: false,
       result: errorResult(
-        `Managed invocation route '${route.routeId}' does not allow profile '${parsed.profile}'.`,
+        `Managed invocation route '${route.routeId}' does not allow access '${parsed.access}'.`,
         {},
         toolName,
       ),
@@ -856,7 +856,7 @@ async function resolveManagedInvocationRouteAndCapability(
     route: route.capability,
     work: {
       evaluatedAt: new Date().toISOString(),
-      profile: parsed.profile,
+      access: parsed.access,
       requestedAuthority: requestedRouteAuthority,
       requiredToolNames: routeDeclaresEvidenceRealizations ? [] : (parsed.requiredToolNames ?? []),
       requiresRecursion: false,
@@ -885,7 +885,7 @@ async function resolveManagedInvocationRouteAndCapability(
         {
           routeId: route.routeId,
           routeSource: route.routeSource,
-          profile: parsed.profile,
+          access: parsed.access,
           providerRoute: {
             providerId: route.providerId,
             ...(route.model ? { model: route.model } : {}),
@@ -930,7 +930,7 @@ async function resolveManagedInvocationRouteAndCapability(
         {
           routeId: route.routeId,
           routeSource: route.routeSource,
-          profile: parsed.profile,
+          access: parsed.access,
           status: "capability_pause",
           capabilityPause: pause,
           allowedToolNames: profileDefaults.allowedToolNames,
@@ -938,7 +938,7 @@ async function resolveManagedInvocationRouteAndCapability(
             sourceToolName: toolName,
             routeId: route.routeId,
             routeSource: route.routeSource,
-            profile: parsed.profile,
+            access: parsed.access,
             providerId: route.providerId,
             model: route.model,
             contextMode: parsed.contextMode,
@@ -972,7 +972,7 @@ async function resolveManagedInvocationRouteAndCapability(
         {
           routeId: route.routeId,
           routeSource: route.routeSource,
-          profile: parsed.profile,
+          access: parsed.access,
           status: "unavailable",
           missingRequiredTools,
           requiredToolNames: effectiveRequiredToolNames,
@@ -981,7 +981,7 @@ async function resolveManagedInvocationRouteAndCapability(
             sourceToolName: toolName,
             routeId: route.routeId,
             routeSource: route.routeSource,
-            profile: parsed.profile,
+            access: parsed.access,
             providerId: route.providerId,
             model: route.model,
             contextMode: parsed.contextMode,
@@ -1007,7 +1007,7 @@ async function resolveManagedInvocationRouteAndCapability(
         {
           routeId: route.routeId,
           routeSource: route.routeSource,
-          profile: parsed.profile,
+          access: parsed.access,
           status: "unavailable",
           missingRequiredCapabilities,
           requiredToolNames: effectiveRequiredToolNames,
@@ -1015,7 +1015,7 @@ async function resolveManagedInvocationRouteAndCapability(
             sourceToolName: toolName,
             routeId: route.routeId,
             routeSource: route.routeSource,
-            profile: parsed.profile,
+            access: parsed.access,
             providerId: route.providerId,
             model: route.model,
             contextMode: parsed.contextMode,
@@ -1041,7 +1041,7 @@ async function resolveManagedInvocationRouteAndCapability(
         {
           routeId: route.routeId,
           routeSource: route.routeSource,
-          profile: parsed.profile,
+          access: parsed.access,
           status: "unavailable",
           missingRequiredReadPaths,
           requiredReadPaths: parsed.requiredReadPaths ?? [],
@@ -1051,7 +1051,7 @@ async function resolveManagedInvocationRouteAndCapability(
             sourceToolName: toolName,
             routeId: route.routeId,
             routeSource: route.routeSource,
-            profile: parsed.profile,
+            access: parsed.access,
             providerId: route.providerId,
             model: route.model,
             contextMode: parsed.contextMode,
@@ -1065,14 +1065,14 @@ async function resolveManagedInvocationRouteAndCapability(
     };
   }
 
-  const authorityAdmission = validateManagedInvocationRequestedAuthority(requestedAuthority, parsed.profile, toolName);
+  const authorityAdmission = validateManagedInvocationRequestedAuthority(requestedAuthority, parsed.access, toolName);
   if (!authorityAdmission.ok) {
     return {
       ok: false,
       result: errorResult(
         authorityAdmission.error,
         {
-          profile: parsed.profile,
+          access: parsed.access,
           requestedAuthority,
           routeId: route.routeId,
           routeSource: route.routeSource,
@@ -1173,7 +1173,7 @@ async function resolveManagedInvocationContextPhase(
         {
           routeId: route.routeId,
           routeSource: route.routeSource,
-          profile: parsed.profile,
+          access: parsed.access,
           providerRoute: {
             providerId: route.providerId,
             ...(route.model ? { model: route.model } : {}),
@@ -1185,7 +1185,7 @@ async function resolveManagedInvocationContextPhase(
             sourceToolName: toolName,
             routeId: route.routeId,
             routeSource: route.routeSource,
-            profile: parsed.profile,
+            access: parsed.access,
             providerId: route.providerId,
             model: route.model,
             contextMode: parsed.contextMode,
@@ -1250,7 +1250,7 @@ async function buildManagedInvocationRequestRecord(input: {
   const authorityApproval = await requestManagedInvocationAuthorityApproval({
     requestedAuthority,
     target: { kind: "route", routeId: route.routeId },
-    profile: parsed.profile,
+    access: parsed.access,
     context,
     toolName,
   });
@@ -1260,7 +1260,7 @@ async function buildManagedInvocationRequestRecord(input: {
       result: errorResult(
         authorityApproval.error,
         {
-          profile: parsed.profile,
+          access: parsed.access,
           requestedAuthority,
           routeId: route.routeId,
         },
@@ -1371,10 +1371,10 @@ async function buildManagedInvocationRequestRecord(input: {
       : undefined;
   const request = defineManagedAgentInvocationRequest({
     invocationId,
-    agentId: `${route.routeId}:${parsed.profile}`,
+    agentId: `${route.routeId}:${parsed.access}`,
     parentSessionId: context.session.id,
     parentTurnId,
-    profile: parsed.profile,
+    access: parsed.access,
     requestedBy: options.requestedBy ?? "assistant",
     requestSource: options.requestSource ?? "runtime-tool",
     executionIntent:
@@ -1409,7 +1409,6 @@ async function buildManagedInvocationRequestRecord(input: {
       : {}),
     authority: {
       authorityProfileId: profileDefaults.authorityProfileId,
-      permissionProfile: profileDefaults.permissionProfile,
       toolAuthority: {
         allowedToolNames: profileDefaults.allowedToolNames,
         writeAllowed: profileDefaults.writeAllowed === true,
@@ -1481,7 +1480,7 @@ async function buildManagedInvocationRequestRecord(input: {
               : "No governed resources requested.",
         },
         childIdentity: {
-          agentId: `${route.routeId}:${parsed.profile}`,
+          agentId: `${route.routeId}:${parsed.access}`,
           ...(parsed.agentProfile ? { requestedAgentProfile: parsed.agentProfile } : {}),
           ...(resolution.admittedAgentProfile ? { admittedAgentProfile: resolution.admittedAgentProfile } : {}),
           ...(managedAgentDisplayName(options, resolution.admittedAgentProfile ?? parsed.agentProfile)

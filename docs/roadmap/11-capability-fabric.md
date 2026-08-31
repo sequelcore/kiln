@@ -629,7 +629,7 @@ accountless budget posture, freshness, and parent authority stay bound to the
 invocation. Economic routes remain excluded from this first resolver rather
 than receiving an inferred budget.
 
-Local execution uses the existing Agent Task lifecycle. The V15 durable record
+Local execution uses the existing Agent Task lifecycle. The V16 durable record
 stores the typed capability request, input digest, admitted profile support,
 typed result, query projection, and replay projection beside the ordinary text
 handoff. The CLI project composition passes only admitted resource URIs,

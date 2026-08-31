@@ -1,8 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  digestManagedEconomicValue,
-  type ManagedAgentCallerAttachmentIdentity,
-} from "@kilnai/core";
+import type { ManagedAgentCallerAttachmentIdentity } from "@kilnai/core/agents";
+import { digestManagedEconomicValue } from "@kilnai/core/cost";
 import {
   parseVisionAnalyzeInput,
   type VisionAnalysis,
@@ -107,7 +105,7 @@ function resultFor(job: AgentTaskRecord, overrides: Partial<AgentTaskResultQuery
     availability: "available",
     lifecycleState: "succeeded",
     configuredAgentProfileId: job.configuredAgentProfileId,
-    admissionProfileId: "foundation-readonly-plan",
+    access: "read-only",
     capability: job.capability,
     capabilityOutput: VISION_OUTPUT,
     ...overrides,

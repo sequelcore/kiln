@@ -169,7 +169,7 @@ describe("resource inspector contract", () => {
           },
           facets: {
             agentIds: ["reviewer", "tester"],
-            profiles: ["foundation-apply-approved-writes"],
+            profiles: ["approved-write"],
           },
           meta: {
             limit: 25,
@@ -197,7 +197,7 @@ describe("resource inspector contract", () => {
       ],
       facets: [
         { label: "agentIds", values: ["reviewer", "tester"] },
-        { label: "profiles", values: ["foundation-apply-approved-writes"] },
+        { label: "profiles", values: ["approved-write"] },
       ],
       meta: [
         { label: "includeFiles", value: true },

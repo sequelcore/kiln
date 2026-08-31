@@ -14,7 +14,7 @@ import {
 } from "@kilnai/core";
 import type {
   DeliberationResolution,
-  ManagedAgentAdmissionProfile,
+  ManagedAgentAccess,
   ManagedAgentAuthorityProfile,
   ManagedAgentCallerAttachmentIdentity,
   ManagedAgentProviderRoute,
@@ -42,7 +42,7 @@ export interface ManagedEconomicInvocationCommand {
   readonly economicPolicyRevision: string;
   readonly configuredAgentProfileId: string;
   readonly authorityProfileId: string;
-  readonly admissionProfileId: ManagedAgentAdmissionProfile;
+  readonly access: ManagedAgentAccess;
   readonly routeId?: string;
   readonly providerRoute?: ManagedAgentProviderRoute;
   readonly callerIdentity?: ManagedAgentCallerAttachmentIdentity;
@@ -84,7 +84,7 @@ export interface ManagedEconomicCandidateDescriptor {
 export interface ManagedEconomicCandidateSet {
   readonly economicPolicyId: string;
   readonly economicPolicyRevision: string;
-  readonly admissionProfileId: ManagedAgentAdmissionProfile;
+  readonly access: ManagedAgentAccess;
   readonly constraints: {
     readonly routeId?: string;
     readonly providerId?: string;
@@ -120,8 +120,8 @@ export function collectManagedEconomicCandidates(
   for (const route of routes) {
     const profile = resolveConfiguredManagedInvocationRouteProfile(route, {
       authorityProfileId: command.authorityProfileId,
-      admissionProfile: command.admissionProfileId,
-    }, command.admissionProfileId);
+      access: command.access,
+    }, command.access);
     const nonEconomicAdmissionFailed = (
       !profile
       || missingManagedInvocationRequiredTools(
@@ -142,14 +142,14 @@ export function collectManagedEconomicCandidates(
         command.requestedAuthority !== undefined
         && !validateManagedInvocationRequestedAuthority(
           command.requestedAuthority,
-          command.admissionProfileId,
+          command.access,
           MANAGED_AGENT_INVOKE_TOOL_NAME,
         ).ok
       )
       || (command.callerIdentity !== undefined && admitManagedRoute({
         route: route.capability,
         work: {
-          evaluatedAt: new Date().toISOString(), profile: command.admissionProfileId,
+          evaluatedAt: new Date().toISOString(), access: command.access,
           requestedAuthority: command.requestedAuthority === undefined || command.requestedAuthority === "auto" ? "read_only" : command.requestedAuthority,
           requiredToolNames: command.requiredToolNames ?? [], requiresRecursion: false, requiresAttachments: false,
           requiresWrite: command.requiresWrite === true, minimumProof: "configured",
@@ -227,7 +227,7 @@ export function collectManagedEconomicCandidates(
   return {
     economicPolicyId: command.economicPolicyId,
     economicPolicyRevision: command.economicPolicyRevision,
-    admissionProfileId: command.admissionProfileId,
+    access: command.access,
     constraints: {
       ...(command.routeId ? { routeId: command.routeId } : {}),
       ...(command.providerRoute?.providerId ? { providerId: command.providerRoute.providerId } : {}),
@@ -257,7 +257,6 @@ function managedEconomicCandidateAuthority(
       };
   return {
     authorityProfileId: profile.authorityProfileId,
-    permissionProfile: profile.permissionProfile,
     toolAuthority: {
       allowedToolNames: profile.allowedToolNames,
       writeAllowed: profile.writeAllowed === true,

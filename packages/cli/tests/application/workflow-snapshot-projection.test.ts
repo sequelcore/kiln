@@ -105,10 +105,10 @@ describe("workflow-snapshot-projection", () => {
     ]);
     expect(existsSync(join(projectPath, "AGENTS.md"))).toBe(false);
     expect(existsSync(join(projectPath, "CLAUDE.md"))).toBe(false);
-    expect(readFileSync(snapshotPath(), "utf-8")).toContain("kiln:workflow-snapshot:v1");
+    expect(readFileSync(snapshotPath(), "utf-8")).toContain("kiln:workflow-snapshot:v2");
     expect(JSON.parse(readFileSync(manifestPath(), "utf-8"))).toMatchObject({
-      version: "1",
-      generator: "workflow-snapshot-export-v1",
+      version: "2",
+      generator: "workflow-snapshot-export-v2",
       generatedAt: "1970-01-01T00:00:00.000Z",
       generatedFiles: ["private:projections/workflow-snapshot.md"],
     });

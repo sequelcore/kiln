@@ -11,7 +11,7 @@ import { createReactiveState } from "../src/state.js";
 import { defaultTheme } from "../src/theme.js";
 
 describe("TUI work item sidebar rendering", () => {
-  it("renders authority, resource, and missing evidence state", () => {
+  it("renders access, resource, and missing evidence state", () => {
     const state = createReactiveState();
     state.workItems = [
       {
@@ -20,8 +20,8 @@ describe("TUI work item sidebar rendering", () => {
         summary: "Audit TUI work item visibility.",
         status: "blocked",
         workflowProfile: "verification-heavy",
-        authorityProfile: "authority:foundation-readonly-plan",
-        assignedAgentProfile: "foundation-readonly-plan",
+        access: "read-only",
+        assignedAgentProfile: "read-only",
         expectedEvidence: ["surface-map", "tests"],
         providedEvidence: ["surface-map"],
         missingEvidence: ["tests"],
@@ -43,7 +43,7 @@ describe("TUI work item sidebar rendering", () => {
 
     renderSidebarWork(state, defaultTheme, ui as never);
 
-    expect(ui.sidebarWorkText.content).toContain("auth:authority:foundation-readonly-plan");
+    expect(ui.sidebarWorkText.content).toContain("access:read-only");
     expect(ui.sidebarWorkText.content).toContain("missing:tests");
     expect(ui.sidebarWorkText.content).toContain("missing-goal:goal-review");
     expect(ui.sidebarWorkText.content).toContain("missing-gates:managed review");

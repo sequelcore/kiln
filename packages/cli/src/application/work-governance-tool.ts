@@ -83,7 +83,8 @@ import {
 import {
   buildManagedInvocationRequest,
   MANAGED_INVOCATION_AUTHORITIES,
-  MANAGED_INVOCATION_PROFILES,
+  MANAGED_INVOCATION_ACCESS,
+  readManagedInvocationAccess,
   validatePhaseRouteContract,
   validateVisualReferenceEvidence,
   VISUAL_REFERENCE_PHASE_ROUTE,
@@ -325,7 +326,7 @@ class WorkProfileListTool implements DevTool {
           triggers: profile.triggers,
           minimumRisk: profile.minimumRisk,
           recommendedTaskAffinities: profile.recommendedTaskAffinities,
-          defaultAdmissionProfile: profile.defaultAdmissionProfile,
+          defaultAccess: profile.defaultAccess,
           requiredEvidence: profile.requiredEvidence,
           verificationGates: verificationGatesForWorkflowProfile(profile),
           evidenceMatrix: evidenceMatrixForWorkflowProfile(profile),
@@ -384,14 +385,14 @@ class WorkItemUpdateTool implements DevTool {
           },
         },
         additionalProperties: { type: "string" },
-        description: "Optional phase-specific managed route ids. For UI work on foundation-apply-approved-writes, set phaseRoutes.visual-reference-research to a read-only web/frontend-reference capable route; do not leave phaseRoutes empty and do not use the write route for frontend-reference research.",
+        description: "Optional phase-specific managed route ids. For UI work on approved-write, set phaseRoutes.visual-reference-research to a read-only web/frontend-reference capable route; do not leave phaseRoutes empty and do not use the write route for frontend-reference research.",
       },
       referenceRoots: {
         type: "array",
         items: { type: "string", minLength: 1 },
         description: "Optional local reference roots the read-only research phase must be able to inspect, such as sibling cloned harness repositories. These are read requirements only, never write authority.",
       },
-      authorityProfile: { type: "string", description: "Optional authority profile for the assigned work." },
+      access: { type: "string", enum: MANAGED_INVOCATION_ACCESS, description: "Optional access level for the assigned work." },
       expectedEvidence: {
         type: "array",
         items: { type: "string", enum: EVIDENCE },
@@ -575,7 +576,7 @@ class WorkItemUpdateTool implements DevTool {
       ...readTextArray(input.input.verificationGates),
     ]);
     const routeId = readText(input.input.routeId) ?? existing?.routeId;
-    const authorityProfile = readText(input.input.authorityProfile) ?? existing?.authorityProfile ?? workflowProfile.defaultAdmissionProfile;
+    const access = readManagedInvocationAccess(input.input.access) ?? existing?.access ?? workflowProfile.defaultAccess;
     const phaseRoutes = readTextRecord(input.input.phaseRoutes) ?? existing?.phaseRoutes;
     const referenceRootsInput = readTextArray(input.input.referenceRoots);
     const referenceRoots = referenceRootsInput.length > 0 ? referenceRootsInput : existing?.referenceRoots;
@@ -605,7 +606,7 @@ class WorkItemUpdateTool implements DevTool {
       expectedEvidence,
       providedEvidence,
       routeId,
-      authorityProfile,
+      access,
       phaseRoutes,
     });
     if (!phaseRouteContract.ok) {
@@ -653,7 +654,7 @@ class WorkItemUpdateTool implements DevTool {
         routeId,
         phaseRoutes,
         referenceRoots,
-        authorityProfile,
+        access,
         expectedEvidence,
         providedEvidence,
         verificationGates,
@@ -1372,10 +1373,10 @@ class WorkItemExecutionStartTool implements DevTool {
         items: { type: "string", minLength: 1 },
         description: "Canonical artifact content URIs to share with the managed child. Omit for fresh isolated context.",
       },
-      managedProfile: {
+      managedAccess: {
         type: "string",
-        enum: MANAGED_INVOCATION_PROFILES,
-        description: "Managed invocation authority profile to include in the suggested managed_agent.invoke request.",
+        enum: MANAGED_INVOCATION_ACCESS,
+        description: "Managed invocation access level to include in the suggested managed_agent.invoke request.",
       },
       managedResearchRouteId: {
         type: "string",
@@ -2007,7 +2008,8 @@ function linkWorkItemToGoal(item: WorkItem, goal: GoalRun): WorkItemUpsertInput 
     ...(item.assignedAgentProfile ? { assignedAgentProfile: item.assignedAgentProfile } : {}),
     ...(routeId ? { routeId } : {}),
     ...(item.referenceRoots ? { referenceRoots: item.referenceRoots } : {}),
-    ...(item.authorityProfile ? { authorityProfile: item.authorityProfile } : {}),
+    ...(item.authority ? { authority: item.authority } : {}),
+    ...(item.access ? { access: item.access } : {}),
     ...(item.residualRisk ? { residualRisk: item.residualRisk } : {}),
     ...(goal.source.kind === "approved_plan" && goal.source.planHash ? { planHash: goal.source.planHash } : {}),
     ...(item.sourceWorkItemId ? { sourceWorkItemId: item.sourceWorkItemId } : {}),

@@ -28,7 +28,7 @@ function request(mode: "cli-harness" | "remote-harness" = "remote-harness"): Man
     agentId: `external:${mode}`,
     parentSessionId: "parent-session",
     parentTurnId: "parent-session:turn:1",
-    profile: "foundation-readonly-plan",
+    access: "read-only",
     requestedBy: "assistant",
     requestSource: "test",
     providerRoute: { providerId: mode === "cli-harness" ? "opencode" : "remote", surface: mode, model: "model" },
@@ -36,7 +36,6 @@ function request(mode: "cli-harness" | "remote-harness" = "remote-harness"): Man
     executionMode: mode,
     authority: {
       authorityProfileId: "authority:read-only",
-      permissionProfile: "read-only",
       toolAuthority: { allowedToolNames: ["read"], writeAllowed: false, networkAllowed: false },
       workingDirectory: { path: "C:/repo", mode: "read-only" },
       timeoutMs: 5_000,
@@ -133,7 +132,7 @@ function remoteRecord(
   return defineManagedAgentInvocationRecord({
     invocationId: childRequest.invocationId, agentId: childRequest.agentId,
     parentSessionId: childRequest.parentSessionId, parentTurnId: childRequest.parentTurnId,
-    profile: childRequest.profile, lifecycleState: "completed", providerRoute: childRequest.providerRoute,
+    access: childRequest.access, lifecycleState: "completed", providerRoute: childRequest.providerRoute,
     adapterKind: childRequest.adapterKind, executionMode: childRequest.executionMode,
     authority: childRequest.authority, capabilitySnapshot, childSessionId: "remote-child",
     transcript: { uri: "kiln://managed/invocation/transcript", redacted: "unknown", truncated: false, persisted: true, retention: "external" },

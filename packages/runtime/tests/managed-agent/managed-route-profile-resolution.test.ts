@@ -13,12 +13,11 @@ import type {
 
 function profile(
   authorityProfileId: string,
-  admissionProfile: ManagedInvocationRouteProfile["admissionProfile"] = "foundation-readonly-plan",
+  access: ManagedInvocationRouteProfile["access"] = "read-only",
 ): ManagedInvocationRouteProfile {
   return {
     authorityProfileId,
-    admissionProfile,
-    permissionProfile: "read-only",
+    access,
     allowedToolNames: ["read"],
     workingDirectory: { path: "C:/workspace", mode: "read-only" },
     timeoutMs: 60_000,
@@ -42,7 +41,7 @@ function route(profiles: readonly ManagedInvocationRouteProfile[]): ManagedInvoc
       supportsRecursion: false,
       supportsAttachments: false,
       supportsWrite: false,
-      proof: { status: "configured", source: "test", provenProfiles: ["foundation-readonly-plan"] },
+      proof: { status: "configured", source: "test", provenAccess: ["read-only"] },
       capacity: { kind: "accountless" },
       settlement: { kind: "not-required" },
     },
@@ -57,8 +56,8 @@ describe("managed route authority profile resolution", () => {
 
     expect(resolveConfiguredManagedInvocationRouteProfile(configuredRoute, {
       authorityProfileId: "authority:exact",
-      admissionProfile: "foundation-readonly-plan",
-    }, "foundation-readonly-plan")).toBe(exact);
+      access: "read-only",
+    }, "read-only")).toBe(exact);
   });
 
   it("denies a configured agent when its admission does not match the request", () => {
@@ -66,29 +65,29 @@ describe("managed route authority profile resolution", () => {
 
     expect(resolveConfiguredManagedInvocationRouteProfile(configuredRoute, {
       authorityProfileId: "authority:exact",
-      admissionProfile: "foundation-readonly-plan",
-    }, "foundation-propose-writes")).toBeUndefined();
+      access: "read-only",
+    }, "propose")).toBeUndefined();
   });
 
   it("fails closed when an exact configured authority identity is duplicated", () => {
     const duplicate = profile("authority:duplicate");
     const configuredRoute = route([
       duplicate,
-      { ...duplicate, admissionProfile: "foundation-propose-writes" },
+      { ...duplicate, access: "propose" },
     ]);
 
     expect(resolveConfiguredManagedInvocationRouteProfile(configuredRoute, {
       authorityProfileId: "authority:duplicate",
-      admissionProfile: "foundation-readonly-plan",
-    }, "foundation-readonly-plan")).toBeUndefined();
+      access: "read-only",
+    }, "read-only")).toBeUndefined();
   });
 
-  it("allows ad-hoc admission only when the admission profile is unique", () => {
+  it("allows ad-hoc admission only when the access level is unique", () => {
     const unique = profile("authority:unique");
-    expect(resolveAdHocManagedInvocationRouteProfile(route([unique]), "foundation-readonly-plan")).toBe(unique);
+    expect(resolveAdHocManagedInvocationRouteProfile(route([unique]), "read-only")).toBe(unique);
     expect(resolveAdHocManagedInvocationRouteProfile(
       route([unique, profile("authority:second")]),
-      "foundation-readonly-plan",
+      "read-only",
     )).toBeUndefined();
   });
 
@@ -101,10 +100,10 @@ describe("managed route authority profile resolution", () => {
       tier: "reasoning",
       routeId: configuredRoute.routeId,
       authorityProfileId: "authority:second",
-      admissionProfile: "foundation-readonly-plan",
+      access: "read-only",
     };
     const input = {
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       providerRoute: { providerId: "provider-a", surface: "configured" },
     } as ManagedInvocationToolInput;
 

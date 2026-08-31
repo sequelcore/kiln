@@ -20,8 +20,6 @@ function makeWriteScope(mode: "propose" | "apply-approved" = "propose") {
       deniedPaths: ["C:/workspace/kiln/.git"],
     },
     memory: {
-      mode: "propose",
-      scope: { kind: "project", id: "kiln" },
       operations: ["create", "update"],
     },
     artifacts: {
@@ -41,7 +39,7 @@ function makeDescriptor(): ManagedAgentAdapterDescriptor {
     adapterDescriptorId: "adapter:opencode:harness",
     providerId: "opencode",
     adapterKind: "harness",
-    supportedProfiles: ["foundation-readonly-plan", "foundation-propose-writes", "foundation-apply-approved-writes"],
+    supportedAccess: ["read-only", "propose", "approved-write"],
     supportedExecutionModes: ["cli-harness"],
     lifecycle: {
       exposesStart: true,
@@ -84,14 +82,14 @@ function makeDescriptor(): ManagedAgentAdapterDescriptor {
   });
 }
 
-function makeRequest(profile: "foundation-propose-writes" | "foundation-apply-approved-writes" = "foundation-propose-writes"): ManagedAgentInvocationRequest {
-  const applyApproved = profile === "foundation-apply-approved-writes";
+function makeRequest(access: "propose" | "approved-write" = "propose"): ManagedAgentInvocationRequest {
+  const applyApproved = access === "approved-write";
   return defineManagedAgentInvocationRequest({
     invocationId: "invocation-write-1",
     agentId: "agent-implementer",
     parentSessionId: "session-parent",
     parentTurnId: "turn-parent",
-    profile,
+    access,
     requestedBy: "operator",
     requestSource: "manual",
     providerRoute: {
@@ -102,8 +100,7 @@ function makeRequest(profile: "foundation-propose-writes" | "foundation-apply-ap
     adapterKind: "harness",
     executionMode: "cli-harness",
     authority: {
-      authorityProfileId: `authority:${profile}`,
-      permissionProfile: applyApproved ? "apply-approved-writes" : "propose-writes",
+      authorityProfileId: `authority:${access}`,
       toolAuthority: {
         allowedToolNames: applyApproved ? ["read", "rg", "apply-patch"] : ["read", "rg"],
         writeAllowed: applyApproved,
@@ -123,7 +120,6 @@ function makeRequest(profile: "foundation-propose-writes" | "foundation-apply-ap
         access: "write-proposals",
       },
       writeAuthority: defineManagedAgentWriteAuthority({
-        profile,
         scope: makeWriteScope(applyApproved ? "apply-approved" : "propose"),
         approval: {
           mode: "required-before-apply",
@@ -151,11 +147,10 @@ describe("managed agent write admission policy", () => {
     expect(decision).toMatchObject({
       status: "admitted",
       invocationId: "invocation-write-1",
-      profile: "foundation-propose-writes",
+      access: "propose",
       adapterDescriptorId: "adapter:opencode:harness",
-      authorityProfileId: "authority:foundation-propose-writes",
+      authorityProfileId: "authority:propose",
       writeAuthority: {
-        profile: "foundation-propose-writes",
         scope: {
           workspace: {
             mode: "propose",
@@ -166,7 +161,7 @@ describe("managed agent write admission policy", () => {
   });
 
   it("denies network authority on write profiles unless a future combined authority profile is introduced", () => {
-    const base = makeRequest("foundation-apply-approved-writes");
+    const base = makeRequest("approved-write");
     const request = defineManagedAgentInvocationRequest({
       ...base,
       authority: {
@@ -191,10 +186,10 @@ describe("managed agent write admission policy", () => {
     expect(decision.missingCapabilities).toContain("request.authority.toolAuthority.networkAllowed.false");
   });
 
-  it("keeps foundation-readonly-plan fail-closed when any write authority is requested", () => {
+  it("keeps read-only access fail-closed when any write authority is requested", () => {
     const request = {
       ...makeRequest(),
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       authority: {
         ...makeRequest().authority,
         authorityProfileId: "authority:readonly-with-write-request",
@@ -221,7 +216,7 @@ describe("managed agent write admission policy", () => {
       },
     };
 
-    const decision = evaluateManagedAgentAdmission(makeRequest("foundation-apply-approved-writes"), descriptor, makeSnapshotInput());
+    const decision = evaluateManagedAgentAdmission(makeRequest("approved-write"), descriptor, makeSnapshotInput());
 
     expect(decision.status).toBe("denied");
     if (decision.status !== "denied") throw new Error("expected denied admission");
@@ -236,19 +231,18 @@ describe("managed agent write admission policy", () => {
 
   it("denies approved-write requests without actual write tooling, writable workspace, and approval evidence requirements", () => {
     const request = {
-      ...makeRequest("foundation-apply-approved-writes"),
+      ...makeRequest("approved-write"),
       authority: {
-        ...makeRequest("foundation-apply-approved-writes").authority,
+        ...makeRequest("approved-write").authority,
         toolAuthority: {
-          ...makeRequest("foundation-apply-approved-writes").authority.toolAuthority,
+          ...makeRequest("approved-write").authority.toolAuthority,
           writeAllowed: false,
         },
         workingDirectory: {
-          ...makeRequest("foundation-apply-approved-writes").authority.workingDirectory,
+          ...makeRequest("approved-write").authority.workingDirectory,
           mode: "read-only",
         },
         writeAuthority: defineManagedAgentWriteAuthority({
-          profile: "foundation-apply-approved-writes",
           scope: makeWriteScope("apply-approved"),
           approval: {
             mode: "none",

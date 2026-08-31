@@ -67,10 +67,10 @@ describeManagedAgentProviderLive("managed agent OpenAI direct-provider live proo
       });
       const request = defineManagedAgentInvocationRequest({
         invocationId: "invocation-openai-direct-live-readonly-1",
-        agentId: "openai-direct-live:foundation-readonly-plan",
+        agentId: "openai-direct-live:read-only",
         parentSessionId: "session-openai-direct-live-parent",
         parentTurnId: "session-openai-direct-live-parent:turn:1",
-        profile: "foundation-readonly-plan",
+        access: "read-only",
         requestedBy: "operator",
         requestSource: "live-test",
         providerRoute: {
@@ -82,7 +82,6 @@ describeManagedAgentProviderLive("managed agent OpenAI direct-provider live proo
         executionMode: "direct-provider",
         authority: {
           authorityProfileId: "authority:openai-direct-live-readonly",
-          permissionProfile: "read-only",
           toolAuthority: {
             allowedToolNames: ["read"],
             writeAllowed: false,

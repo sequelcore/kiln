@@ -40,7 +40,7 @@ describe("WorkItemsPanel", () => {
       id: "work-shared",
       status: "blocked",
       workflowProfile: "verification-heavy",
-      authorityProfile: "authority:workspace-write",
+      access: "approved-write",
       referenceRoots: [],
       expectedEvidence: [],
       providedEvidence: [],
@@ -213,7 +213,7 @@ describe("WorkItemsPanel", () => {
     expect(beams[0]).toHaveAttribute("data-active");
   });
 
-  it("renders authority and opens the canonical work item resource", () => {
+  it("renders access and opens the canonical work item resource", () => {
     const onOpenResource = vi.fn();
     const items: WorkItemEntry[] = [
       {
@@ -222,7 +222,7 @@ describe("WorkItemsPanel", () => {
         summary: "Audit work item inspectability",
         status: "blocked",
         workflowProfile: "verification-heavy",
-        authorityProfile: "authority:foundation-readonly-plan",
+        access: "read-only",
         expectedEvidence: ["surface-map", "tests"],
         providedEvidence: ["surface-map"],
         verificationGates: ["bun run typecheck"],
@@ -236,7 +236,7 @@ describe("WorkItemsPanel", () => {
     render(<WorkItemsPanel items={items} onOpenResource={onOpenResource} />);
 
     expect(screen.getByText("Audit work item inspectability").closest('[data-slot="ai-task"]')).toHaveAttribute("data-status", "blocked");
-    expect(screen.getByLabelText("Work items")).toHaveTextContent("authority:foundation-readonly-plan");
+    expect(screen.getByLabelText("Work items")).toHaveTextContent("access:read-only");
     expect(screen.getByLabelText("Work items")).toHaveTextContent("Missing: tests, residual-risk");
 
     fireEvent.click(screen.getByRole("button", { name: "Open work item work-inspectable resource" }));

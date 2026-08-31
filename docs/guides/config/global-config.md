@@ -5,7 +5,7 @@
 `~/.kiln/config.yaml` is the global source of truth for operator intent. It
 owns target and account choices, reusable authority, model policy, native
 projections, and operator preferences. Managed target facts live in immutable
-snapshots beside it. The canonical global schema version is `"6"`.
+snapshots beside it. The canonical global schema version is `"7"`.
 
 Project configuration has a narrower job. The private project
 `~/.kiln/projects/<krp_sha256>/config.yaml` may define project context and
@@ -84,7 +84,7 @@ store performs one YAML parse and returns only the schema-admitted value;
 `packages/cli/schemas/global-config-descriptors-v2.json`. Regenerate them with
 `bun run --cwd packages/cli config:schema:generate` after changing the owner.
 
-The main V6 fields are:
+The main V7 fields are:
 
 | Field | Purpose |
 | --- | --- |
@@ -108,8 +108,8 @@ The main V6 fields are:
 Use the parser-validated examples instead of assembling a partial operational
 catalog:
 
-- [V6 target catalog](../../examples/configs/managed-targets-v6-subscription.yaml)
-- [V6 task-aware model team](../../examples/configs/task-aware-model-team.yaml)
+- [V7 target catalog](../../examples/configs/managed-targets-v7-subscription.yaml)
+- [V7 task-aware model team](../../examples/configs/task-aware-model-team.yaml)
 
 The examples contain synthetic identities. Replace them with current provider
 and account intent before use. Managed discovery, data-policy, capacity, and
@@ -221,7 +221,7 @@ harness target declares its native boundary. Both bind managed facts through
 `targetCatalog.evidenceRevision`.
 
 ```yaml
-version: "6"
+version: "7"
 
 targetCatalog:
   evidenceRevision: sha256:<exact-admitted-snapshot>
@@ -323,10 +323,23 @@ Physical execution identity and authority are separate. `authorityProfiles`
 defines reusable child environments without duplicating provider or model
 facts:
 
+`access` has three values:
+
+- `read-only`: inspect and report without creating or applying changes;
+- `propose`: create governed change proposals without applying them;
+- `approved-write`: apply changes only inside the configured scopes and
+  approval policy.
+
+Access does not describe the task. Planning, review, research, and
+implementation remain work intent, agent-role, and workflow concerns.
+`memory.access` is the single memory permission and scope owner;
+`writeAuthority.memory.operations` may only narrow which proposal operations
+are allowed.
+
 ```yaml
 authorityProfiles:
   - id: readonly-plan
-    admissionProfile: foundation-readonly-plan
+    access: read-only
     workingDirectory: project
     tools:
       allowed: [read, tree, grep, glob]
@@ -335,7 +348,7 @@ authorityProfiles:
     memory: { access: read-only }
 
   - id: approved-work
-    admissionProfile: foundation-apply-approved-writes
+    access: approved-write
     workingDirectory: isolated-worktree
     tools:
       allowed: [read, tree, grep, glob, write, edit, apply-patch]

@@ -44,7 +44,7 @@ const TEST_MANAGED_AGENTS_CONFIG = {
 
 const TEST_AUTHORITY_PROFILES = [{
   id: "test-readonly",
-  admissionProfile: "foundation-readonly-plan",
+  access: "read-only",
   workingDirectory: "project",
   tools: {
     allowed: ["read"],
@@ -92,7 +92,7 @@ vi.mock("../../src/config/global-config.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/config/global-config.js")>();
   const fixtures = await import("../config/execution-target-evidence-fixture.js");
   const config = (): import("../../src/config/global-config.js").KilnGlobalConfig => ({
-    version: "6",
+    version: "7",
     managedAgents: TEST_MANAGED_AGENTS_CONFIG,
     authorityProfiles: TEST_AUTHORITY_PROFILES,
     targetCatalog: TEST_TARGET_CATALOG,
@@ -340,7 +340,7 @@ describe("operator project agent-task production composition", () => {
     mkdirSync(resolve(projectRoot, ".kiln"), { recursive: true });
     writeFileSync(resolve(projectRoot, ".kiln", "kiln.yaml"), "version: '1'\n", "utf8");
     const mixedGlobalConfig = {
-      version: "6",
+      version: "7",
       managedAgents: TEST_MANAGED_AGENTS_CONFIG,
       authorityProfiles: TEST_AUTHORITY_PROFILES,
       targetCatalog: {
@@ -414,7 +414,7 @@ describe("operator project agent-task production composition", () => {
       },
       profiles: [{
         authorityProfileId: "test-readonly",
-        admissionProfile: "foundation-readonly-plan",
+        access: "read-only",
       }],
     });
     const agents = [
@@ -424,7 +424,7 @@ describe("operator project agent-task production composition", () => {
     expect(summarizeOperatorProjectManagedAgents(agents, undefined)).toMatchObject([{
       configuredAgentProfileId: "economic-worker",
       availability: "unavailable",
-      admissionProfileId: "foundation-readonly-plan",
+      access: "read-only",
       diagnostic: "route_unavailable",
     }]);
     expect(summarizeOperatorProjectManagedAgents(agents, {
@@ -435,7 +435,7 @@ describe("operator project agent-task production composition", () => {
       agentCatalog: [{
         name: "economic-worker",
         authorityProfileId: "test-readonly",
-        admissionProfile: "foundation-readonly-plan",
+        access: "read-only",
         economicPolicyId: "bounded-policy",
         economicPolicyRevision: "revision-001",
         economicPolicyCandidateRouteIds: ["codex-route", "opencode-route"],
@@ -443,23 +443,23 @@ describe("operator project agent-task production composition", () => {
     } as never)).toMatchObject([{
       configuredAgentProfileId: "economic-worker",
       availability: "admitted",
-      admissionProfileId: "foundation-readonly-plan",
+      access: "read-only",
     }]);
     expect(summarizeOperatorProjectManagedAgents(agents, {
       routes: [],
       agentCatalog: [{
         name: "economic-worker",
         authorityProfileId: "test-readonly",
-        admissionProfile: "foundation-readonly-plan",
+        access: "read-only",
         economicPolicyId: "bounded-policy",
         economicPolicyRevision: "revision-001",
         economicPolicyCandidateRouteIds: ["codex-route"],
       }],
-      unavailableRoutes: [{ routeId: "codex-route", providerId: "codex-oauth", profiles: ["foundation-readonly-plan"] }],
+      unavailableRoutes: [{ routeId: "codex-route", providerId: "codex-oauth", accessLevels: ["read-only"] }],
     } as never)[0]).toMatchObject({
       configuredAgentProfileId: "economic-worker",
       availability: "unresolved",
-      admissionProfileId: "foundation-readonly-plan",
+      access: "read-only",
       diagnostic: "eligibility_unresolved",
     });
   });
@@ -479,13 +479,13 @@ describe("operator project agent-task production composition", () => {
         supportsRecursion: true,
         supportsAttachments: true,
         supportsWrite: false,
-        proof: { status: "configured" as const, source: "provider-adapter-catalog" as const, provenProfiles: ["foundation-readonly-plan" as const] },
+        proof: { status: "configured" as const, source: "provider-adapter-catalog" as const, provenAccess: ["read-only" as const] },
         capacity: { kind: "policy-bound" as const, accountPolicyId: "managed-claude" },
         settlement: { kind: "not-required" as const },
       },
       profiles: [{
         authorityProfileId: "test-readonly",
-        admissionProfile: "foundation-readonly-plan" as const,
+        access: "read-only" as const,
       }],
     };
 
@@ -497,7 +497,7 @@ describe("operator project agent-task production composition", () => {
         name: "native-reviewer",
         routeId: nativeRoute.routeId,
         authorityProfileId: "test-readonly",
-        admissionProfile: "foundation-readonly-plan",
+        access: "read-only",
       }],
     } as never)).toMatchObject([{
       configuredAgentProfileId: "native-reviewer",

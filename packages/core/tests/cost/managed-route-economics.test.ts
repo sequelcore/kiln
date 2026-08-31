@@ -330,8 +330,7 @@ describe("managed route economics", () => {
 
   it("commits the complete authority projection without persisting raw paths", () => {
     const authority: ManagedAgentAuthorityProfile = {
-      authorityProfileId: "authority:route-a:foundation-readonly-plan",
-      permissionProfile: "read-only",
+      authorityProfileId: "authority:route-a:read-only",
       toolAuthority: {
         allowedToolNames: ["grep", "read", "grep"],
         writeAllowed: false,
@@ -360,14 +359,13 @@ describe("managed route economics", () => {
     const authorityWithEvidence: ManagedAgentAuthorityProfile = {
       ...authority,
       writeAuthority: {
-        profile: "foundation-propose-writes",
         scope: {
           workspace: {
             mode: "propose",
             allowedPaths: ["C:\\synthetic\\workspace"],
             deniedPaths: ["C:\\synthetic\\workspace\\.git"],
           },
-          memory: { mode: "none", operations: [] },
+          memory: { operations: [] },
           artifacts: {
             mode: "propose",
             resourceUris: ["kiln://synthetic/resources/allowed"],

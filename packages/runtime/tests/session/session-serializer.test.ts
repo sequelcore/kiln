@@ -214,7 +214,6 @@ describe("serializeSession / deserializeSession", () => {
         resultSummary: "Plan generated",
         managedInvocationEvidence: {
           writeAuthority: {
-            profile: "foundation-propose-writes",
             scope: {
               workspace: {
                 mode: "propose",
@@ -222,8 +221,6 @@ describe("serializeSession / deserializeSession", () => {
                 deniedPaths: ["C:/workspace/kiln/.git"],
               },
               memory: {
-                mode: "propose",
-                scope: { kind: "project", id: "kiln" },
                 operations: ["create", "update"],
               },
               artifacts: {
@@ -296,7 +293,11 @@ describe("serializeSession / deserializeSession", () => {
       resultSummary: "Plan generated",
       managedInvocationEvidence: {
         writeAuthority: {
-          profile: "foundation-propose-writes",
+          scope: {
+            memory: {
+              operations: ["create", "update"],
+            },
+          },
         },
         writeEvidence: [{
           evidenceId: "write-evidence-1",

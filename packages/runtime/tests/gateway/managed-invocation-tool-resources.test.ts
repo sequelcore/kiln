@@ -22,8 +22,8 @@ describe("managed invocation runtime tool — resources and surface contracts", 
             role: "Read-only context scout",
             goal: "Map impacted files",
             tier: "fast",
-            authorityProfileId: "authority:opencode-readonly-a:foundation-readonly-plan",
-            admissionProfile: "foundation-readonly-plan",
+            authorityProfileId: "authority:opencode-readonly-a:read-only",
+            access: "read-only",
             taskAffinity: ["research", "architecture-review"],
           },
           {
@@ -33,8 +33,8 @@ describe("managed invocation runtime tool — resources and surface contracts", 
             role: "TDD guide",
             goal: "Write tests first",
             tier: "reasoning",
-            authorityProfileId: "authority:opencode-readonly-b:foundation-readonly-plan",
-            admissionProfile: "foundation-readonly-plan",
+            authorityProfileId: "authority:opencode-readonly-b:read-only",
+            access: "read-only",
             skills: ["test-generator"],
             taskAffinity: ["test-writing"],
           },
@@ -67,7 +67,7 @@ describe("managed invocation runtime tool — resources and surface contracts", 
           routeSource: "explicit-managed-route",
           providerId: "openrouter",
           model: "openrouter/free",
-          profiles: ["foundation-readonly-plan"],
+          accessLevels: ["read-only"],
           reason: "model is not tool-call-capable",
         }],
       },
@@ -175,8 +175,8 @@ describe("managed invocation runtime tool — resources and surface contracts", 
           role: "Software architect",
           goal: "Review architecture",
           tier: "reasoning",
-          authorityProfileId: "authority:opencode-readonly:foundation-readonly-plan",
-          admissionProfile: "foundation-readonly-plan",
+          authorityProfileId: "authority:opencode-readonly:read-only",
+          access: "read-only",
         }],
         skillCatalog: [],
       },
@@ -241,7 +241,7 @@ describe("managed invocation runtime tool — resources and surface contracts", 
         routeSource: "explicit-managed-route",
         providerId: "codex-oauth",
         model: "codex-auto-review",
-        profiles: ["foundation-readonly-plan"],
+        accessLevels: ["read-only"],
         reason: "Provider/model discovery is pending.",
       }],
     };
@@ -351,7 +351,7 @@ describe("managed invocation runtime tool — resources and surface contracts", 
     expect(planConfig.toolAllowlist?.has("managed_agent.join")).toBe(false);
 
     const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       providerRoute: {
         providerId: "opencode",
         model: "opencode-default-model",
@@ -388,7 +388,7 @@ describe("managed invocation runtime tool — resources and surface contracts", 
       isError: false,
       metadata: {
         childSessionId: expect.stringContaining("session-parent:managed:"),
-        profile: "foundation-readonly-plan",
+        access: "read-only",
         providerRoute: {
           providerId: "opencode",
           surface: "cli-harness",
@@ -428,7 +428,7 @@ describe("managed invocation runtime tool — resources and surface contracts", 
     expect((adapter.invoke as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].request).toMatchObject({
       parentSessionId: "session-parent",
       parentTurnId: "session-parent:turn:1",
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       requestedAuthority: "read_only",
       requestedBy: "assistant",
       requestSource: "runtime-tool",
@@ -439,7 +439,6 @@ describe("managed invocation runtime tool — resources and surface contracts", 
       },
       authority: {
         authorityProfileId: "authority:opencode:readonly",
-        permissionProfile: "read-only",
         toolAuthority: {
           allowedToolNames: ["read", "grep", "glob"],
           writeAllowed: false,
@@ -499,7 +498,7 @@ describe("managed invocation runtime tool — resources and surface contracts", 
     };
 
     const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       providerRoute: {
         providerId: "opencode",
         model: "opencode-default-model",
@@ -566,7 +565,7 @@ describe("managed invocation runtime tool — resources and surface contracts", 
     };
 
     const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       routeId: "opencode-readonly",
       providerRoute: { providerId: "opencode", model: "opencode-default-model" },
       task: "Inspect managed invocation resource readability.",
@@ -617,13 +616,13 @@ describe("managed invocation runtime tool — resources and surface contracts", 
     const contextB = contextFor(sessionB, "tool-call-session-b");
     const invoke = surface.callBuiltinTools.get("managed_agent.invoke")!;
     const resultA = await invoke({
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       routeId: "opencode-readonly",
       providerRoute: { providerId: "opencode", model: "opencode-default-model" },
       task: "Session A task.",
     }, contextA) as { readonly metadata: { readonly invocationId: string } };
     const resultB = await invoke({
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       routeId: "opencode-readonly",
       providerRoute: { providerId: "opencode", model: "opencode-default-model" },
       task: "Session B task.",
@@ -674,7 +673,7 @@ describe("managed invocation runtime tool — resources and surface contracts", 
     };
 
     const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       routeId: "opencode-readonly",
       providerRoute: { providerId: "opencode", model: "opencode-default-model" },
       task: "Inspect managed invocation timeout resource readability.",
@@ -727,7 +726,7 @@ describe("managed invocation runtime tool — resources and surface contracts", 
     };
 
     const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       providerRoute: { providerId: "opencode" },
       task: "Inspect the managed invocation tool contract and report risks.",
     }, context) as {
@@ -794,7 +793,7 @@ describe("managed invocation runtime tool — resources and surface contracts", 
         routeId: "codex-cloud-remote-readonly",
         providerId: "codex-cloud",
         model: "gpt-5.5",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
         adapterKind: "governed-external-runtime",
       }),
       surface: "remote-harness",
@@ -829,7 +828,7 @@ describe("managed invocation runtime tool — resources and surface contracts", 
 
     const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
       routeId: "codex-cloud-remote-readonly",
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       providerRoute: {
         providerId: "codex-cloud",
         model: "gpt-5.5",
@@ -855,7 +854,7 @@ describe("managed invocation runtime tool — resources and surface contracts", 
 
     const resourceResult = await resourceSurface.callBuiltinTools.get("managed_agent.invoke")?.({
       routeId: "codex-cloud-remote-readonly",
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       providerRoute: {
         providerId: "codex-cloud",
         model: "gpt-5.5",

@@ -146,7 +146,7 @@ vi.mock("../../src/config/managed-agent-route-catalog.js", async (importOriginal
             // this mutation after the post-claim refreshes under test.
             if (routeCatalogTrace.mutateExecutionProfileAuthority && routeCatalogTrace.executionRefreshCount >= 4) {
               const profile = route?.profiles.find(
-                (candidate) => candidate.admissionProfile === "foundation-readonly-plan",
+                (candidate) => candidate.access === "read-only",
               );
               if (profile) Object.assign(profile, { timeoutMs: profile.timeoutMs + 1 });
             }
@@ -318,7 +318,7 @@ function eligibleDirectProviderCatalog(providerId: string, model: string): Manag
       {
         catalogDiagnosticEvidence: route,
         catalogDiagnosticDecision: deriveProviderModelEligibility(route, managedCatalogRequirements(), []),
-        provenProfiles: ["foundation-readonly-plan"],
+        provenAccess: ["read-only"],
       },
     ])),
   };
@@ -345,7 +345,7 @@ function eligibleHarnessProviderCatalog(providerId: "codex", model: string): Man
       {
         catalogDiagnosticEvidence: route,
         catalogDiagnosticDecision: deriveProviderModelEligibility(route, managedCatalogRequirements(), []),
-        provenProfiles: ["foundation-readonly-plan"],
+        provenAccess: ["read-only"],
       },
     ])),
   };
@@ -407,7 +407,7 @@ const NATIVE_VISION_AGENT = [
 
 function nativeCodexDeliberationConfig(): KilnGlobalConfig {
   return {
-    version: "6",
+    version: "7",
     workGovernance: {
       defaultPosture: "direct",
       requireDelegationFor: ["managed-agents"],
@@ -428,7 +428,7 @@ function nativeCodexDeliberationConfig(): KilnGlobalConfig {
     },
     authorityProfiles: [{
       id: "readonly-plan",
-      admissionProfile: "foundation-readonly-plan",
+      access: "read-only",
       workingDirectory: "project",
       tools: { allowed: ["read"], network: false, writes: false },
       memory: { access: "read-only" },
@@ -547,7 +547,7 @@ function openCodeGoWriteEconomicConfig(): KilnGlobalConfig {
     authorityProfiles: configured.authorityProfiles?.map((profile) => ({
       ...profile,
       id: "approved-write",
-      admissionProfile: "foundation-apply-approved-writes" as const,
+      access: "approved-write" as const,
       tools: {
         allowed: ["read", "grep", "glob", "write", "edit", "apply-patch"],
         network: false,
@@ -1269,7 +1269,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
       });
       expect(accepted).toMatchObject({
         state: "awaiting_approval",
-        admissionProfileId: "foundation-apply-approved-writes",
+        access: "approved-write",
         dispatch: { kind: "economic", candidateSet: { candidates: [{ routeId: "opencode-go-direct" }] } },
       });
       expect(adapterTrace.createCalls).toBe(0);
@@ -1299,7 +1299,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
       expect(adapterTrace.createCalls).toBe(1);
       expect(start).toHaveBeenCalledWith(expect.objectContaining({
         invocationId: `agent-task:${accepted.id}`,
-        profile: "foundation-apply-approved-writes",
+        access: "approved-write",
         requestedAuthority: "destructive",
         authorityApproval: { approved: true },
         providerRoute: { providerId: "opencode-go", surface: "direct-provider", model: "kimi-k2.6" },
@@ -1570,7 +1570,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
 
   it("rejects a project-declared managed target instead of treating it as global authority", async () => {
     useIsolatedGlobalConfigHome();
-    persistGlobalConfig({ version: "6" });
+    persistGlobalConfig({ version: "7" });
     const projectRoot = createProjectRoot([
       'version: "1"',
       "managedAgents:",

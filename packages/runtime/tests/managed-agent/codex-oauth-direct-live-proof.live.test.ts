@@ -73,10 +73,10 @@ describeManagedAgentProviderLive(
         const invocationId = "invocation-codex-oauth-direct-live-readonly-1";
         const request = defineManagedAgentInvocationRequest({
           invocationId,
-          agentId: "codex-oauth-direct-live:foundation-readonly-plan",
+          agentId: "codex-oauth-direct-live:read-only",
           parentSessionId: "session-codex-oauth-direct-live-parent",
           parentTurnId: "session-codex-oauth-direct-live-parent:turn:1",
-          profile: "foundation-readonly-plan",
+          access: "read-only",
           requestedBy: "operator",
           requestSource: "live-test",
           providerRoute: {
@@ -88,7 +88,6 @@ describeManagedAgentProviderLive(
           executionMode: "direct-provider",
           authority: {
             authorityProfileId: "authority:codex-oauth-direct-live-readonly",
-            permissionProfile: "read-only",
             toolAuthority: {
               allowedToolNames: ["read"],
               writeAllowed: false,
@@ -125,8 +124,7 @@ describeManagedAgentProviderLive(
           model,
           invocationId,
           parentTurnId: request.parentTurnId,
-          permissionProfile: "read-only",
-          admissionProfile: "foundation-readonly-plan",
+          access: "read-only",
           workingDirectoryMode: "read-only",
         }, ({ adapter, economicDispatch, childAuthorityAdmission }) => createCodexOauthDirectLiveService()
           .invoke(request, adapter, makeManagedAgentLiveCapabilitySnapshotInput(request), {
@@ -162,10 +160,10 @@ describeManagedAgentProviderLive(
         const invocationId = "invocation-codex-oauth-direct-live-write-1";
         const request = defineManagedAgentInvocationRequest({
           invocationId,
-          agentId: "codex-oauth-direct-live:foundation-apply-approved-writes",
+          agentId: "codex-oauth-direct-live:approved-write",
           parentSessionId: "session-codex-oauth-direct-live-parent",
           parentTurnId: "session-codex-oauth-direct-live-parent:turn:2",
-          profile: "foundation-apply-approved-writes",
+          access: "approved-write",
           requestedBy: "operator",
           requestSource: "live-test",
           providerRoute: {
@@ -177,7 +175,6 @@ describeManagedAgentProviderLive(
           executionMode: "direct-provider",
           authority: {
             authorityProfileId: "authority:codex-oauth-direct-live-approved-write",
-            permissionProfile: "apply-approved-writes",
             toolAuthority: {
               allowedToolNames: ["read", "edit"],
               writeAllowed: true,
@@ -198,7 +195,6 @@ describeManagedAgentProviderLive(
               access: "write-proposals",
             },
             writeAuthority: defineManagedAgentWriteAuthority({
-              profile: "foundation-apply-approved-writes",
               scope: defineManagedAgentWriteScope({
                 workspace: {
                   mode: "apply-approved",
@@ -206,8 +202,6 @@ describeManagedAgentProviderLive(
                   deniedPaths: [workspace.filePath(".git")],
                 },
                 memory: {
-                  mode: "propose",
-                  scope: { kind: "project", id: "kiln" },
                   operations: ["create", "update"],
                 },
                 artifacts: {
@@ -245,8 +239,7 @@ describeManagedAgentProviderLive(
           model,
           invocationId,
           parentTurnId: request.parentTurnId,
-          permissionProfile: "apply-approved-writes",
-          admissionProfile: "foundation-apply-approved-writes",
+          access: request.access === "approved-write" ? "approved-write" : "read-only",
           workingDirectoryMode: "workspace-write",
           writeAllowed: true,
         }, ({ adapter, economicDispatch, childAuthorityAdmission }) => createCodexOauthDirectLiveService()
@@ -284,8 +277,7 @@ interface CodexOauthEconomicDispatchInput {
   readonly model: string;
   readonly invocationId: string;
   readonly parentTurnId: string;
-  readonly permissionProfile: "read-only" | "apply-approved-writes";
-  readonly admissionProfile: "foundation-readonly-plan" | "foundation-apply-approved-writes";
+  readonly access: "read-only" | "approved-write";
   readonly workingDirectoryMode: "read-only" | "workspace-write";
   readonly writeAllowed?: boolean;
 }
@@ -312,8 +304,7 @@ async function withCodexOauthEconomicDispatch<T>(
   });
   try {
     const profile = directProfile(
-      input.permissionProfile,
-      input.admissionProfile,
+      input.access,
       "credential-route:codex-oauth:runtime-selected",
       input.workingDirectoryMode,
       input.writeAllowed,
@@ -354,7 +345,7 @@ async function withCodexOauthEconomicDispatch<T>(
         dispatchFenceId,
         abortSignal,
         authorityProfileId,
-        admissionProfile,
+        access,
         profileAuthorityDigest,
         invocationId,
       }) => createAdapter({
@@ -366,7 +357,7 @@ async function withCodexOauthEconomicDispatch<T>(
         dispatchFenceId,
         abortSignal,
         authorityProfileId,
-        admissionProfile,
+        access,
         profileAuthorityDigest,
         invocationId,
       }, profile),
@@ -414,7 +405,7 @@ async function withCodexOauthEconomicDispatch<T>(
       }),
       effectIdentity: "managed-agent-live:codex-oauth-provider-dispatch",
       adoption,
-      admissionProfile: input.admissionProfile,
+          access: input.access === "approved-write" ? "approved-write" : "read-only",
       authorityProfileId: profile.authorityProfileId,
       invocationId: input.invocationId,
       workLimitDurationMs: 120_000,
@@ -638,16 +629,14 @@ function createLiveModelRoundStore(): RuntimeModelRoundActionClaimStore {
 }
 
 function directProfile(
-  permissionProfile: "read-only" | "apply-approved-writes",
-  admissionProfile: "foundation-readonly-plan" | "foundation-apply-approved-writes",
+  access: "read-only" | "approved-write",
   credentialRouteId: string,
   workingDirectoryMode: "read-only" | "workspace-write",
   writeAllowed = false,
 ): ManagedInvocationRouteProfile {
   return {
-    authorityProfileId: `authority:codex-oauth-live:${permissionProfile}`,
-    admissionProfile,
-    permissionProfile,
+    authorityProfileId: `authority:codex-oauth-live:${access}`,
+    access,
     allowedToolNames: writeAllowed ? ["read", "edit"] : ["read"],
     writeAllowed,
     networkAllowed: false,

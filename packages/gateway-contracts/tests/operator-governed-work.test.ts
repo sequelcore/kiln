@@ -11,7 +11,8 @@ describe("operator governed work projection", () => {
         summary: "Bound work.",
         status: "blocked",
         workflowProfile: "architecture-change",
-        authorityProfile: "foundation-apply-approved-writes",
+        authority: "audited",
+        access: "approved-write",
         boundedWork: {
           contractRevisionDigest: sha("a"),
           candidateDigest: sha("b"),
@@ -49,6 +50,7 @@ describe("operator governed work projection", () => {
         continuation: { action: "request_budget_revision", accountingRevision: 4 },
       },
     });
+    expect(projected).toMatchObject({ authority: "audited", access: "approved-write" });
   });
 
   it("rejects malformed bounded-work evidence instead of presenting synthetic zero", () => {
@@ -58,7 +60,7 @@ describe("operator governed work projection", () => {
         summary: "Bound work.",
         status: "blocked",
         workflowProfile: "architecture-change",
-        authorityProfile: "foundation-apply-approved-writes",
+        access: "approved-write",
         boundedWork: {
           contractRevisionDigest: sha("a"),
           accounting: {

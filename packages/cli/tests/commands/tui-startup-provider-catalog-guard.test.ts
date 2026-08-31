@@ -793,7 +793,7 @@ describe("tuiCommand startup provider catalog guard", () => {
       ...makeOperatorSurfaceGlobalConfig("codex", "gpt-5.3-codex-spark"),
       managedAgents: {
         enabled: true,
-        defaultAuthorityProfileId: "foundation-readonly-plan",
+        defaultAuthorityProfileId: "read-only",
         requireApproval: true,
       },
     };

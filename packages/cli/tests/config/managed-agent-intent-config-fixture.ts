@@ -16,7 +16,7 @@ import {
 export function managedAgentIntentConfig(): KilnGlobalConfig {
   const evidence = managedAgentTargetEvidence();
   return {
-    version: "6",
+    version: "7",
     workGovernance: {
       defaultPosture: "direct",
       requireDelegationFor: ["managed-agents"],
@@ -36,7 +36,7 @@ export function managedAgentIntentConfig(): KilnGlobalConfig {
     },
     authorityProfiles: [{
       id: "readonly-plan",
-      admissionProfile: "foundation-readonly-plan",
+      access: "read-only",
       workingDirectory: "project",
       tools: { allowed: ["read"], network: false, writes: false },
       memory: { access: "read-only" },

@@ -59,16 +59,13 @@ export function projectManagedAgentIdentity(
   const id = cleanText(childIdentity?.agentId)
     ?? cleanText(payload.agentId)
     ?? cleanText(childIdentity?.admittedAgentProfile)
-    ?? cleanText(childIdentity?.requestedAgentProfile)
-    ?? cleanText(payload.profile);
+    ?? cleanText(childIdentity?.requestedAgentProfile);
   if (!id) return null;
 
   const label = childIdentityLabel(childIdentity)
-    ?? cleanText(payload.profile)
     ?? id;
   const seed = childIdentitySeed(childIdentity)
     ?? (cleanText(payload.agentId) ? `agent:${cleanText(payload.agentId)}` : null)
-    ?? (cleanText(payload.profile) ? `agent-profile:${cleanText(payload.profile)}` : null)
     ?? `agent:${id}`;
   const provider = cleanText(payload.providerRoute?.providerId);
   const model = cleanText(payload.providerRoute?.model);

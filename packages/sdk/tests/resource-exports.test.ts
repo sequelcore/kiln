@@ -123,7 +123,7 @@ describe("resource SDK exports", () => {
           surface: "sdk",
           assignedAgentProfile: "coder",
           routeId: "local",
-          authorityProfile: "audited",
+          authority: "audited",
           expectedEvidence: ["tests", "residual-risk"],
           providedEvidence: ["tests"],
           verificationGates: ["typecheck"],

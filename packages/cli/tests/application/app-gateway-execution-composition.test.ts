@@ -75,7 +75,7 @@ describe("createAppGatewayExecutionComposition", () => {
         configurationRevision: { revisionSetId: "sha256:r1", revisions: { global: "sha256:g1" } },
       }),
       readGlobalConfigSnapshot: () => ({
-        config: { version: "6", sessionTurnBudget: { tokenLimit: 100, action: "stop" } },
+        config: { version: "7", sessionTurnBudget: { tokenLimit: 100, action: "stop" } },
         revision: "sha256:g1",
       }),
     });

@@ -24,7 +24,7 @@ import { defineEffectiveAuthorityAdmissionBundle, type EffectiveAuthorityAdmissi
 import { createEconomicRouteProofAdoption } from "./economic-route-proof-fixture.js";
 import { createFixtureModelRoundStore, createFixtureToolActionStore } from "../session/runtime-claim-fixture.js";
 
-const AUTHORITY_PROFILE_ID = "authority:dispatch-test:foundation-readonly-plan";
+const AUTHORITY_PROFILE_ID = "authority:dispatch-test:read-only";
 const INVOCATION_ID = "managed-invocation:dispatch-test";
 const PROFILE_AUTHORITY_DIGEST = `sha256:${"9".repeat(64)}`;
 
@@ -195,7 +195,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       admissionBundle: admissionBundle(),
       effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
-      admissionProfile: "foundation-readonly-plan",
+      access: "read-only",
       authorityProfileId: AUTHORITY_PROFILE_ID,
       invocationId: INVOCATION_ID,
       lifecycleEvents: lifecycleEvents.port,
@@ -203,7 +203,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
     if (prepared.status !== "prepared") throw new Error("fixture");
     expect(resolveLifecycleTimeoutMs).toHaveBeenCalledWith(
       expect.any(Object),
-      "foundation-readonly-plan",
+      "read-only",
       AUTHORITY_PROFILE_ID,
     );
     expect(events).toEqual(["commit:economic-attempt-a", "adapter:account-bound", "fence"]);
@@ -252,7 +252,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       admissionBundle: bundle,
       effectIdentity: claim.effectIdentity,
       adoption: dispatchAdoption(),
-      admissionProfile: "foundation-readonly-plan",
+      access: "read-only",
       authorityProfileId: AUTHORITY_PROFILE_ID,
       invocationId: INVOCATION_ID,
     });
@@ -296,7 +296,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       admissionBundle: admissionBundle(),
       effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
-      admissionProfile: "foundation-apply-approved-writes",
+      access: "approved-write",
       authorityProfileId: AUTHORITY_PROFILE_ID,
       invocationId: INVOCATION_ID,
       validateAndConsumeApprovalBeforeFence,
@@ -330,7 +330,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       admissionBundle: admissionBundle(),
       effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
-      admissionProfile: "foundation-apply-approved-writes",
+      access: "approved-write",
       authorityProfileId: AUTHORITY_PROFILE_ID,
       invocationId: INVOCATION_ID,
       validateAndConsumeApprovalBeforeFence,
@@ -359,7 +359,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       admissionBundle: admissionBundle(),
       effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
-      admissionProfile: "foundation-readonly-plan",
+      access: "read-only",
       authorityProfileId: AUTHORITY_PROFILE_ID,
       invocationId: INVOCATION_ID,
     })).resolves.toMatchObject({ status: "already-dispatched" });
@@ -381,7 +381,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       admissionBundle: admissionBundle(),
       effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
-      admissionProfile: "foundation-readonly-plan",
+      access: "read-only",
       authorityProfileId: AUTHORITY_PROFILE_ID,
       invocationId: INVOCATION_ID,
     })).rejects.toThrow("synthetic adapter failure");
@@ -406,7 +406,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       admissionBundle: admissionBundle(),
       effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
-      admissionProfile: "foundation-readonly-plan",
+      access: "read-only",
       authorityProfileId: AUTHORITY_PROFILE_ID,
       invocationId: INVOCATION_ID,
       validateExecutionProfile: async () => {
@@ -434,7 +434,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       admissionBundle: admissionBundle(),
       effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
-      admissionProfile: "foundation-readonly-plan",
+      access: "read-only",
       authorityProfileId: AUTHORITY_PROFILE_ID,
       invocationId: INVOCATION_ID,
     })).rejects.toThrow("timeout must be a positive finite number");
@@ -460,7 +460,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       admissionBundle: admissionBundle(),
       effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
-      admissionProfile: "foundation-readonly-plan",
+      access: "read-only",
       authorityProfileId: AUTHORITY_PROFILE_ID,
       invocationId: INVOCATION_ID,
       abortSignal: controller.signal,
@@ -513,7 +513,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       admissionBundle: admissionBundle(),
       effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
-      admissionProfile: "foundation-readonly-plan",
+      access: "read-only",
       authorityProfileId: AUTHORITY_PROFILE_ID,
       invocationId: INVOCATION_ID,
       lifecycleEvents: lifecycleEvents.port,
@@ -602,7 +602,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       admissionBundle: admissionBundle(),
       effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
-      admissionProfile: "foundation-readonly-plan",
+      access: "read-only",
       authorityProfileId: AUTHORITY_PROFILE_ID,
       invocationId: INVOCATION_ID,
       lifecycleEvents: {
@@ -644,7 +644,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       admissionBundle: admissionBundle(),
       effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
-      admissionProfile: "foundation-readonly-plan",
+      access: "read-only",
       authorityProfileId: AUTHORITY_PROFILE_ID,
       invocationId: INVOCATION_ID,
       abortSignal: controller.signal,
@@ -672,7 +672,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       admissionBundle: admissionBundle(),
       effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
-      admissionProfile: "foundation-readonly-plan",
+      access: "read-only",
       authorityProfileId: AUTHORITY_PROFILE_ID,
       invocationId: INVOCATION_ID,
     });
@@ -707,7 +707,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       admissionBundle: admissionBundle(),
       effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
-      admissionProfile: "foundation-readonly-plan",
+      access: "read-only",
       authorityProfileId: AUTHORITY_PROFILE_ID,
       invocationId: INVOCATION_ID,
     });
@@ -738,7 +738,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       admissionBundle: admissionBundle(),
       effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
-      admissionProfile: "foundation-readonly-plan",
+      access: "read-only",
       authorityProfileId: AUTHORITY_PROFILE_ID,
       invocationId: INVOCATION_ID,
     });
@@ -769,7 +769,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       admissionBundle: admissionBundle(),
       effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
-      admissionProfile: "foundation-readonly-plan",
+      access: "read-only",
       authorityProfileId: AUTHORITY_PROFILE_ID,
       invocationId: INVOCATION_ID,
     });
@@ -807,7 +807,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       admissionBundle: admissionBundle(),
       effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
-      admissionProfile: "foundation-readonly-plan",
+      access: "read-only",
       authorityProfileId: AUTHORITY_PROFILE_ID,
       invocationId: INVOCATION_ID,
     });
@@ -831,7 +831,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       admissionBundle: admissionBundle(),
       effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
-      admissionProfile: "foundation-readonly-plan",
+      access: "read-only",
       authorityProfileId: AUTHORITY_PROFILE_ID,
       invocationId: INVOCATION_ID,
     });
@@ -934,7 +934,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
         admissionBundle: admissionBundle(),
         effectIdentity: "managed-economic-dispatch:test",
         adoption,
-        admissionProfile: "foundation-readonly-plan",
+        access: "read-only",
         authorityProfileId: AUTHORITY_PROFILE_ID,
         invocationId: `managed-invocation:${jobId}`,
         lifecycleEvents: {

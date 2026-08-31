@@ -36,7 +36,7 @@ describe("RuntimeManagedAgentInvocationService admission", () => {
     expect(invoke.mock.calls[0]![0].admission).toMatchObject({
       status: "admitted",
       adapterDescriptorId: "adapter:opencode:harness",
-      authorityProfileId: "foundation-readonly",
+      authorityProfileId: "read-only",
     });
   });
 
@@ -341,10 +341,10 @@ describe("RuntimeManagedAgentInvocationService admission", () => {
       admission: {
         status: "denied",
         invocationId: "invocation-1",
-        profile: "foundation-readonly-plan",
+        access: "read-only",
         routeId: "opencode:managed-test-route",
         routeSource: "explicit-managed-route",
-        reason: "foundation-readonly-plan denied: timeout.supported",
+        reason: "read-only denied: timeout.supported",
         missingCapabilities: ["timeout.supported"],
       },
     })).rejects.toBeInstanceOf(ManagedAgentRuntimeAdmissionError);

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   defineStructuredExecutionResult,
   type StructuredExecutionResult,
-} from "@kilnai/core";
+} from "@kilnai/core/efficiency";
 import {
   createManagedVisionAnalysisCapabilityExecutor,
 } from "../../src/capabilities/managed-vision-analysis-execution.js";
@@ -134,7 +134,7 @@ describe("ManagedVisionAnalysisCapabilityExecutor", () => {
       },
     });
     expect(receivedInput).toMatchObject({
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       routeId: "managed-vision-route",
       providerRoute: { providerId: "vision-provider", model: "vision-model" },
       requestedAuthority: "read_only",

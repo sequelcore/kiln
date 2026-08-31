@@ -307,7 +307,7 @@ describe("operator event presentation", () => {
           workflowProfile: "verification-heavy",
           risk: "medium",
           surface: "gui",
-          authorityProfile: "foundation-readonly-plan",
+          access: "read-only",
           expectedEvidence: ["surface-map", "tests"],
           providedEvidence: ["surface-map"],
           pauseRequirements: [],
@@ -333,7 +333,7 @@ describe("operator event presentation", () => {
           workflowProfile: "verification-heavy",
           risk: "medium",
           surface: "gui",
-          authorityProfile: "foundation-readonly-plan",
+          access: "read-only",
           evidence: [
             { label: "surface-map", status: "completed" },
             { label: "tests", status: "pending" },
@@ -749,7 +749,7 @@ describe("operator event presentation", () => {
         summary: "Run Slice 9 verification",
         status: "blocked",
         workflowProfile: "verification-heavy",
-        authorityProfile: "authority:foundation-readonly-plan",
+        access: "read-only",
         expectedEvidence: ["surface-map", "tests"],
         providedEvidence: ["surface-map"],
         missingResidualRisk: true,
@@ -761,7 +761,7 @@ describe("operator event presentation", () => {
         summary: "Run Slice 9 verification",
         status: "in_progress",
         workflowProfile: "verification-heavy",
-        authorityProfile: "authority:foundation-readonly-plan",
+        access: "read-only",
       },
       attempt: {
         id: "goal-1:work-1:attempt:1",
@@ -802,7 +802,7 @@ describe("operator event presentation", () => {
     expect(updated.details).toContainEqual({ label: "Resource", value: "kiln://session/work-items/work-1" });
     expect(updated.details).toContainEqual({ label: "Missing evidence", value: "tests, residual-risk" });
     expect(started.details).toContainEqual({ label: "Resource", value: "kiln://session/work-items/work-1" });
-    expect(started.details).toContainEqual({ label: "Authority", value: "authority:foundation-readonly-plan" });
+    expect(started.details).toContainEqual({ label: "Access", value: "read-only" });
     expect(started.details).toContainEqual({ label: "Attempt", value: "goal-1:work-1:attempt:1" });
     expect(started.details).toContainEqual({ label: "Managed invocation", value: "invocation-1" });
     expect(finished).toMatchObject({
@@ -1010,9 +1010,9 @@ describe("operator event presentation", () => {
   it("presents managed child invocation identity across surfaces", () => {
     const presentation = presentOperatorEventPayload("agent_invocation_completed", {
       invocationId: "inv-1",
-      agentId: "codex-oauth:foundation-readonly-plan",
+      agentId: "codex-oauth:read-only",
       parentTurnId: "session-1:turn:2",
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       providerRoute: {
         providerId: "codex-oauth",
         model: "gpt-5.4-mini",
@@ -1020,7 +1020,7 @@ describe("operator event presentation", () => {
       },
       adapterKind: "direct",
       executionMode: "runtime-direct",
-      authorityProfileId: "authority:foundation-readonly-plan",
+      authorityProfileId: "authority:read-only",
       capabilitySnapshot: {
         snapshotId: "inv-1:capability-snapshot",
         capturedAt: "2026-05-07T08:00:00.000Z",
@@ -1049,7 +1049,7 @@ describe("operator event presentation", () => {
           diagnosticUris: [],
         },
         childIdentity: {
-          agentId: "codex-oauth:foundation-readonly-plan",
+          agentId: "codex-oauth:read-only",
           displayName: "Piama",
         },
       },
@@ -1074,17 +1074,17 @@ describe("operator event presentation", () => {
     });
 
     expect(presentation.summary).toBe(
-      "foundation-readonly-plan via codex-oauth/gpt-5.4-mini (direct-provider) · Inspection completed.",
+      "read-only via codex-oauth/gpt-5.4-mini (direct-provider) · Inspection completed.",
     );
     expect(presentation.details).toEqual([
-      { label: "Agent", value: "codex-oauth:foundation-readonly-plan" },
-      { label: "Profile", value: "foundation-readonly-plan" },
+      { label: "Agent", value: "codex-oauth:read-only" },
+      { label: "Access", value: "read-only" },
       { label: "Provider", value: "codex-oauth" },
       { label: "Model", value: "gpt-5.4-mini" },
       { label: "Surface", value: "direct-provider" },
       { label: "Adapter", value: "direct" },
       { label: "Execution", value: "runtime-direct" },
-      { label: "Authority", value: "authority:foundation-readonly-plan" },
+      { label: "Authority", value: "authority:read-only" },
       { label: "Capability snapshot", value: "inv-1:capability-snapshot" },
       { label: "Captured", value: "2026-05-07T08:00:00.000Z" },
       { label: "Route ID", value: "codex-oauth-readonly" },
@@ -1114,8 +1114,8 @@ describe("operator event presentation", () => {
   it("presents remote harness route limitations from capability snapshots", () => {
     const presentation = presentOperatorEventPayload("agent_invocation_completed", {
       invocationId: "inv-remote-1",
-      agentId: "codex-cloud:foundation-readonly-plan",
-      profile: "foundation-readonly-plan",
+      agentId: "codex-cloud:read-only",
+      access: "read-only",
       providerRoute: {
         providerId: "codex-cloud",
         model: "gpt-5.5",
@@ -1123,7 +1123,7 @@ describe("operator event presentation", () => {
       },
       adapterKind: "harness",
       executionMode: "remote-harness",
-      authorityProfileId: "authority:codex-cloud-remote:foundation-readonly-plan",
+      authorityProfileId: "authority:codex-cloud-remote:read-only",
       capabilitySnapshot: {
         snapshotId: "inv-remote-1:capability-snapshot",
         capturedAt: "2026-05-07T08:00:00.000Z",
@@ -1156,14 +1156,14 @@ describe("operator event presentation", () => {
           diagnosticUris: [],
         },
         childIdentity: {
-          agentId: "codex-cloud:foundation-readonly-plan",
+          agentId: "codex-cloud:read-only",
         },
       },
       resultSummary: "Remote inspection completed.",
     });
 
     expect(presentation.summary).toBe(
-      "foundation-readonly-plan via codex-cloud/gpt-5.5 (remote-harness) · Remote inspection completed.",
+      "read-only via codex-cloud/gpt-5.5 (remote-harness) · Remote inspection completed.",
     );
     expect(presentation.details).toContainEqual({
       label: "Route limitations",
@@ -1235,6 +1235,21 @@ describe("operator event presentation", () => {
     expect(completed.title).toBe("Read files");
     expect(completed.summary).toBe("24 files read, 109 skipped");
     expect(completed.surfaces).toEqual(["conversation_inline", "activity_panel", "inspector"]);
+  });
+
+  it("renders managed invocation access once when tool input is also projected", () => {
+    const presentation = presentOperatorEventPayload("tool_call_started", {
+      toolCallId: "managed-tool-1",
+      toolName: "managed_agent.invoke",
+      input: {
+        access: "read-only",
+        providerRoute: { providerId: "codex-oauth", model: "gpt-5.4-mini" },
+      },
+    });
+
+    expect(presentation.details.filter((item) => item.label === "Access")).toEqual([
+      { label: "Access", value: "read-only" },
+    ]);
   });
 
   it("uses human action labels for common tool families while retaining tool identity in details", () => {
@@ -1700,13 +1715,13 @@ describe("operator event presentation", () => {
       toolCallId: "tool-1",
       toolName: "managed_agent.start",
       outputSummary: JSON.stringify({
-        output: "Managed invocation route 'openrouter-readonly' is unavailable for provider 'openrouter' and profile 'foundation-readonly-plan': Direct provider route is not eligible.",
+        output: "Managed invocation route 'openrouter-readonly' is unavailable for provider 'openrouter' and access 'read-only': Direct provider route is not eligible.",
         isError: true,
         metadata: {
           toolName: "managed_agent.start",
           kind: "managed-invocation",
           routeId: "openrouter-readonly",
-          profile: "foundation-readonly-plan",
+          access: "read-only",
           providerRoute: {
             providerId: "openrouter",
             model: "openrouter/free",
@@ -1722,7 +1737,7 @@ describe("operator event presentation", () => {
               { key: "routeId", label: "Route", valueKind: "text" },
               { key: "provider", label: "Provider", valueKind: "text" },
               { key: "model", label: "Model", valueKind: "text" },
-              { key: "profile", label: "Profile", valueKind: "text" },
+              { key: "access", label: "Access", valueKind: "text" },
               { key: "status", label: "Status", valueKind: "status" },
               { key: "substantiveEvidence", label: "Evidence", valueKind: "boolean" },
               { key: "failureReason", label: "Failure", valueKind: "text" },
@@ -1732,7 +1747,7 @@ describe("operator event presentation", () => {
                 routeId: "openrouter-readonly",
                 provider: "openrouter",
                 model: "openrouter/free",
-                profile: "foundation-readonly-plan",
+                access: "read-only",
                 status: "unavailable",
                 substantiveEvidence: false,
                 failureReason: "Direct provider route is not eligible.",
@@ -1801,7 +1816,7 @@ describe("operator event presentation", () => {
       toolCallId: "tool-1",
       toolName: "managed_agent.invoke",
       input: {
-        profile: "foundation-readonly-plan",
+        access: "read-only",
         providerRoute: {
           providerId: "codex-oauth",
         },
@@ -1813,7 +1828,7 @@ describe("operator event presentation", () => {
       },
       metadata: {
         kind: "managed-invocation",
-        profile: "foundation-readonly-plan",
+        access: "read-only",
         routeId: "codex-oauth-readonly",
         routeSource: "explicit-managed-route",
         parentTurnId: "session-1:turn:7",
@@ -1824,14 +1839,14 @@ describe("operator event presentation", () => {
         },
         adapterKind: "direct",
         executionMode: "runtime-direct",
-        authorityProfileId: "authority:foundation-readonly-plan",
+        authorityProfileId: "authority:read-only",
       },
     });
     const completed = presentOperatorEventPayload("tool_call_completed", {
       toolCallId: "tool-1",
       toolName: "managed_agent.invoke",
       input: {
-        profile: "foundation-readonly-plan",
+        access: "read-only",
         providerRoute: {
           providerId: "codex-oauth",
           model: "gpt-5.4-mini",
@@ -1852,7 +1867,7 @@ describe("operator event presentation", () => {
           routeSource: "explicit-managed-route",
           parentTurnId: "session-1:turn:7",
           status: "completed",
-          profile: "foundation-readonly-plan",
+          access: "read-only",
           providerRoute: {
             providerId: "codex-oauth",
             model: "gpt-5.4-mini",
@@ -1867,7 +1882,7 @@ describe("operator event presentation", () => {
           },
           adapterKind: "direct",
           executionMode: "runtime-direct",
-          authorityProfileId: "authority:foundation-readonly-plan",
+          authorityProfileId: "authority:read-only",
           capabilitySnapshot: {
             snapshotId: "inv-1:capability-snapshot",
             capturedAt: "2026-05-07T08:00:00.000Z",
@@ -1896,7 +1911,7 @@ describe("operator event presentation", () => {
               diagnosticUris: ["kiln://artifacts/inv-1/lease-diagnostics"],
             },
             childIdentity: {
-              agentId: "codex-oauth:foundation-readonly-plan",
+              agentId: "codex-oauth:read-only",
               admittedAgentProfile: "architecture-reviewer",
             },
           },
@@ -1906,11 +1921,11 @@ describe("operator event presentation", () => {
       status: { state: "succeeded" },
     });
 
-    expect(started.summary).toBe("foundation-readonly-plan via codex-oauth/gpt-5.4-mini (direct-provider) · Execution in progress");
+    expect(started.summary).toBe("read-only via codex-oauth/gpt-5.4-mini (direct-provider) · Execution in progress");
     expect(started.details).toEqual([
       { label: "Tool", value: "managed_agent.invoke" },
       { label: "Tool call ID", value: "tool-1" },
-      { label: "Profile", value: "foundation-readonly-plan" },
+      { label: "Access", value: "read-only" },
       { label: "Provider", value: "codex-oauth" },
       { label: "Model", value: "gpt-5.4-mini" },
       { label: "Surface", value: "direct-provider" },
@@ -1920,13 +1935,13 @@ describe("operator event presentation", () => {
       { label: "Task", value: "Inspect docs/architecture/coordination/agent-tasks.md." },
       { label: "Summary", value: "Inspect managed agents architecture doc" },
     ]);
-    expect(completed.summary).toBe("foundation-readonly-plan via codex-oauth/gpt-5.4-mini (direct-provider) · Inspection completed.");
+    expect(completed.summary).toBe("read-only via codex-oauth/gpt-5.4-mini (direct-provider) · Inspection completed.");
     expect(completed.details).toEqual([
       { label: "Tool", value: "managed_agent.invoke" },
       { label: "Tool call ID", value: "tool-1" },
       { label: "Status", value: "succeeded" },
       { label: "Result", value: "Inspection completed." },
-      { label: "Profile", value: "foundation-readonly-plan" },
+      { label: "Access", value: "read-only" },
       { label: "Provider", value: "codex-oauth" },
       { label: "Model", value: "gpt-5.4-mini" },
       { label: "Surface", value: "direct-provider" },
@@ -1937,7 +1952,7 @@ describe("operator event presentation", () => {
       { label: "Admitted skills", value: "ddd-review" },
       { label: "Adapter", value: "direct" },
       { label: "Execution", value: "runtime-direct" },
-      { label: "Authority", value: "authority:foundation-readonly-plan" },
+      { label: "Authority", value: "authority:read-only" },
       { label: "Capability snapshot", value: "inv-1:capability-snapshot" },
       { label: "Captured", value: "2026-05-07T08:00:00.000Z" },
       { label: "Route ID", value: "codex-oauth" },
@@ -1969,7 +1984,7 @@ describe("operator event presentation", () => {
       toolCallId: "tool-1",
       toolName: "managed_agent.invoke",
       input: {
-        profile: "foundation-readonly-plan",
+        access: "read-only",
         providerRoute: {
           providerId: "opencode",
           model: "model-a",
@@ -1986,7 +2001,7 @@ describe("operator event presentation", () => {
           kind: "managed-invocation",
           routeId: "opencode-readonly",
           status: "denied",
-          profile: "foundation-readonly-plan",
+          access: "read-only",
           providerRoute: {
             providerId: "opencode",
             model: "model-a",
@@ -2016,7 +2031,7 @@ describe("operator event presentation", () => {
     const completed = presentOperatorEventPayload("agent_invocation_completed", {
       invocationId: "inv-lease-only",
       agentId: "agent-reviewer",
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       providerRoute: {
         providerId: "codex-oauth",
         model: "gpt-5.4-mini",
@@ -2067,7 +2082,7 @@ describe("operator event presentation", () => {
     const failed = presentOperatorEventPayload("agent_invocation_failed", {
       invocationId: "inv-conflict",
       agentId: "agent-reviewer",
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       providerRoute: {
         providerId: "codex-oauth",
         model: "gpt-5.5",
@@ -2116,7 +2131,7 @@ describe("operator event presentation", () => {
     const completed = presentOperatorEventPayload("agent_invocation_completed", {
       invocationId: "inv-partial-lease-delta",
       agentId: "agent-reviewer",
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       providerRoute: {
         providerId: "codex-oauth",
         model: "gpt-5.4-mini",

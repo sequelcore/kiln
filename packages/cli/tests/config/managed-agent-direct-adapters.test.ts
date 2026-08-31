@@ -176,8 +176,7 @@ function credentialBindingFor(routeId: string, accountId = "account-b"): DirectP
 
 const READONLY_PROFILE: ManagedInvocationRouteProfile = {
   authorityProfileId: "readonly-plan",
-  admissionProfile: "foundation-readonly-plan",
-  permissionProfile: "read-only",
+  access: "read-only",
   allowedToolNames: ["read", "grep"],
   workingDirectory: { path: "C:/repo", mode: "read-only" },
   timeoutMs: 60_000,
@@ -384,7 +383,7 @@ describe("createManagedDirectProviderAdapterFactory", () => {
       adapterDescriptorId: "adapter:openai:direct-provider",
       adapterKind: "direct",
       providerId: "openai",
-      supportedProfiles: ["foundation-readonly-plan"],
+      supportedAccess: ["read-only"],
       supportedExecutionModes: ["direct-provider"],
     });
     expect(createProviderAdapter).toHaveBeenCalledWith({
@@ -457,18 +456,16 @@ describe("createManagedDirectProviderAdapterFactory", () => {
       authorityProfiles: [],
     }, credentialBindingFor("codex-oauth-approved-write"), undefined, committedRequestFor("codex-oauth-approved-write", "codex-oauth", "gpt-5.5"), profileWith({
       authorityProfileId: "approved-write",
-      admissionProfile: "foundation-apply-approved-writes",
-      permissionProfile: "apply-approved-writes",
+      access: "approved-write",
       allowedToolNames: ["read", "grep", "apply-patch"],
       writeAllowed: true,
     }));
 
     expect(adapter?.descriptor).toMatchObject({
-      supportedProfiles: [
-        "foundation-readonly-plan",
-        "foundation-propose-writes",
-        "foundation-apply-approved-writes",
-        "foundation-memory-write-proposals",
+      supportedAccess: [
+        "read-only",
+        "propose",
+        "approved-write",
       ],
       writeAuthority: {
         proposalSupported: true,
@@ -514,10 +511,10 @@ describe("createManagedDirectProviderAdapterFactory", () => {
 
     const invocationRequest = defineManagedAgentInvocationRequest({
       invocationId: "cli-direct-resource-1",
-      agentId: "openai-readonly:foundation-readonly-plan",
+      agentId: "openai-readonly:read-only",
       parentSessionId: "cli-parent-session",
       parentTurnId: "cli-parent-session:turn:1",
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       requestedBy: "assistant",
       requestSource: "test",
       providerRoute: {
@@ -528,8 +525,7 @@ describe("createManagedDirectProviderAdapterFactory", () => {
       adapterKind: "direct",
       executionMode: "direct-provider",
       authority: {
-        authorityProfileId: "authority:openai-readonly:foundation-readonly-plan",
-        permissionProfile: "read-only",
+        authorityProfileId: "authority:openai-readonly:read-only",
         toolAuthority: {
           allowedToolNames: ["read"],
           writeAllowed: false,

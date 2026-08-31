@@ -66,6 +66,7 @@ describe("materializeApprovedPlanWorkItems", () => {
       reusedWorkItemIds: [],
     });
     expect(result.workItems.map((item) => item.id)).toEqual(result.materialization.workItemIds);
+    expect(result.workItems.every((item) => item.authority === "audited" && item.access === undefined)).toBe(true);
     expect(result.workItems).toEqual([
       expect.objectContaining({
         summary: "Scout impacted files.",
@@ -378,7 +379,7 @@ describe("materializeApprovedPlanWorkItems", () => {
       risk: "high",
       assignedAgentProfile: "coder",
       routeId: "codex-worker",
-      authorityProfile: "foundation-apply-approved-writes",
+      access: "approved-write",
     });
 
     expect(result.workItems).toHaveLength(2);
@@ -411,7 +412,7 @@ describe("materializeApprovedPlanWorkItems", () => {
       goalRunId: "goal-orchestration",
       routeId: "codex-worker",
       assignedAgentProfile: "coder",
-      authorityProfile: "foundation-apply-approved-writes",
+      access: "approved-write",
       managedOrchestration: {
         orchestrationId: "orch-decompose",
         mode: "decomposition",

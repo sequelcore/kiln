@@ -8,7 +8,7 @@ import {
 import type { KilnGlobalConfig } from "../../src/config/global-config.js";
 
 const baseConfig: KilnGlobalConfig = {
-  version: "6",
+  version: "7",
   engines: {
     codex: { enabled: true, billing: "plus-quota" },
     opencode: { enabled: true, billing: "free" },

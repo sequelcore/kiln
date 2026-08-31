@@ -6,7 +6,7 @@ import {
   defineManagedAgentInvocationRequest,
   resolveCommunicationIntent,
   type ManagedAgentAdmissionDecision,
-  type ManagedAgentAdmissionProfile,
+  type ManagedAgentAccess,
   type ManagedAgentAuthorityProfile,
   type ManagedAgentCallerAttachmentIdentity,
   type ManagedAgentInvocationRecord,
@@ -45,7 +45,7 @@ export interface ManagedAgentOrchestrationLifecycleRouteSelector {
 export interface ManagedAgentOrchestrationLifecycleInput {
   readonly orchestrationRequest: ManagedAgentOrchestrationRequest;
   readonly managedInvocation: ManagedInvocationToolOptions;
-  readonly profile: ManagedAgentAdmissionProfile;
+  readonly access: ManagedAgentAccess;
   readonly routeSelector?: ManagedAgentOrchestrationLifecycleRouteSelector;
   readonly requestedAuthority?: ManagedAgentRequestedAuthority;
   readonly callerIdentity?: ManagedAgentCallerAttachmentIdentity;
@@ -121,8 +121,8 @@ export async function runManagedAgentOrchestrationLifecycle(
     if (child.agentProfile && !agent) {
       throw new Error(`Managed orchestration references unknown agent profile '${child.agentProfile}'`);
     }
-    if (agent && agent.admissionProfile !== input.profile) {
-      throw new Error(`Managed orchestration agent profile '${agent.name}' requires '${agent.admissionProfile}', not '${input.profile}'`);
+    if (agent && agent.access !== input.access) {
+      throw new Error(`Managed orchestration agent access '${agent.name}' requires '${agent.access}', not '${input.access}'`);
     }
     const communicationIntent = agent?.providerRoute?.communicationIntent
       ?? (agent?.communication
@@ -135,7 +135,7 @@ export async function runManagedAgentOrchestrationLifecycle(
           economicPolicyRevision: agent.economicPolicyRevision,
           configuredAgentProfileId: agent.name,
           authorityProfileId: agent.authorityProfileId,
-          admissionProfileId: input.profile,
+          access: input.access,
           ...(input.callerIdentity ? { callerIdentity: input.callerIdentity } : {}),
           ...(child.routeId ?? input.routeSelector?.routeId
             ? { routeId: child.routeId ?? input.routeSelector?.routeId }
@@ -169,7 +169,7 @@ export async function runManagedAgentOrchestrationLifecycle(
     const routeId = child.routeId ?? agent?.routeId;
     const route = selectOrchestrationRoute(
       input.managedInvocation,
-      input.profile,
+      input.access,
       input.orchestrationRequest.isolation.workingDirectoryMode,
       routeId ? { routeId } : input.routeSelector,
       economicCandidateSet !== undefined,
@@ -187,7 +187,7 @@ export async function runManagedAgentOrchestrationLifecycle(
       ...(economicCandidateSet ? { economicCandidateSet } : {}),
       profile: requireOrchestrationProfile(
         route,
-        input.profile,
+        input.access,
         input.orchestrationRequest.isolation.workingDirectoryMode,
         agent,
       ),
@@ -244,7 +244,7 @@ export async function runManagedAgentOrchestrationLifecycle(
               requestedBy: input.managedInvocation.requestedBy ?? input.orchestrationRequest.requestedBy,
               requestSource: input.managedInvocation.requestSource ?? input.orchestrationRequest.requestSource,
               requestedAuthority: input.requestedAuthority ?? (input.callerIdentity ? "audited" : "read_only"),
-              admissionProfile: input.profile,
+              access: input.access,
             }),
           });
         }
@@ -352,7 +352,7 @@ async function prepareOrchestrationEconomicDispatch(
     roleIntent: entry.child.roleIntent,
     agentProfile: entry.agentProfile,
     deliberationIntent: entry.deliberationIntent ?? null,
-    admissionProfileId: input.profile,
+    access: input.access,
     candidateSet: entry.economicCandidateSet,
   }).slice("sha256:".length);
   const preparation = await economicDispatch.prepare({
@@ -431,7 +431,7 @@ function admitOrchestrationRoute(
     route: route.capability,
     work: {
       evaluatedAt: new Date().toISOString(),
-      profile: input.profile,
+      access: input.access,
       requestedAuthority,
       requiredToolNames: entry.profile.allowedToolNames,
       requiresRecursion: false,
@@ -656,7 +656,7 @@ function isTerminalLifecycleState(lifecycleState: ManagedAgentLifecycleState): b
 
 function selectOrchestrationRoute(
   options: ManagedInvocationToolOptions,
-  admissionProfile: ManagedAgentAdmissionProfile,
+  access: ManagedAgentAccess,
   workingDirectoryMode: ManagedAgentWorkingDirectory["mode"] | undefined,
   selector: ManagedAgentOrchestrationLifecycleRouteSelector | undefined,
   allowEconomicAdapterlessRoute = false,
@@ -666,7 +666,7 @@ function selectOrchestrationRoute(
     if (selector?.providerId && route.providerId !== selector.providerId) return false;
     if (selector?.model && route.model !== selector.model) return false;
     if (selector?.routeId && route.routeId !== selector.routeId) return false;
-    const profile = resolveManagedInvocationRouteProfile(route, admissionProfile, agent);
+    const profile = resolveManagedInvocationRouteProfile(route, access, agent);
     return profile !== undefined
       && profile.workingDirectory.mode === workingDirectoryMode
       && (workingDirectoryMode !== "isolated-worktree" || profile.workingDirectoryLease !== undefined)
@@ -686,18 +686,18 @@ function selectOrchestrationRoute(
   const workingDirectoryRequirement = workingDirectoryMode === "isolated-worktree"
     ? "an isolated-worktree"
     : `a ${workingDirectoryMode ?? "declared"}`;
-  throw new Error(`Managed orchestration requires ${workingDirectoryRequirement} ${admissionProfile} route${selectorSummary ? ` matching ${selectorSummary}` : ""}.`);
+  throw new Error(`Managed orchestration requires ${workingDirectoryRequirement} ${access} route${selectorSummary ? ` matching ${selectorSummary}` : ""}.`);
 }
 
 function requireOrchestrationProfile(
   route: ManagedInvocationToolRoute,
-  admissionProfile: ManagedAgentAdmissionProfile,
+  access: ManagedAgentAccess,
   workingDirectoryMode: ManagedAgentWorkingDirectory["mode"] | undefined,
   agent?: NonNullable<ManagedInvocationToolOptions["agentCatalog"]>[number],
 ): ManagedInvocationRouteProfile {
-  const profile = resolveManagedInvocationRouteProfile(route, admissionProfile, agent);
+  const profile = resolveManagedInvocationRouteProfile(route, access, agent);
   if (!profile) {
-    throw new Error(`Managed orchestration route '${route.routeId}' does not expose ${admissionProfile}`);
+    throw new Error(`Managed orchestration route '${route.routeId}' does not expose ${access}`);
   }
   if (profile.workingDirectory.mode !== workingDirectoryMode) {
     throw new Error(`Managed orchestration route '${route.routeId}' working directory mode does not match the orchestration request`);
@@ -724,14 +724,13 @@ function buildOrchestrationChildInvocationRequest(input: {
   readonly requestedBy: string;
   readonly requestSource: string;
   readonly requestedAuthority: ManagedAgentRequestedAuthority;
-  readonly admissionProfile: ManagedAgentAdmissionProfile;
+  readonly access: ManagedAgentAccess;
 }): ManagedAgentInvocationRequest {
   const { adapter } = input.route;
   const invocationId = sanitizeInvocationId(input.childId);
   const workingDirectory = resolveOrchestrationWorkingDirectory(input.profile, invocationId);
   const authority: ManagedAgentAuthorityProfile = {
     authorityProfileId: input.profile.authorityProfileId,
-    permissionProfile: input.profile.permissionProfile,
     toolAuthority: {
       allowedToolNames: input.profile.allowedToolNames,
       writeAllowed: input.profile.writeAllowed === true,
@@ -764,10 +763,10 @@ function buildOrchestrationChildInvocationRequest(input: {
     ].join("\n");
   return defineManagedAgentInvocationRequest({
     invocationId,
-    agentId: `${input.route.routeId}:${input.admissionProfile}`,
+    agentId: `${input.route.routeId}:${input.access}`,
     parentSessionId: input.orchestrationRequest.parentSessionId,
     parentTurnId: input.orchestrationRequest.parentTurnId,
-    profile: input.admissionProfile,
+    access: input.access,
     requestedBy: input.requestedBy,
     requestSource: input.requestSource,
     executionIntent: {

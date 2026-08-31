@@ -337,7 +337,7 @@ function makeBenchmarkContext(item: {
   readonly metadata?: Record<string, unknown>;
 }, profile: {
   readonly id?: string;
-  readonly authorityProfile?: string;
+  readonly access?: "read-only" | "propose" | "approved-write";
 } = {}, execution: {
   readonly runIndex?: number;
   readonly repeatIndex?: number;
@@ -349,7 +349,7 @@ function makeBenchmarkContext(item: {
       displayName: "Kiln Tool Agent",
       surface: "tool-calling",
       purpose: "Tool calling.",
-      authorityProfile: profile.authorityProfile ?? "foundation-readonly-plan",
+      access: profile.access ?? "read-only",
       requiredScorers: [],
       admissionScorers: [],
       minimumDatasetItems: 1,
@@ -908,7 +908,7 @@ describe("createBenchmarkSessionExecutor", () => {
       metadata: { workspaceFixture: fixturePath, benchmarkCaseId: "idempotent-reservation" },
     }, {
       id: "kiln-model-roster-backend-write",
-      authorityProfile: "foundation-apply-approved-writes",
+      access: "approved-write",
     }));
 
     expect(leaseRoot).toContain("kiln-benchmark-write-");
@@ -957,7 +957,7 @@ describe("createBenchmarkSessionExecutor", () => {
       metadata: { workspaceFixture: "packages/core/evals/fixtures/model-roster-v1" },
     }, {
       id: "kiln-model-roster-backend-write",
-      authorityProfile: "foundation-apply-approved-writes",
+      access: "approved-write",
     }))).rejects.toThrow("requires admitted workspace-write");
     expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledTimes(priorRunCount);
   });
@@ -983,7 +983,7 @@ describe("createBenchmarkSessionExecutor", () => {
         },
       }, {
         id: "kiln-formal-verification-pilot",
-        authorityProfile: "foundation-apply-approved-writes",
+        access: "approved-write",
       }),
     );
 
@@ -1414,7 +1414,7 @@ describe("createBenchmarkSessionExecutor", () => {
       metadata: { workspaceFixture: "packages/core/evals/fixtures/model-roster-v1" },
     }, {
       id: "kiln-model-roster-backend-write",
-      authorityProfile: "foundation-apply-approved-writes",
+      access: "approved-write",
     }))).rejects.toThrow("require a configured direct execution target");
     expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledTimes(priorRunCount);
   });
@@ -1880,7 +1880,7 @@ describe("createBenchmarkSessionExecutor", () => {
       },
     }, {
       id: "kiln-model-roster-backend-write",
-      authorityProfile: "foundation-apply-approved-writes",
+      access: "approved-write",
     }));
 
     expect(result.trial).toEqual({ status: "invalid", reason: "account-route-unavailable" });

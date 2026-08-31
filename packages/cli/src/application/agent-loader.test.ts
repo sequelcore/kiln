@@ -108,7 +108,7 @@ describe("agent-loader", () => {
           "modalities:",
           "  - text",
           "targetId: codex-oauth-readonly",
-          "authorityProfileId: foundation-readonly-plan",
+          "authorityProfileId: read-only",
           "communication:",
           "  responseDetail: detailed",
           "  locale: es-MX",
@@ -152,7 +152,7 @@ describe("agent-loader", () => {
         sandbox: true,
         modalities: ["text"],
         targetId: "codex-oauth-readonly",
-        authorityProfileId: "foundation-readonly-plan",
+        authorityProfileId: "read-only",
         communication: {
           responseDetail: "detailed",
           locale: "es-MX",
@@ -188,7 +188,7 @@ describe("agent-loader", () => {
   it.each([
     ["routeId", ["routeId: codex-oauth-readonly"]],
     ["providerRoute", ["providerRoute:", "  providerId: codex-oauth", "  model: gpt-5.4-mini"]],
-    ["authorityProfile", ["authorityProfile: foundation-readonly-plan"]],
+    ["authorityProfile", ["authorityProfile: read-only"]],
   ])("rejects removed %s agent configuration", async (_field, removedConfiguration) => {
     configureDirectories(["invalid.md"], []);
     configureFiles({

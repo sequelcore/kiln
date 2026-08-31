@@ -319,7 +319,7 @@ function makeManagedDescriptor(overrides: Partial<ManagedAgentAdapterDescriptor>
     adapterDescriptorId: "adapter:opencode:harness",
     providerId: "opencode",
     adapterKind: "harness",
-    supportedProfiles: ["foundation-readonly-plan"],
+    supportedAccess: ["read-only"],
     supportedExecutionModes: ["cli-harness"],
     lifecycle: {
       exposesStart: true,
@@ -369,7 +369,7 @@ function makeManagedAdapter(summary = "Managed child completed governed work."):
         agentId: request.agentId,
         parentSessionId: request.parentSessionId,
         parentTurnId: request.parentTurnId,
-        profile: request.profile,
+        access: request.access,
         lifecycleState: "completed",
         providerRoute: request.providerRoute,
         adapterKind: request.adapterKind,
@@ -426,7 +426,7 @@ function managedRouteCapability(input: {
   readonly providerId: string;
   readonly modelId: string;
   readonly toolNames: readonly string[];
-  readonly profile?: "foundation-readonly-plan" | "foundation-apply-approved-writes";
+  readonly access?: "read-only" | "approved-write";
   readonly write?: boolean;
   readonly externalRuntimeAttachment?: { readonly kind: "external-runtime"; readonly runtimeId: string; readonly attachmentId: string };
 }) {
@@ -440,7 +440,7 @@ function managedRouteCapability(input: {
     supportsAttachments: input.externalRuntimeAttachment !== undefined,
     supportsWrite: input.write === true,
     ...(input.externalRuntimeAttachment ? { externalRuntimeAttachment: input.externalRuntimeAttachment } : {}),
-    proof: { status: "configured" as const, source: "test-fixture", provenProfiles: [input.profile ?? "foundation-readonly-plan"] },
+    proof: { status: "configured" as const, source: "test-fixture", provenAccess: [input.access ?? "read-only"] },
     capacity: { kind: "accountless" as const },
     settlement: { kind: "not-required" as const },
   };
@@ -448,7 +448,7 @@ function managedRouteCapability(input: {
 
 function makeManagedExecutionStartTool(
   managedInvocationRequest: Record<string, unknown> = {
-    profile: "foundation-readonly-plan",
+    access: "read-only",
     routeId: "opencode-readonly",
     requestedAuthority: "read_only",
     task: "Execute governed managed work.",
@@ -528,7 +528,7 @@ describe("attached runtime builtin tool surface", () => {
       testEffectiveTurnAuthority: null,
     });
     const result = await runtimeSurface.callBuiltinTools.get("managed_agent.invoke")?.({
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       task: "Inspect without an admitted parent authority.",
     }, {
       session: makeRuntimeSession(),
@@ -888,8 +888,7 @@ describe("attached runtime builtin tool surface", () => {
           createAdapter: async () => adapter,
           profiles: [{
               authorityProfileId: "authority:opencode:readonly",
-              admissionProfile: "foundation-readonly-plan",
-              permissionProfile: "read-only",
+              access: "read-only",
               allowedToolNames: ["read"],
               workingDirectory: { path: "/workspace/kiln", mode: "read-only" },
               timeoutMs: 120000,
@@ -906,7 +905,7 @@ describe("attached runtime builtin tool surface", () => {
     const invoke = runtimeSurface.callBuiltinTools.get("managed_agent.invoke");
 
     const missing = await invoke?.({
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       routeId: "opencode-readonly",
       providerRoute: { providerId: "opencode" },
       task: "Inspect the repository.",
@@ -924,7 +923,7 @@ describe("attached runtime builtin tool surface", () => {
     expect(adapter.invoke).not.toHaveBeenCalled();
 
     const admitted = await invoke?.({
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       routeId: "opencode-readonly",
       providerRoute: { providerId: "opencode" },
       task: "Inspect the repository.",
@@ -932,6 +931,7 @@ describe("attached runtime builtin tool surface", () => {
       workItemId: "work-real",
     }, context) as { readonly isError: boolean };
 
+    console.log("DEBUG admitted", admitted);
     expect(admitted.isError).toBe(false);
     expect(adapter.invoke).toHaveBeenCalledTimes(1);
     expect(boundedWorkAuthority.inspect({
@@ -940,7 +940,7 @@ describe("attached runtime builtin tool surface", () => {
     })).toMatchObject({ managedInvocations: 1, activeManagedInvocations: 0 });
 
     const excessiveAuthority = await invoke?.({
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       routeId: "opencode-readonly",
       providerRoute: { providerId: "opencode" },
       requestedAuthority: "audited",
@@ -994,7 +994,7 @@ describe("attached runtime builtin tool surface", () => {
     const adapter: ManagedAgentRuntimeAdapter = {
       ...baseAdapter,
       descriptor: makeManagedDescriptor({
-        supportedProfiles: ["foundation-apply-approved-writes"],
+        supportedAccess: ["approved-write"],
         writeAuthority: {
           proposalSupported: true,
           approvedApplySupported: true,
@@ -1015,12 +1015,11 @@ describe("attached runtime builtin tool surface", () => {
           routeSource: "explicit-managed-route",
           providerId: "opencode",
           model: "test-model",
-          capability: managedRouteCapability({ routeId: "write-route", providerId: "opencode", modelId: "test-model", toolNames: ["read", "apply-patch"], profile: "foundation-apply-approved-writes", write: true }),
+          capability: managedRouteCapability({ routeId: "write-route", providerId: "opencode", modelId: "test-model", toolNames: ["read", "apply-patch"], access: "approved-write", write: true }),
           createAdapter: async () => adapter,
           profiles: [{
               authorityProfileId: "authority:test:write",
-              admissionProfile: "foundation-apply-approved-writes",
-              permissionProfile: "apply-approved-writes",
+              access: "approved-write",
               allowedToolNames: ["read", "apply-patch"],
               writeAllowed: true,
               workingDirectory: { path: "/workspace/kiln", mode: "workspace-write" },
@@ -1028,10 +1027,9 @@ describe("attached runtime builtin tool surface", () => {
               credentialRoute: { mode: "credentialless" },
               memoryScope: { scope: { kind: "project", id: "kiln" }, access: "read-only" },
               writeAuthority: defineManagedAgentWriteAuthority({
-                profile: "foundation-apply-approved-writes",
                 scope: {
                   workspace: { mode: "apply-approved", allowedPaths: ["/workspace/kiln"], deniedPaths: [] },
-                  memory: { mode: "none", operations: [] },
+                  memory: { operations: [] },
                   artifacts: { mode: "none", resourceUris: [], retention: "none" },
                   tools: { allowedToolNames: ["apply-patch"], deniedToolNames: [] },
                 },
@@ -1047,7 +1045,7 @@ describe("attached runtime builtin tool surface", () => {
       requestApproval: vi.fn(async () => ({ approved: true })),
     };
     const denied = await runtimeSurface.callBuiltinTools.get("managed_agent.invoke")?.({
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       routeId: "write-route",
       providerRoute: { providerId: "opencode", model: "test-model" },
       requestedAuthority: "audited",
@@ -1076,7 +1074,7 @@ describe("attached runtime builtin tool surface", () => {
       adoptedBy: { kind: "operator", actorId: "operator:test", decisionId: "decision:effects-write" },
     });
     const admitted = await runtimeSurface.callBuiltinTools.get("managed_agent.invoke")?.({
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       routeId: "write-route",
       providerRoute: { providerId: "opencode", model: "test-model" },
       requestedAuthority: "audited",
@@ -1100,7 +1098,7 @@ describe("attached runtime builtin tool surface", () => {
       }),
     }));
     const nested = await runtimeSurface.callBuiltinTools.get("managed_agent.invoke")?.({
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       routeId: "write-route",
       providerRoute: { providerId: "opencode", model: "test-model" },
       requestedAuthority: "audited",
@@ -1185,8 +1183,7 @@ describe("attached runtime builtin tool surface", () => {
            externalRuntimeAttachment: routeAttachment,
           profiles: [{
               authorityProfileId: "authority:opencode:readonly",
-              admissionProfile: "foundation-readonly-plan",
-              permissionProfile: "read-only",
+              access: "read-only",
               allowedToolNames: ["read"],
               workingDirectory: { path: "/workspace/kiln", mode: "read-only" },
               timeoutMs: 120000,
@@ -1205,7 +1202,7 @@ describe("attached runtime builtin tool surface", () => {
     // A recovery request naming a work item that is not governed by this goal
     // must be rejected before any mutation - never retargeted onto it.
     const wrongWorkItem = await invoke?.({
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       routeId: "opencode-readonly",
       providerRoute: { providerId: "opencode" },
       task: "Retry the failed managed invocation.",
@@ -1224,7 +1221,7 @@ describe("attached runtime builtin tool surface", () => {
     // A recovery request naming a stale/non-active execution attempt on the
     // correct work item must also be rejected before any mutation.
     const staleAttempt = await invoke?.({
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       routeId: "opencode-readonly",
       providerRoute: { providerId: "opencode" },
       task: "Retry the failed managed invocation.",
@@ -1244,7 +1241,7 @@ describe("attached runtime builtin tool surface", () => {
     // external-runtime attachment differs, so canonical admission must reject
     // the recovery rather than retargeting it.
     const wrongAttachment = await invoke?.({
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       routeId: "opencode-readonly",
       providerRoute: { providerId: "opencode" },
       task: "Retry the failed managed invocation.",
@@ -2491,8 +2488,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           createAdapter: async () => adapter,
           profiles: [{
               authorityProfileId: "authority:opencode:readonly",
-              admissionProfile: "foundation-readonly-plan",
-              permissionProfile: "read-only",
+              access: "read-only",
               allowedToolNames: ["read", "grep", "glob"],
               workingDirectory: {
                 path: "/workspace/kiln",
@@ -2538,7 +2534,6 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     });
     expect(adapter.invoke).toHaveBeenCalledTimes(1);
     expect((adapter.invoke as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].request).toMatchObject({
-      profile: "foundation-readonly-plan",
       requestedAuthority: "read_only",
       providerRoute: {
         providerId: "opencode",
@@ -2568,7 +2563,6 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
 
   it("runs intermediate evidence phases in the governed child before handing control back to the parent", async () => {
     const startTool = makeManagedExecutionStartTool({
-      profile: "foundation-readonly-plan",
       routeId: "opencode-readonly",
       requestedAuthority: "read_only",
       task: "Collect visual reference research before UI implementation.",
@@ -2603,8 +2597,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           createAdapter: async () => adapter,
           profiles: [{
               authorityProfileId: "authority:opencode:readonly",
-              admissionProfile: "foundation-readonly-plan",
-              permissionProfile: "read-only",
+              access: "read-only",
               allowedToolNames: ["read", "grep", "glob", "web_search", "browser_session_start"],
               networkAllowed: true,
               workingDirectory: {
@@ -2629,7 +2622,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           goal: "Collect real visual reference evidence before frontend implementation.",
           tier: "reasoning",
           authorityProfileId: "authority:opencode:readonly",
-          admissionProfile: "foundation-readonly-plan",
+          access: "read-only",
           routeId: "opencode-readonly",
           providerRoute: {
             providerId: "opencode",
@@ -2704,7 +2697,6 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
 
   it("hydrates an unowned intermediate phase from the uniquely preferred compatible route", async () => {
     const startTool = makeManagedExecutionStartTool({
-      profile: "foundation-readonly-plan",
       requestedAuthority: "read_only",
       task: "Run repository verification.",
       summary: "Run repository verification.",
@@ -2726,8 +2718,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     const adapter = makeManagedAdapter();
     const profile = (allowedToolNames: readonly string[]) => ({
       authorityProfileId: `authority:opencode:${allowedToolNames.join("-")}`,
-      admissionProfile: "foundation-readonly-plan" as const,
-      permissionProfile: "read-only",
+      access: "read-only" as const,
       allowedToolNames,
       workingDirectory: { path: "/workspace/kiln", mode: "read-only" as const },
       timeoutMs: 120000,
@@ -2848,7 +2839,6 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           status: "paused",
           nextTool: "managed_agent.invoke",
           managedInvocationRequest: {
-            profile: "foundation-readonly-plan",
             routeId: "opencode-readonly",
             requestedAuthority: "read_only",
             task: `Run ${phase}.`,
@@ -2902,8 +2892,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           createAdapter: async () => adapter,
           profiles: [{
               authorityProfileId: "authority:opencode:readonly",
-              admissionProfile: "foundation-readonly-plan",
-              permissionProfile: "read-only",
+              access: "read-only",
               allowedToolNames: ["read", "grep", "glob"],
               workingDirectory: { path: "/workspace/kiln", mode: "read-only" },
               timeoutMs: 120000,
@@ -2952,7 +2941,6 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
 
   it("does not attach an agent profile when a paused route-owned request forbids it", async () => {
     const startTool = makeManagedExecutionStartTool({
-      profile: "foundation-readonly-plan",
       routeId: "opencode-readonly",
       providerRoute: {
         providerId: "opencode",
@@ -2993,8 +2981,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           createAdapter: async () => adapter,
           profiles: [{
               authorityProfileId: "authority:opencode:readonly",
-              admissionProfile: "foundation-readonly-plan",
-              permissionProfile: "read-only",
+              access: "read-only",
               allowedToolNames: ["read", "grep", "glob"],
               workingDirectory: {
                 path: "/workspace/kiln",
@@ -3018,7 +3005,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           goal: "Collect real visual reference evidence before frontend implementation.",
           tier: "reasoning",
           authorityProfileId: "authority:opencode:readonly",
-          admissionProfile: "foundation-readonly-plan",
+          access: "read-only",
           routeId: "opencode-readonly",
           providerRoute: {
             providerId: "opencode",
@@ -3059,7 +3046,6 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
 
   it("drops stale provider models for route-owned paused requests when the selected route has no model", async () => {
     const startTool = makeManagedExecutionStartTool({
-      profile: "foundation-readonly-plan",
       routeId: "opencode-provider-default",
       providerRoute: {
         providerId: "opencode",
@@ -3100,8 +3086,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           createAdapter: async () => adapter,
           profiles: [{
               authorityProfileId: "authority:opencode:readonly",
-              admissionProfile: "foundation-readonly-plan",
-              permissionProfile: "read-only",
+              access: "read-only",
               allowedToolNames: ["read", "grep", "glob"],
               workingDirectory: {
                 path: "/workspace/kiln",
@@ -3150,7 +3135,6 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
 
   it("repairs intermediate phase routes to a compatible read-only route before pausing", async () => {
     const startTool = makeManagedExecutionStartTool({
-      profile: "foundation-readonly-plan",
       routeId: "opencode-visual-without-browser",
       requestedAuthority: "read_only",
       task: "Collect visual reference research before UI implementation.",
@@ -3186,8 +3170,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
             createAdapter: async () => adapter,
             profiles: [{
                 authorityProfileId: "authority:opencode:readonly-without-browser",
-                admissionProfile: "foundation-readonly-plan",
-                permissionProfile: "read-only",
+                access: "read-only",
                 allowedToolNames: ["read", "grep", "glob"],
                 workingDirectory: {
                   path: "/workspace/kiln",
@@ -3213,8 +3196,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
             createAdapter: async () => adapter,
             profiles: [{
                 authorityProfileId: "authority:opencode:readonly-browser",
-                admissionProfile: "foundation-readonly-plan",
-                permissionProfile: "read-only",
+                access: "read-only",
                 allowedToolNames: ["read", "grep", "glob", "web_search", "browser_session_start"],
                 networkAllowed: true,
                 workingDirectory: {
@@ -3239,7 +3221,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           goal: "Collect real visual reference evidence.",
           tier: "reasoning",
           authorityProfileId: "authority:opencode:readonly-browser",
-          admissionProfile: "foundation-readonly-plan",
+          access: "read-only",
           routeId: "opencode-visual-browser-readonly",
           providerRoute: {
             providerId: "opencode",
@@ -3378,7 +3360,6 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       evidenceRequirements: [],
     });
     const startTool = makeManagedExecutionStartTool({
-      profile: "foundation-readonly-plan",
       requestedAuthority: "read_only",
       providerRoute: {
         providerId: "openrouter",
@@ -3406,7 +3387,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           routeSource: "explicit-managed-route",
           providerId: "openrouter",
           model: "openrouter/free",
-          profiles: ["foundation-readonly-plan"],
+          accessLevels: ["read-only"],
           reason: "Direct provider route is unavailable.",
         }],
       },
@@ -3501,13 +3482,12 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
         routeSource: "explicit-managed-route" as const,
         providerId: "openrouter",
         model: "openrouter/free",
-        profiles: ["foundation-readonly-plan"] as const,
+        accessLevels: ["read-only"] as const,
         reason: "Direct provider route is unavailable.",
       }],
     };
     const triggerFailure = async (toolCallId: string, workItemStore: WorkItemStore, goalRunStore: GoalRunStore) => {
       const startTool = makeManagedExecutionStartTool({
-        profile: "foundation-readonly-plan",
         requestedAuthority: "read_only",
         providerRoute: { providerId: "openrouter", model: "openrouter/free" },
         task: "Execute governed managed work.",
@@ -3602,7 +3582,6 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       evidenceRequirements: [],
     });
     const startTool = makeManagedExecutionStartTool({
-      profile: "foundation-readonly-plan",
       requestedAuthority: "read_only",
       providerRoute: { providerId: "openrouter", model: "openrouter/free" },
       task: "Execute governed managed work.",
@@ -3627,7 +3606,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           routeSource: "explicit-managed-route",
           providerId: "openrouter",
           model: "openrouter/free",
-          profiles: ["foundation-readonly-plan"],
+          accessLevels: ["read-only"],
           reason: "Direct provider route is unavailable.",
         }],
       },
@@ -3701,13 +3680,12 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
         routeSource: "explicit-managed-route" as const,
         providerId: "openrouter",
         model: "openrouter/free",
-        profiles: ["foundation-readonly-plan"] as const,
+        accessLevels: ["read-only"] as const,
         reason: "Direct provider route is unavailable.",
       }],
     };
     const triggerFailure = async (workItemStore: WorkItemStore, goalRunStore: GoalRunStore) => {
       const startTool = makeManagedExecutionStartTool({
-        profile: "foundation-readonly-plan",
         requestedAuthority: "read_only",
         providerRoute: { providerId: "openrouter", model: "openrouter/free" },
         task: "Execute governed managed work.",
@@ -3799,13 +3777,12 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
         routeSource: "explicit-managed-route" as const,
         providerId: "openrouter",
         model: "openrouter/free",
-        profiles: ["foundation-readonly-plan"] as const,
+        accessLevels: ["read-only"] as const,
         reason: "Direct provider route is unavailable.",
       }],
     };
     const triggerFailure = async (workItemStore: WorkItemStore, goalRunStore: GoalRunStore) => {
       const startTool = makeManagedExecutionStartTool({
-        profile: "foundation-readonly-plan",
         requestedAuthority: "read_only",
         providerRoute: { providerId: "openrouter", model: "openrouter/free" },
         task: "Execute governed managed work.",
@@ -3876,13 +3853,12 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
         routeSource: "explicit-managed-route" as const,
         providerId: "openrouter",
         model: "openrouter/free",
-        profiles: ["foundation-readonly-plan"] as const,
+        accessLevels: ["read-only"] as const,
         reason: "Direct provider route is unavailable.",
       }],
     };
     const triggerFailure = async (workItemStore: WorkItemStore, goalRunStore: GoalRunStore) => {
       const startTool = makeManagedExecutionStartTool({
-        profile: "foundation-readonly-plan",
         requestedAuthority: "read_only",
         providerRoute: { providerId: "openrouter", model: "openrouter/free" },
         task: "Execute governed managed work.",
@@ -3938,15 +3914,14 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           supportsRecursion: true,
           supportsAttachments: false,
           supportsWrite: false,
-          proof: { status: "configured", source: "test-fixture", provenProfiles: ["foundation-readonly-plan"] },
+          proof: { status: "configured", source: "test-fixture", provenAccess: ["read-only"] },
           capacity: { kind: "accountless" },
           settlement: { kind: "not-required" },
         },
         createAdapter: async () => makeManagedAdapter(),
         profiles: [{
             authorityProfileId: "authority:opencode:readonly",
-            admissionProfile: "foundation-readonly-plan",
-            permissionProfile: "read-only" as const,
+            access: "read-only",
             allowedToolNames: ["read", "grep", "glob"],
             workingDirectory: { path: "/workspace/kiln", mode: "read-only" as const },
             timeoutMs: 120000,
@@ -3959,7 +3934,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
         routeSource: "explicit-managed-route" as const,
         providerId: "openrouter",
         model: "openrouter/free",
-        profiles: ["foundation-readonly-plan"] as const,
+        accessLevels: ["read-only"] as const,
         reason: "Direct provider route is unavailable.",
       }],
     } satisfies AttachedRuntimeManagedInvocationConfig;
@@ -3987,7 +3962,6 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
               workItemId: "work-managed",
               nextTool: "managed_agent.invoke",
               managedInvocationRequest: {
-                profile: "foundation-readonly-plan",
                 ...(isFinal
                   ? { providerRoute: { providerId: "openrouter", model: "openrouter/free" } }
                   : { routeId: "opencode-readonly" }),
@@ -4116,7 +4090,6 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
 
   it("blocks the work item without inventing an attempt when managed-delegation auto-start is unavailable", async () => {
     const startTool = makeManagedExecutionStartTool({
-      profile: "foundation-readonly-plan",
       requestedAuthority: "read_only",
       providerRoute: {
         providerId: "openrouter",
@@ -4146,7 +4119,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           routeSource: "explicit-managed-route",
           providerId: "openrouter",
           model: "openrouter/free",
-          profiles: ["foundation-readonly-plan"],
+          accessLevels: ["read-only"],
           reason: "Direct provider route is unavailable.",
         }],
       },
@@ -4205,7 +4178,6 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
 
   it("fails closed instead of upgrading authority when an exact route does not support the requested profile", async () => {
     const startTool = makeManagedExecutionStartTool({
-      profile: "foundation-readonly-plan",
       routeId: "opencode-go-frontend-approved-write",
       requestedAuthority: "read_only",
       task: "Execute governed frontend work.",
@@ -4220,7 +4192,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       ...makeManagedAdapter(),
       descriptor: makeManagedDescriptor({
         providerId: "opencode-go",
-        supportedProfiles: ["foundation-apply-approved-writes"],
+        supportedAccess: ["approved-write"],
         writeAuthority: {
           proposalSupported: true,
           approvedApplySupported: true,
@@ -4241,12 +4213,11 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           routeSource: "explicit-managed-route",
           providerId: "opencode-go",
           model: "kimi-k2.6",
-          capability: managedRouteCapability({ routeId: "opencode-go-frontend-approved-write", providerId: "opencode-go", modelId: "kimi-k2.6", toolNames: ["read", "grep", "glob", "write"], profile: "foundation-apply-approved-writes", write: true }),
+          capability: managedRouteCapability({ routeId: "opencode-go-frontend-approved-write", providerId: "opencode-go", modelId: "kimi-k2.6", toolNames: ["read", "grep", "glob", "write"], access: "approved-write", write: true }),
           createAdapter: async () => adapter,
           profiles: [{
               authorityProfileId: "authority:opencode-go:frontend",
-              admissionProfile: "foundation-apply-approved-writes",
-              permissionProfile: "apply-approved-writes",
+              access: "approved-write",
               writeAllowed: true,
               allowedToolNames: ["read", "grep", "glob", "write"],
               workingDirectory: {
@@ -4263,7 +4234,6 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
                 access: "write-proposals",
               },
               writeAuthority: defineManagedAgentWriteAuthority({
-                profile: "foundation-apply-approved-writes",
                 scope: defineManagedAgentWriteScope({
                   workspace: {
                     mode: "apply-approved",
@@ -4271,8 +4241,6 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
                     deniedPaths: ["/workspace/kiln/.git"],
                   },
                   memory: {
-                    mode: "propose",
-                    scope: { kind: "project", id: "kiln" },
                     operations: ["create", "update"],
                   },
                   artifacts: {

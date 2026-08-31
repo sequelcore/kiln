@@ -499,10 +499,10 @@ describe("config-status", () => {
 
     expect(snapshot.global).toMatchObject({ status: "invalid" });
     expect(snapshot.errors).toEqual(expect.arrayContaining([
-      expect.stringMatching(/Global config version must be "6"/),
+      expect.stringMatching(/Global config version must be "7"/),
     ]));
     expect(health.value).toMatchObject({
-      global: { error: expect.stringContaining('Global config version must be "6"') },
+      global: { error: expect.stringContaining('Global config version must be "7"') },
     });
   });
 
@@ -743,7 +743,7 @@ describe("config-status", () => {
       "goal: Review implementation quality",
       "tier: reasoning",
       "targetId: codex-unconfigured",
-      "authorityProfileId: foundation-readonly-plan",
+      "authorityProfileId: read-only",
       "---",
       "Review only.",
       "",
@@ -1154,7 +1154,7 @@ describe("config-status", () => {
       "goal: Review implementation quality through OpenCode",
       "tier: reasoning",
       "targetId: opencode-review",
-      "authorityProfileId: foundation-readonly-plan",
+      "authorityProfileId: read-only",
       "---",
       "Review only.",
       "",
@@ -1218,7 +1218,7 @@ describe("config-status", () => {
       "goal: Review implementation quality through OpenCode",
       "tier: reasoning",
       "targetId: opencode-review",
-      "authorityProfileId: foundation-readonly-plan",
+      "authorityProfileId: read-only",
       "---",
       "Review only.",
       "",
@@ -1234,7 +1234,7 @@ describe("config-status", () => {
         supportsRecursion: false,
         supportsAttachments: false,
         supportsWrite: false,
-        proof: { status: "configured" as const, source: "test", provenProfiles: ["foundation-readonly-plan" as const] },
+        proof: { status: "configured" as const, source: "test", provenAccess: ["read-only" as const] },
         capacity: { kind: "policy-bound" as const, accountPolicyId: "managed-opencode-go" },
         settlement: { kind: "managed-economic-selection" as const, contractVersion: "managed-economic-v1" as const, policyIds: ["managed-opencode-go"], pendingSettlement: "required" as const, recovery: "required" as const },
       },
@@ -1322,7 +1322,7 @@ describe("config-status", () => {
     const globalDir = join(tempDir, "xdg", "kiln");
     mkdirSync(globalDir, { recursive: true });
     writeFileSync(join(globalDir, "config.yaml"), [
-      'version: "6"',
+      'version: "7"',
       "permissions:",
       "  approval: on-request",
       "  sandbox: read-only",

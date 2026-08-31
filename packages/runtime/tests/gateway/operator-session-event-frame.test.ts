@@ -393,9 +393,9 @@ function terminalManagedInvocationEvent(input: {
          routeSource: "explicit-managed-route",
          providerId: "opencode",
         model: "minimax-m2.5",
-        profile: "foundation-readonly-plan",
+        access: "read-only",
         contextMode: "isolated",
-        authorityProfileId: "authority:opencode-readonly:foundation-readonly-plan",
+        authorityProfileId: "authority:opencode-readonly:read-only",
          resourceLease: {
           leaseId: `child-${input.lifecycleState}:resource-lease`,
           createdAt: "2026-05-24T12:00:00.000Z",

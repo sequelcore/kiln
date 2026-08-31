@@ -25,7 +25,7 @@ describe("managed invocation runtime tool", () => {
 
     const result = assertManagedToolResult(await surface.callBuiltinTools.get("managed_agent.invoke")?.({
       routeId: "opencode-go-readonly",
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       providerRoute: {
         providerId: "opencode-go",
         model: "kimi-k2.7-code",
@@ -68,8 +68,7 @@ describe("managed invocation runtime tool", () => {
       adapterKind: "harness",
       executionMode: "cli-harness",
       authoritySnapshot: {
-        authorityProfileId: "authority:opencode-go-readonly:foundation-readonly-plan",
-        permissionProfile: "read-only",
+        authorityProfileId: "authority:opencode-go-readonly:read-only",
         toolAuthority: {
           allowedToolNames: ["read", "grep", "glob"],
           writeAllowed: false,
@@ -89,7 +88,7 @@ describe("managed invocation runtime tool", () => {
           surface: "cli-harness",
         },
         authorityProfile: {
-          authorityProfileId: "authority:opencode-go-readonly:foundation-readonly-plan",
+          authorityProfileId: "authority:opencode-go-readonly:read-only",
           toolAuthority: {
             allowedToolNames: ["read", "grep", "glob"],
             writeAllowed: false,
@@ -118,7 +117,7 @@ describe("managed invocation runtime tool", () => {
 
     const result = assertManagedToolResult(await surface.callBuiltinTools.get("managed_agent.invoke")?.({
       routeId: "opencode-readonly",
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       providerRoute: {
         providerId: "opencode",
         model: "opencode-go/kimi-k2.7-code",

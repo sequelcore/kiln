@@ -18,7 +18,7 @@ describe("managed invocation runtime tool — recovery and governed handoff", ()
     };
 
     const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       providerRoute: {
         providerId: "opencode",
         model: "opencode-default-model",
@@ -107,7 +107,7 @@ describe("managed invocation runtime tool — recovery and governed handoff", ()
     };
 
     const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       providerRoute: {
         providerId: "opencode",
         model: "opencode-default-model",
@@ -187,7 +187,7 @@ describe("managed invocation runtime tool — recovery and governed handoff", ()
     });
     const invoke = surface.callBuiltinTools.get("managed_agent.invoke")!;
     const input = {
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       providerRoute: { providerId: "opencode", model: "opencode-default-model" },
       requestedAuthority: "read_only",
       task: "Execute the final managed child phase.",
@@ -269,7 +269,7 @@ describe("managed invocation runtime tool — recovery and governed handoff", ()
     };
 
     const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       providerRoute: {
         providerId: "opencode",
         model: "opencode-default-model",
@@ -359,7 +359,7 @@ describe("managed invocation runtime tool — recovery and governed handoff", ()
     };
 
     const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       providerRoute: {
         providerId: "opencode",
         model: "opencode-default-model",
@@ -437,7 +437,7 @@ describe("managed invocation runtime tool — recovery and governed handoff", ()
     const session = makeSession();
 
     const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       providerRoute: {
         providerId: "opencode",
         model: "opencode-default-model",
@@ -527,7 +527,7 @@ describe("managed invocation runtime tool — recovery and governed handoff", ()
     ));
     const session = makeSession();
     const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       providerRoute: { providerId: "opencode", model: "opencode-default-model" },
       requestedAuthority: "read_only",
       task: "Execute the final managed child phase.",
@@ -578,7 +578,7 @@ describe("managed invocation runtime tool — recovery and governed handoff", ()
     };
 
     const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       providerRoute: {
         providerId: "opencode",
         model: "opencode-default-model",
@@ -640,7 +640,7 @@ describe("managed invocation runtime tool — recovery and governed handoff", ()
     };
 
     const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       providerRoute: {
         providerId: "opencode",
         model: "opencode-default-model",
@@ -721,7 +721,7 @@ describe("managed invocation runtime tool — recovery and governed handoff", ()
     };
 
     const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       providerRoute: {
         providerId: "opencode",
         model: "opencode-default-model",
@@ -838,7 +838,7 @@ describe("managed invocation runtime tool — recovery and governed handoff", ()
     };
 
     const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       providerRoute: {
         providerId: "opencode",
         model: "opencode-default-model",

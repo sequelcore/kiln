@@ -8,7 +8,7 @@ const capability = {
   adapter: { kind: "cli-harness" as const, capabilityId: "adapter-alpha", capabilityVersion: "v1" },
   authorityCeiling: "read_only" as const,
   toolNames: ["read"], supportsRecursion: false, supportsAttachments: false, supportsWrite: false,
-  proof: { status: "configured" as const, source: "test", provenProfiles: ["foundation-readonly-plan" as const] },
+  proof: { status: "configured" as const, source: "test", provenAccess: ["read-only" as const] },
   capacity: { kind: "accountless" as const }, settlement: { kind: "not-required" as const },
 };
 
@@ -20,7 +20,7 @@ const agent = {
 
 const authorityProfiles = [{
   id: "cross-repository-research-readonly",
-  admissionProfile: "foundation-readonly-plan",
+  access: "read-only",
 }] as const;
 
 describe("managed agent route admission", () => {

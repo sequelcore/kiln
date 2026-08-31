@@ -44,7 +44,7 @@ function makeRequest(timeoutMs = 120000): ManagedAgentInvocationRequest {
     agentId: "agent-reviewer",
     parentSessionId: "session-parent",
     parentTurnId: "session-parent:turn:1",
-    profile: "foundation-readonly-plan",
+    access: "read-only",
     requestedBy: "operator",
     requestSource: "manual",
     providerRoute: {
@@ -55,8 +55,7 @@ function makeRequest(timeoutMs = 120000): ManagedAgentInvocationRequest {
     adapterKind: "harness",
     executionMode: "cli-harness",
     authority: {
-      authorityProfileId: "foundation-readonly",
-      permissionProfile: "read-only",
+      authorityProfileId: "read-only",
       toolAuthority: {
         allowedToolNames: ["read", "rg"],
         writeAllowed: false,
@@ -88,7 +87,7 @@ function makeWriteRequest(timeoutMs = 120000): ManagedAgentInvocationRequest {
     agentId: "agent-implementer",
     parentSessionId: "session-parent",
     parentTurnId: "session-parent:turn:1",
-    profile: "foundation-apply-approved-writes",
+    access: "approved-write",
     requestedBy: "operator",
     requestSource: "manual",
     providerRoute: {
@@ -99,8 +98,7 @@ function makeWriteRequest(timeoutMs = 120000): ManagedAgentInvocationRequest {
     adapterKind: "harness",
     executionMode: "cli-harness",
     authority: {
-      authorityProfileId: "foundation-apply-approved",
-      permissionProfile: "apply-approved-writes",
+      authorityProfileId: "approved-write",
       toolAuthority: {
         allowedToolNames: ["read", "rg", "apply-patch"],
         writeAllowed: true,
@@ -119,7 +117,6 @@ function makeWriteRequest(timeoutMs = 120000): ManagedAgentInvocationRequest {
         access: "write-proposals",
       },
       writeAuthority: defineManagedAgentWriteAuthority({
-        profile: "foundation-apply-approved-writes",
         scope: defineManagedAgentWriteScope({
           workspace: {
             mode: "apply-approved",
@@ -127,8 +124,6 @@ function makeWriteRequest(timeoutMs = 120000): ManagedAgentInvocationRequest {
             deniedPaths: ["C:/workspace/kiln/.git"],
           },
           memory: {
-            mode: "propose",
-            scope: { kind: "project", id: "kiln" },
             operations: ["create", "update"],
           },
           artifacts: {
@@ -161,7 +156,7 @@ function snapshotInputFor(
 ): ManagedAgentCapabilitySnapshotInput {
   return {
     capturedAt: "2026-05-07T08:00:00.000Z",
-    routeId: `${request.providerRoute.providerId}:${request.profile}`,
+    routeId: `${request.providerRoute.providerId}:${request.access}`,
     routeSource: "explicit-managed-route",
   };
 }
@@ -306,7 +301,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     expect(factory.mock.calls[0]?.[2]?.permissionPolicy).toEqual({ approval: "untrusted", sandbox: "read-only" });
   });
 
-  it("executes an admitted foundation-readonly-plan invocation and records replayable evidence", async () => {
+  it("executes an admitted read-only invocation and records replayable evidence", async () => {
     const run = vi.fn((options: ExecutionSessionRunOptions) => { void options; return eventStream([
       { type: "text_delta", content: "Review complete." },
       {
@@ -368,7 +363,6 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
             proof: "proven",
           },
           projected: {
-            permissionProfile: "read-only",
             approval: "on-request",
             sandbox: "read-only",
             source: "cli-harness-session-factory",
@@ -463,7 +457,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
           proof: "proven",
         },
         projected: {
-          permissionProfile: "read-only",
+          access: request.access,
           approval: "on-request",
           sandbox: "read-only",
           source: "cli-harness-session-factory",
@@ -515,7 +509,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
           proof: "proven",
         },
         projected: {
-          permissionProfile: "read-only",
+          access: request.access,
           approval: "on-request",
           sandbox: "read-only",
           source: "cli-harness-session-factory",

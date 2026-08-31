@@ -39,7 +39,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
     const result = await runManagedAgentOrchestrationLifecycle({
       orchestrationRequest,
       managedInvocation,
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
       requestedAuthority: "audited",
       lifecycleObserver: {
@@ -61,7 +61,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       invocationId: "fan-out-test:child:1",
       routeId: "test-write",
       providerId: "codex",
-      authorityProfileId: "authority:test-write:foundation-apply-approved-writes",
+      authorityProfileId: "authority:test-write:approved-write",
       contextMode: "isolated",
       coordinationUsage: {
         version: "managed-agent-coordination-usage-v1",
@@ -104,7 +104,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
         workingDirectoryMode: "isolated-worktree",
       }),
       managedInvocation: createManagedInvocation(),
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
       requestedAuthority: "audited",
     });
@@ -132,8 +132,8 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
         role: "Reviewer",
         goal: "Review concisely and retain findings.",
         tier: "reasoning",
-        authorityProfileId: "authority:test-write:foundation-apply-approved-writes",
-        admissionProfile: "foundation-apply-approved-writes",
+        authorityProfileId: "authority:test-write:approved-write",
+        access: "approved-write",
         routeId: "test-write",
         communication: {
           responseDetail: "concise",
@@ -166,7 +166,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
         workingDirectoryMode: "isolated-worktree",
       }),
       managedInvocation,
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       callerIdentity: {
         kind: "kiln-runtime",
         surface: "test",
@@ -236,7 +236,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
         ...managedInvocation,
         routes: [primaryRoute, secondaryRoute],
       },
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
       requestedAuthority: "audited",
     });
@@ -279,7 +279,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
         failOrdinals: new Set([1]),
         requestObserver: (request) => observedInvocations.push(request.invocationId),
       }),
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
       requestedAuthority: "audited",
     });
@@ -314,7 +314,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
         workingDirectoryMode: "isolated-worktree",
       }),
       managedInvocation: createManagedInvocation(),
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
       requestedAuthority: "audited",
     })).rejects.toThrow("unknown agent profile 'invented-agent'");
@@ -349,7 +349,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
         workingDirectoryMode: "read-only",
       }),
       managedInvocation: { ...managedInvocation, routes: [primaryRoute, secondaryRoute] },
-      profile: "foundation-readonly-plan",
+      access: "read-only",
     });
 
     expect(result.orchestrationResult).toMatchObject({
@@ -377,7 +377,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
         workingDirectoryMode: "read-only",
       }),
       managedInvocation: createReadOnlyManagedInvocation(),
-      profile: "foundation-readonly-plan",
+      access: "read-only",
     })).rejects.toThrow("requires at least two distinct provider/model identities");
   });
 
@@ -385,7 +385,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
     const result = await runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: request(2),
       managedInvocation: createManagedInvocation({ failOrdinals: new Set([2]) }),
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
       requestedAuthority: "audited",
     });
@@ -402,7 +402,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
     const result = await runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: request(2),
       managedInvocation: createManagedInvocation({ recoveredOrdinals: new Set([2]) }),
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
       requestedAuthority: "audited",
     });
@@ -420,7 +420,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
     await expect(runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: economicRequest(2),
       managedInvocation: managedInvocation.options,
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
       requestedAuthority: "audited",
       authorityAdmission: managedEconomicAdmissionBundle({
@@ -444,7 +444,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
     await expect(runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: request(2),
       managedInvocation,
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
       requestedAuthority: "audited",
       lifecycleObserver: {
@@ -501,7 +501,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
         ...managedInvocation,
         invocationService: fakeService as unknown as RuntimeManagedAgentInvocationService,
       },
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
       requestedAuthority: "audited",
     })).rejects.toThrow("Managed orchestration child start failed");
@@ -518,7 +518,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
         allowedPaths: ["c:\\repo\\packages"],
         deniedPaths: ["c:\\repo\\.git"],
       }),
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
       requestedAuthority: "audited",
     });
@@ -557,7 +557,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
           externalRuntimeAttachment: { kind: "external-runtime", runtimeId: "mcp-external-runtime", attachmentId: "instance-a" },
         }],
       },
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
       requestedAuthority: "audited",
       lifecycleObserver: {
@@ -580,7 +580,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
         invocationService: new RuntimeManagedAgentInvocationService(),
         routes: [],
       },
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
       requestedAuthority: "audited",
     })).rejects.toThrow("Managed orchestration requires an isolated-worktree");
@@ -662,15 +662,15 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
           role: "Economic worker",
           goal: "Execute only after durable commitment.",
           tier: "reasoning" as const,
-          authorityProfileId: "authority:test-write:foundation-apply-approved-writes",
-          admissionProfile: "foundation-apply-approved-writes",
+          authorityProfileId: "authority:test-write:approved-write",
+          access: "approved-write",
           economicPolicyId: "economy-policy",
           economicPolicyRevision: "revision-001",
           economicPolicyCandidateRouteIds: [primaryRoute.routeId],
         }],
         economicDispatch: { prepare: preparation },
       },
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
       requestedAuthority: "audited",
       authorityAdmission: managedEconomicAdmissionBundle({
@@ -692,7 +692,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
     await expect(runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: economicRequest(2),
       managedInvocation: managedInvocation.options,
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
       requestedAuthority: "audited",
       authorityAdmission: managedInvocation.authorityAdmission,
@@ -709,7 +709,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       runManagedAgentOrchestrationLifecycle({
         orchestrationRequest: economicRequest(2),
         managedInvocation: managedInvocation.options,
-        profile: "foundation-apply-approved-writes",
+        access: "approved-write",
         callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
         requestedAuthority: "audited",
         authorityAdmission: managedInvocation.authorityAdmission,
@@ -747,7 +747,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
     await expect(runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: economicRequest(2),
       managedInvocation: managedInvocation.options,
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
       requestedAuthority: "audited",
       authorityAdmission: managedInvocation.authorityAdmission,
@@ -785,7 +785,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
         workingDirectoryMode: "isolated-worktree",
       }),
       managedInvocation: managedInvocation.options,
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
       requestedAuthority: "audited",
       authorityAdmission: managedInvocation.authorityAdmission,
@@ -802,7 +802,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
     await expect(runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: economicRequest(2),
       managedInvocation: managedInvocation.options,
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
       requestedAuthority: "audited",
       authorityAdmission: managedInvocation.authorityAdmission,
@@ -829,7 +829,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
           },
         ],
       },
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
     })).rejects.toThrow("Managed orchestration route selection is ambiguous");
   });
 });
@@ -888,7 +888,7 @@ function createManagedInvocation(input: {
         target: { providerId: "codex", modelId: "gpt-5.5" },
         adapter: { kind: "cli-harness", capabilityId: "codex-cli", capabilityVersion: "1" },
         authorityCeiling: "destructive", toolNames: ["read", "grep", "apply-patch"], supportsRecursion: true, supportsAttachments: false, supportsWrite: true,
-        proof: { status: "configured", source: "test", provenProfiles: ["foundation-apply-approved-writes"] }, capacity: { kind: "accountless" }, settlement: { kind: "not-required" },
+        proof: { status: "configured", source: "test", provenAccess: ["approved-write"] }, capacity: { kind: "accountless" }, settlement: { kind: "not-required" },
       },
       createAdapter: async () => createAdapter({
         failOrdinals: input.failOrdinals ?? new Set(),
@@ -897,9 +897,8 @@ function createManagedInvocation(input: {
         ...(input.requestObserver ? { requestObserver: input.requestObserver } : {}),
       }),
       profiles: [{
-          authorityProfileId: "authority:test-write:foundation-apply-approved-writes",
-          admissionProfile: "foundation-apply-approved-writes",
-          permissionProfile: "apply-approved-writes",
+          authorityProfileId: "authority:test-write:approved-write",
+          access: "approved-write",
           allowedToolNames: ["read", "grep", "apply-patch"],
           writeAllowed: true,
           networkAllowed: false,
@@ -919,7 +918,6 @@ function createManagedInvocation(input: {
             access: "none",
           },
           writeAuthority: {
-            profile: "foundation-apply-approved-writes",
             scope: {
               workspace: {
                 mode: "apply-approved",
@@ -927,7 +925,6 @@ function createManagedInvocation(input: {
                 deniedPaths: input.deniedPaths ?? [`${sourcePath}\\.git`],
               },
               memory: {
-                mode: "none",
                 operations: [],
               },
               artifacts: {
@@ -1051,8 +1048,8 @@ function createEconomicManagedInvocation(input: {
         role: "Economic worker",
         goal: "Execute only after durable commitment.",
         tier: "reasoning" as const,
-        authorityProfileId: "authority:test-write:foundation-apply-approved-writes",
-        admissionProfile: "foundation-apply-approved-writes" as const,
+        authorityProfileId: "authority:test-write:approved-write",
+        access: "approved-write" as const,
         economicPolicyId: "economy-policy",
         economicPolicyRevision: "revision-001",
         economicPolicyCandidateRouteIds: [route.routeId],
@@ -1107,15 +1104,14 @@ function createReadOnlyManagedInvocation(): ManagedInvocationToolOptions {
         target: { providerId: "codex", modelId: "gpt-5.5" },
         adapter: { kind: "cli-harness", capabilityId: "codex-cli", capabilityVersion: "1" },
         authorityCeiling: "audited", toolNames: ["read", "grep"], supportsRecursion: true, supportsAttachments: false, supportsWrite: false,
-        proof: { status: "configured", source: "test", provenProfiles: ["foundation-readonly-plan"] }, capacity: { kind: "accountless" }, settlement: { kind: "not-required" },
+        proof: { status: "configured", source: "test", provenAccess: ["read-only"] }, capacity: { kind: "accountless" }, settlement: { kind: "not-required" },
       },
       createAdapter: async () => createAdapter({
         failOrdinals: new Set(), recoveredOrdinals: new Set(), holdOrdinals: new Set(),
       }),
       profiles: [{
-          authorityProfileId: "authority:test-read-only:foundation-readonly-plan",
-          admissionProfile: "foundation-readonly-plan",
-          permissionProfile: "read-only",
+          authorityProfileId: "authority:test-read-only:read-only",
+          access: "read-only",
           allowedToolNames: ["read", "grep"],
           workingDirectory: {
             path: "C:/repo",
@@ -1143,7 +1139,7 @@ function createAdapter(input: {
       adapterDescriptorId: "adapter:codex:harness",
       providerId: "codex",
       adapterKind: "harness",
-      supportedProfiles: ["foundation-readonly-plan", "foundation-apply-approved-writes"],
+      supportedAccess: ["read-only", "approved-write"],
       supportedExecutionModes: ["cli-harness"],
       lifecycle: {
         exposesStart: true,
@@ -1198,7 +1194,7 @@ function createAdapter(input: {
         agentId: request.agentId,
         parentSessionId: request.parentSessionId,
         parentTurnId: request.parentTurnId,
-        profile: request.profile,
+        access: request.access,
         lifecycleState: input.recoveredOrdinals.has(ordinal) ? "recovered" : "completed",
         providerRoute: request.providerRoute,
         adapterKind: request.adapterKind,

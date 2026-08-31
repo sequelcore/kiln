@@ -6,6 +6,7 @@ import {
   type ManagedAgentOrchestrationExpectedEvidence,
   type ManagedAgentOrchestrationRequest,
 } from "../agents/managed-invocation/orchestration.js";
+import type { ManagedAgentAccess } from "../agents/managed-invocation/index.js";
 import {
   defineDeliberationLevelId,
   type DeliberationIntent,
@@ -31,7 +32,7 @@ export interface ManagedAgentOrchestrationWorkItemMaterializationInput {
   readonly risk?: string;
   readonly assignedAgentProfile?: string;
   readonly routeId?: string;
-  readonly authorityProfile?: string;
+  readonly access?: ManagedAgentAccess;
 }
 
 export interface ManagedAgentOrchestrationWorkItemMaterializationResult {
@@ -146,7 +147,7 @@ export function materializeManagedAgentOrchestrationWorkItems(
       risk: input.risk,
       assignedAgentProfile: input.assignedAgentProfile,
       routeId: input.routeId,
-      authorityProfile: input.authorityProfile,
+      access: input.access,
     });
     const existing = input.workItemStore.get(workItemInput.id!);
     if (existing) {
@@ -227,7 +228,7 @@ function toWorkItemInput(input: {
     assignedAgentProfile: input.goalRun.routePolicy.managedAgentProfile
       ?? input.plan.managedAgentDelegationCandidates[0],
     routeId: input.goalRun.routePolicy.preferredRouteId,
-    authorityProfile: input.goalRun.authorityEnvelope.maximumAuthority,
+    authority: input.goalRun.authorityEnvelope.maximumAuthority,
     expectedEvidence: input.draft.expectedEvidence,
     verificationGates: input.draft.verificationGates,
     dependencies: input.draft.dependencies.map((dependency) => requireMappedId(input.idBySource, dependency)),
@@ -249,7 +250,7 @@ function toManagedAgentOrchestrationWorkItemInput(input: {
   readonly risk?: string;
   readonly assignedAgentProfile?: string;
   readonly routeId?: string;
-  readonly authorityProfile?: string;
+  readonly access?: ManagedAgentAccess;
 }): WorkItemUpsertInput {
   const mergeEvidence = `managed-orchestration:merge:${input.request.mergePolicy.mode}`;
   const adoptionEvidence = input.request.mergePolicy.adoptionRequired
@@ -270,7 +271,7 @@ function toManagedAgentOrchestrationWorkItemInput(input: {
     ],
     assignedAgentProfile: input.assignedAgentProfile,
     routeId: input.routeId,
-    authorityProfile: input.authorityProfile,
+    access: input.access,
     expectedEvidence: uniqueStrings([
       ...input.child.expectedEvidence
         .filter((evidence) => evidence.required)
@@ -370,7 +371,7 @@ function assertExistingMatches(existing: WorkItem, input: WorkItemUpsertInput): 
     existing.sourceWorkItemId !== input.sourceWorkItemId ? "sourceWorkItemId" : undefined,
     existing.routeId !== input.routeId ? "routeId" : undefined,
     existing.assignedAgentProfile !== input.assignedAgentProfile ? "assignedAgentProfile" : undefined,
-    existing.authorityProfile !== input.authorityProfile ? "authorityProfile" : undefined,
+    existing.authority !== input.authority ? "authority" : undefined,
     !sameStrings(existing.triggers, input.triggers) ? "triggers" : undefined,
     !sameStrings(existing.expectedEvidence, input.expectedEvidence) ? "expectedEvidence" : undefined,
     !sameStrings(existing.verificationGates, input.verificationGates) ? "verificationGates" : undefined,
@@ -397,7 +398,7 @@ function assertExistingManagedOrchestrationWorkItemMatches(existing: WorkItem, i
     existing.sourceWorkItemId !== input.sourceWorkItemId ? "sourceWorkItemId" : undefined,
     existing.routeId !== input.routeId ? "routeId" : undefined,
     existing.assignedAgentProfile !== input.assignedAgentProfile ? "assignedAgentProfile" : undefined,
-    existing.authorityProfile !== input.authorityProfile ? "authorityProfile" : undefined,
+    existing.access !== input.access ? "access" : undefined,
     !sameStrings(existing.triggers, input.triggers) ? "triggers" : undefined,
     !sameStrings(existing.expectedEvidence, input.expectedEvidence) ? "expectedEvidence" : undefined,
     !sameStrings(existing.verificationGates, input.verificationGates) ? "verificationGates" : undefined,

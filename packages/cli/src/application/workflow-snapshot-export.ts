@@ -9,8 +9,8 @@ import {
   WORK_GOVERNANCE_WORKFLOW_PROFILES,
 } from "./work-governance-workflows.js";
 
-const WORKFLOW_SNAPSHOT_EXPORT_VERSION = "1";
-const WORKFLOW_SNAPSHOT_EXPORT_GENERATOR = "workflow-snapshot-export-v1";
+const WORKFLOW_SNAPSHOT_EXPORT_VERSION = "2";
+const WORKFLOW_SNAPSHOT_EXPORT_GENERATOR = "workflow-snapshot-export-v2";
 
 export interface WorkflowSnapshotExportInput {
   readonly generatedAt: string;
@@ -31,8 +31,8 @@ export interface WorkflowSnapshotExport {
 }
 
 export interface WorkflowSnapshotManifest {
-  readonly version: "1";
-  readonly generator: "workflow-snapshot-export-v1";
+  readonly version: "2";
+  readonly generator: "workflow-snapshot-export-v2";
   readonly generatedAt: string;
   readonly hash: string;
   readonly sourceIds: readonly string[];
@@ -63,7 +63,7 @@ export interface WorkflowSnapshotWorkItemProfile {
   readonly description: string;
   readonly minimumRisk: string;
   readonly recommendedTaskAffinities: readonly string[];
-  readonly defaultAdmissionProfile: string;
+  readonly defaultAccess: string;
   readonly requiredEvidence: readonly string[];
   readonly verificationGates: readonly string[];
   readonly evidenceMatrix: readonly WorkflowSnapshotEvidenceMatrixEntry[];
@@ -150,7 +150,7 @@ function buildWorkItemProfiles(): readonly WorkflowSnapshotWorkItemProfile[] {
     description: profile.description,
     minimumRisk: profile.minimumRisk,
     recommendedTaskAffinities: [...profile.recommendedTaskAffinities],
-    defaultAdmissionProfile: profile.defaultAdmissionProfile,
+    defaultAccess: profile.defaultAccess,
     requiredEvidence: [...profile.requiredEvidence],
     verificationGates: [...verificationGatesForWorkflowProfile(profile)],
     evidenceMatrix: evidenceMatrixForWorkflowProfile(profile).map((entry) => ({

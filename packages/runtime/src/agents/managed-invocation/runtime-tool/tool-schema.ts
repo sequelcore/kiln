@@ -2,7 +2,7 @@
 // The static ToolDefinition / Capability / ActionEffectEnvelope constants. No
 // logic reading runtime state.
 import {
-  MANAGED_AGENT_ADMISSION_PROFILES,
+  MANAGED_AGENT_ACCESS_LEVELS,
   WORK_CLASSIFICATION_ARTIFACTS,
   WORK_CLASSIFICATION_DOMAINS,
   WORK_CLASSIFICATION_EVIDENCE_SCOPES,
@@ -13,7 +13,6 @@ import {
 import type {
   ActionEffectEnvelope,
   Capability,
-  ManagedAgentAdmissionProfile,
   ToolDefinition,
 } from "@kilnai/core";
 import {
@@ -26,9 +25,7 @@ import {
   MANAGED_AGENT_STATUS_TOOL_NAME,
 } from "../tool-names.js";
 
-export const MANAGED_AGENT_ORCHESTRATION_PROFILES = MANAGED_AGENT_ADMISSION_PROFILES.filter(
-  (profile): profile is Exclude<ManagedAgentAdmissionProfile, "rejected"> => profile !== "rejected",
-);
+export const MANAGED_AGENT_ORCHESTRATION_ACCESS = MANAGED_AGENT_ACCESS_LEVELS;
 
 export const MANAGED_AGENT_INVOKE_TOOL: ToolDefinition = {
   name: MANAGED_AGENT_INVOKE_TOOL_NAME,
@@ -36,11 +33,11 @@ export const MANAGED_AGENT_INVOKE_TOOL: ToolDefinition = {
   inputSchema: {
     type: "object",
     properties: {
-      profile: {
+      access: {
         type: "string",
-        enum: ["foundation-readonly-plan", "foundation-propose-writes", "foundation-apply-approved-writes", "foundation-memory-write-proposals"],
-        default: "foundation-readonly-plan",
-        description: "Configured managed invocation authority profile to request.",
+        enum: ["read-only", "propose", "approved-write"],
+        default: "read-only",
+        description: "Managed invocation access level: read-only, propose, or approved-write.",
       },
       routeId: {
         type: "string",
@@ -344,7 +341,7 @@ export const MANAGED_AGENT_INVOKE_TOOL: ToolDefinition = {
         description: "Optional governed execution phase contract returned by work_item.execution.start. Pass it through unchanged when invoking the managed child.",
       },
     },
-    required: ["profile", "task"],
+    required: ["access", "task"],
     additionalProperties: false,
   },
   tags: new Set<string>(["managed-invocation", "operator-approval"]),
@@ -428,7 +425,7 @@ export const MANAGED_AGENT_ORCHESTRATE_TOOL: ToolDefinition = {
   inputSchema: {
     type: "object",
     properties: {
-      profile: { type: "string", enum: MANAGED_AGENT_ORCHESTRATION_PROFILES },
+      access: { type: "string", enum: MANAGED_AGENT_ORCHESTRATION_ACCESS },
       taskRisk: { type: "string", enum: ["low", "medium", "high", "unknown"] },
       requiresIndependentReview: { type: "boolean" },
       workItems: {
@@ -449,7 +446,7 @@ export const MANAGED_AGENT_ORCHESTRATE_TOOL: ToolDefinition = {
         },
       },
     },
-    required: ["profile", "taskRisk", "requiresIndependentReview", "workItems"],
+    required: ["access", "taskRisk", "requiresIndependentReview", "workItems"],
     additionalProperties: false,
   },
   tags: new Set<string>(["managed-invocation", "orchestration", "operator-approval"]),

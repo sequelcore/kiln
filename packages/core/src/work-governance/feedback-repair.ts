@@ -1,6 +1,7 @@
 import type { FeedbackBundle } from "../feedback/index.js";
 import { redactFeedbackText } from "../feedback/index.js";
 import type { WorkItemUpsertInput } from "./work-item.js";
+import type { GoalRunAuthorityLevel } from "./goal-run.js";
 
 export const FEEDBACK_REPAIR_BUNDLE_EVIDENCE = "feedback-repair:bundle";
 export const FEEDBACK_REPAIR_APPROVAL_EVIDENCE = "feedback-repair:approval";
@@ -38,7 +39,7 @@ export interface FeedbackRepairWorkItemInput {
   readonly risk?: string;
   readonly assignedAgentProfile?: string;
   readonly routeId?: string;
-  readonly authorityProfile?: string;
+  readonly authority?: GoalRunAuthorityLevel;
 }
 
 export function createFeedbackRepairWorkItemInput(input: FeedbackRepairWorkItemInput): WorkItemUpsertInput {
@@ -76,7 +77,7 @@ export function createFeedbackRepairWorkItemInput(input: FeedbackRepairWorkItemI
     surface: "session-feedback",
     assignedAgentProfile: input.assignedAgentProfile,
     routeId: input.routeId,
-    authorityProfile: input.authorityProfile ?? "audited",
+    authority: input.authority ?? "audited",
     expectedEvidence: FEEDBACK_REPAIR_EXPECTED_EVIDENCE,
     providedEvidence: [
       FEEDBACK_REPAIR_BUNDLE_EVIDENCE,

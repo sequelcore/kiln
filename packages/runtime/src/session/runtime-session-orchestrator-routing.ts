@@ -638,10 +638,10 @@ async function invokeManagedMultimodalDelegation(input: {
   );
   const request = defineManagedAgentInvocationRequest({
     invocationId,
-    agentId: `${input.route.route.routeId}:${input.route.profile}`,
+    agentId: `${input.route.route.routeId}:${input.route.access}`,
     parentSessionId: input.session.id,
     parentTurnId: `${input.session.id}:turn:${input.session.userTurnCount + 1}`,
-    profile: input.route.profile,
+    access: input.route.access,
     requestedBy: "runtime",
     requestSource: "runtime-multimodal-delegation",
     executionIntent: {
@@ -699,7 +699,7 @@ async function invokeManagedMultimodalDelegation(input: {
         reason: "Runtime multimodal delegation admitted resource artifact URIs.",
       },
       childIdentity: {
-        agentId: `${input.route.route.routeId}:${input.route.profile}`,
+        agentId: `${input.route.route.routeId}:${input.route.access}`,
         ...(input.route.agentProfile ?? input.route.route.agentProfile
           ? { requestedAgentProfile: input.route.agentProfile ?? input.route.route.agentProfile }
           : {}),
@@ -761,7 +761,7 @@ async function invokeManagedMultimodalDelegation(input: {
         routeSource: record.capabilitySnapshot.routeSource,
         parentSessionId: record.parentSessionId,
         parentTurnId: record.parentTurnId,
-        profile: record.profile,
+        access: record.access,
         providerRoute: record.providerRoute,
         adapterKind: record.adapterKind,
         executionMode: record.executionMode,

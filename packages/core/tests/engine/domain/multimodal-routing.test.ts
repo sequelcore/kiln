@@ -143,7 +143,7 @@ describe("planMultimodalRoute", () => {
           provider: "codex-oauth",
           model: "gpt-5.4-mini",
           agentProfile: "vision-describer",
-          authorityProfileId: "foundation-readonly-plan",
+          authorityProfileId: "read-only",
           routeHealth: {
             status: "healthy",
             evidence: "live-proof",
@@ -160,7 +160,7 @@ describe("planMultimodalRoute", () => {
       provider: "codex-oauth",
       model: "gpt-5.4-mini",
       agentProfile: "vision-describer",
-      authorityProfileId: "foundation-readonly-plan",
+      authorityProfileId: "read-only",
       routeHealth: {
         status: "healthy",
         evidence: "live-proof",

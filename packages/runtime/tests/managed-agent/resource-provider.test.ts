@@ -151,7 +151,7 @@ describe("createManagedAgentInvocationResourceProvider", () => {
       },
       facets: {
         agentIds: ["agent-reviewer"],
-        profiles: ["foundation-apply-approved-writes"],
+        accessLevels: ["approved-write"],
         adapterKinds: ["harness"],
         providerIds: ["codex"],
       },
@@ -506,7 +506,7 @@ describe("createManagedAgentInvocationResourceProvider", () => {
         lifecycleState: "completed",
         request: {
           summary: "Review Slice 5A.",
-          profile: "foundation-apply-approved-writes",
+          access: "approved-write",
           requestedBy: "operator",
           requestSource: "test",
         },
@@ -840,7 +840,7 @@ function managedInvocationSnapshot(): ManagedAgentRuntimeInvocationSnapshot {
     agentId: "agent-reviewer",
     parentSessionId: "parent-session",
     parentTurnId: "parent-turn",
-    profile: "foundation-apply-approved-writes",
+    access: "approved-write",
     providerRoute: {
       providerId: "codex",
       surface: "cli-harness",
@@ -858,7 +858,7 @@ function managedInvocationSnapshot(): ManagedAgentRuntimeInvocationSnapshot {
       agentId: "agent-reviewer",
       parentSessionId: "parent-session",
       parentTurnId: "parent-turn",
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       requestedBy: "operator",
       requestSource: "test",
       requestedAuthority: "audited",
@@ -908,7 +908,7 @@ function managedInvocationSnapshot(): ManagedAgentRuntimeInvocationSnapshot {
         },
         childIdentity: {
           agentId: "agent-reviewer",
-          admittedAgentProfile: "foundation-apply-approved-writes",
+          admittedAgentProfile: "approved-write",
           displayName: "Agent Reviewer",
         },
         resourceLease: {
@@ -934,7 +934,7 @@ function managedInvocationSnapshot(): ManagedAgentRuntimeInvocationSnapshot {
       agentId: "agent-reviewer",
       parentSessionId: "parent-session",
       parentTurnId: "parent-turn",
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       lifecycleState: "completed",
       providerRoute: {
         providerId: "codex",
@@ -963,7 +963,7 @@ function managedInvocationSnapshot(): ManagedAgentRuntimeInvocationSnapshot {
         },
         childIdentity: {
           agentId: "agent-reviewer",
-          admittedAgentProfile: "foundation-apply-approved-writes",
+          admittedAgentProfile: "approved-write",
           displayName: "Agent Reviewer",
         },
         resourceLease: {

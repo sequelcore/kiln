@@ -37,7 +37,7 @@ const target = {
 
 function globalConfig(defaultTargetId?: string): KilnGlobalConfig {
   return {
-    version: "6",
+    version: "7",
     targetCatalog: {
       evidenceRevision: `sha256:${"a".repeat(64)}`,
       accounts: [],
@@ -54,7 +54,7 @@ function globalConfigWithTargets(
   defaultTargetId?: string,
 ): KilnGlobalConfig {
   return {
-    version: "6",
+    version: "7",
     targetCatalog: {
       evidenceRevision: `sha256:${"a".repeat(64)}`,
       accounts: [],
@@ -138,7 +138,7 @@ describe("configuration onboarding application", () => {
     const snapshot = readOnboarding({
       projectPath,
       dependencies: {
-        readGlobalConfig: () => ({ version: "6" }),
+        readGlobalConfig: () => ({ version: "7" }),
         readTargetAuthority: vi.fn(() => undefined),
       },
     });
@@ -625,7 +625,7 @@ describe("configuration onboarding application", () => {
       projectPath,
       request: { schemaVersion: 1, scope: "project", posture: "read-only", targetId: null },
       dependencies: {
-        readGlobalConfig: () => ({ version: "6" }),
+        readGlobalConfig: () => ({ version: "7" }),
         readTargetAuthority: () => undefined,
       },
     });

@@ -50,7 +50,7 @@ function makeRequest(): ManagedAgentInvocationRequest {
     agentId: "agent-reviewer",
     parentSessionId: "session-parent",
     parentTurnId: "turn-parent",
-    profile: "foundation-readonly-plan",
+    access: "read-only",
     requestedBy: "operator",
     requestSource: "manual",
     providerRoute: {
@@ -61,8 +61,7 @@ function makeRequest(): ManagedAgentInvocationRequest {
     adapterKind: "harness",
     executionMode: "cli-harness",
     authority: {
-      authorityProfileId: "foundation-readonly",
-      permissionProfile: "read-only",
+      authorityProfileId: "read-only",
       toolAuthority: {
         allowedToolNames: ["read", "rg"],
         writeAllowed: false,
@@ -94,7 +93,7 @@ function makeDescriptor(): ManagedAgentAdapterDescriptor {
     adapterDescriptorId: "adapter:codex-oauth:cli",
     providerId: "codex-oauth",
     adapterKind: "harness",
-    supportedProfiles: ["foundation-readonly-plan"],
+    supportedAccess: ["read-only"],
     supportedExecutionModes: ["cli-harness"],
     lifecycle: {
       exposesStart: true,
@@ -360,7 +359,7 @@ describe("managed agent invocation contracts", () => {
       agentId: "agent-reviewer",
       parentSessionId: "session-parent",
       parentTurnId: "turn-parent",
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       providerRoute: {
         providerId: "codex-oauth",
         surface: "cli-harness",
@@ -369,8 +368,7 @@ describe("managed agent invocation contracts", () => {
       adapterKind: "harness",
       executionMode: "cli-harness",
       authority: {
-        authorityProfileId: "foundation-readonly",
-        permissionProfile: "read-only",
+        authorityProfileId: "read-only",
         toolAuthority: {
           allowedToolNames: ["read", "rg"],
           writeAllowed: false,
@@ -460,7 +458,7 @@ describe("managed agent invocation contracts", () => {
     const descriptor = makeDescriptor();
 
     expect(descriptor.adapterKind).toBe("harness");
-    expect(descriptor.supportedProfiles).toEqual(["foundation-readonly-plan"]);
+    expect(descriptor.supportedAccess).toEqual(["read-only"]);
     expect(descriptor.usage).toMatchObject({
       tokenClasses: ["input", "output", "cache_read"],
       semanticSourceGranularity: "unknown",
@@ -632,7 +630,6 @@ describe("managed agent invocation contracts", () => {
       ...baseRequest,
       authority: {
         ...baseRequest.authority,
-        permissionProfile: "workspace-write",
         toolAuthority: {
           ...baseRequest.authority.toolAuthority,
           writeAllowed: true,
@@ -678,7 +675,7 @@ describe("managed agent invocation contracts", () => {
         proof: "proven",
       },
       projected: {
-        permissionProfile: "read-only",
+        access: "read-only",
         approval: "on-request",
         sandbox: "read-only",
         source: "managed-authority-profile",
@@ -709,7 +706,7 @@ describe("managed agent invocation contracts", () => {
           proof: "proven",
         },
         projected: {
-          permissionProfile: "read-only",
+          access: "read-only",
           approval: "on-request",
           sandbox: "read-only",
           source: "managed-authority-profile",
@@ -1125,9 +1122,9 @@ describe("managed agent invocation contracts", () => {
       routeSource: "explicit-managed-route",
       providerId: "codex-oauth",
       model: "gpt-5.4",
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       contextMode: "isolated",
-      authorityProfileId: "foundation-readonly",
+      authorityProfileId: "read-only",
       resourceLease: {
         leaseId: "invocation-1:resource-lease",
         createdAt: "2026-05-07T08:00:00.000Z",
@@ -1473,7 +1470,7 @@ function makeCompletedRecordInput(
     agentId: "agent-reviewer",
     parentSessionId: "session-parent",
     parentTurnId: "turn-parent",
-    profile: "foundation-readonly-plan",
+    access: "read-only",
     lifecycleState: "completed",
     providerRoute: makeRequest().providerRoute,
     adapterKind: "harness",

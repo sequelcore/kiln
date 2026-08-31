@@ -8,7 +8,7 @@ import type {
 
 export type { ManagedWriteApprovalBinding, ManagedWriteApprovalReceipt, ManagedWriteApprovalState } from "./contracts.js";
 
-export const SQLITE_MANAGED_WRITE_APPROVAL_SCHEMA_VERSION = 1 as const;
+export const SQLITE_MANAGED_WRITE_APPROVAL_SCHEMA_VERSION = 2 as const;
 
 export type ManagedWriteApprovalErrorCode =
   | "approval_not_found"
@@ -198,7 +198,7 @@ function normalizeBinding(value: ManagedWriteApprovalBinding): ManagedWriteAppro
     callerId: requireIdentifier(value.callerId, "Managed write approval caller id is invalid."),
     workItemFingerprint: requireDigest(value.workItemFingerprint),
     configuredAgentProfileId: requireIdentifier(value.configuredAgentProfileId, "Managed write approval agent profile id is invalid."),
-    admissionProfileId: requireApprovedProfile(value.admissionProfileId),
+    access: requireApprovedAccess(value.access),
     routeId: requireIdentifier(value.routeId, "Managed write approval route id is invalid."),
     providerId: requireIdentifier(value.providerId, "Managed write approval provider id is invalid."),
     model: requireOpaque(value.model, "Managed write approval model is invalid."),
@@ -217,8 +217,8 @@ function requireApprovalId(value: string): string {
   if (!value.startsWith("managed-write-approval:")) throw new ManagedWriteApprovalError("approval_not_found");
   return `managed-write-approval:${requireIdentifier(value.slice("managed-write-approval:".length), "Managed write approval id is invalid.")}`;
 }
-function requireApprovedProfile(value: string): "foundation-apply-approved-writes" {
-  if (value !== "foundation-apply-approved-writes") throw new TypeError("Managed write approval must use foundation-apply-approved-writes.");
+function requireApprovedAccess(value: string): "approved-write" {
+  if (value !== "approved-write") throw new TypeError("Managed write approval must use approved-write.");
   return value;
 }
 function requireIdentifier(value: string, message: string): string {

@@ -74,7 +74,7 @@ export function recoveryCheckpointFromInvocationEntry(
   const runtimeLease = entry.runtimeLease ?? entry.decision.capabilitySnapshot.resourceLease;
   const runtimeLeaseForRelease = entry.runtimeLeaseForRelease ?? runtimeLease;
   return validateManagedAgentRuntimeRecoveryCheckpoint({
-    version: 2,
+    version: 3,
     lifecycleState: entry.lifecycleState,
     request: cloneJson(entry.request),
     decision: cloneJson(entry.decision),

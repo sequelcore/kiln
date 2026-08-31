@@ -42,7 +42,7 @@ export function snapshotInvocation(entry: ManagedAgentRuntimeInvocationEntry): M
     agentId: entry.request.agentId,
     parentSessionId: entry.request.parentSessionId,
     parentTurnId: entry.request.parentTurnId,
-    profile: entry.request.profile,
+    access: entry.request.access,
     providerRoute: cloneJson(entry.request.providerRoute),
     adapterKind: entry.request.adapterKind,
     executionMode: entry.request.executionMode,

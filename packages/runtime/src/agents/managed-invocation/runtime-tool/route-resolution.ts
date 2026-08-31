@@ -35,7 +35,7 @@ export function resolveRoute(
       route.providerId === input.providerRoute.providerId
       && route.routeId === hintedRouteId
       && (!hintedModel || route.model === hintedModel)
-      && resolveManagedInvocationRouteProfile(route, input.profile, agentProfile) !== undefined
+      && resolveManagedInvocationRouteProfile(route, input.access, agentProfile) !== undefined
     );
     if (exactMatches.length === 1) {
       return { status: "found", route: exactMatches[0]! };
@@ -51,7 +51,7 @@ export function resolveRoute(
     route.providerId === input.providerRoute.providerId
     && (!hintedRouteId || route.routeId === hintedRouteId)
     && (!hintedModel || route.model === hintedModel)
-    && resolveManagedInvocationRouteProfile(route, input.profile, agentProfile) !== undefined
+    && resolveManagedInvocationRouteProfile(route, input.access, agentProfile) !== undefined
   );
   if (matches.length === 1) {
     return { status: "found", route: matches[0]! };
@@ -59,7 +59,7 @@ export function resolveRoute(
   if (matches.length > 1) {
     return {
       status: "ambiguous",
-      reason: `Managed invocation route selection is ambiguous for provider '${input.providerRoute.providerId}' and profile '${input.profile}'. Specify routeId. Matching routes: ${matches.map((route) => route.routeId).join(", ")}.`,
+      reason: `Managed invocation route selection is ambiguous for provider '${input.providerRoute.providerId}' and access '${input.access}'. Specify routeId. Matching routes: ${matches.map((route) => route.routeId).join(", ")}.`,
     };
   }
   return { status: "missing" };
@@ -74,10 +74,10 @@ export function validateAgentRouteHint(
     return { ok: true };
   }
   const label = input.agentProfile ?? agentProfile.name;
-  if (agentProfile.admissionProfile !== input.profile) {
+  if (agentProfile.access !== input.access) {
     return {
       ok: false,
-      error: `${toolName} profile '${input.profile}' contradicts configured agentProfile '${label}' authority binding.`,
+      error: `${toolName} access '${input.access}' contradicts configured agentProfile '${label}' authority binding.`,
     };
   }
   if (agentProfile.routeId && input.routeId && agentProfile.routeId !== input.routeId) {
@@ -143,7 +143,7 @@ function buildManagedInvocationRetryInputTemplate(
   forbiddenInputFields: readonly string[],
 ): Record<string, unknown> {
   return {
-    profile: input.profile,
+    access: input.access,
     ...(input.routeId ? { routeId: input.routeId } : {}),
     providerRoute: {
       providerId: input.providerRoute.providerId,

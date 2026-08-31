@@ -28,6 +28,7 @@ import {
 } from "./workflow-snapshot-export.js";
 
 const WORKFLOW_SNAPSHOT_MARKDOWN_FILE = "private:projections/workflow-snapshot.md";
+const WORKFLOW_SNAPSHOT_MARKER = "kiln:workflow-snapshot:v2";
 const WORKFLOW_SNAPSHOT_TARGET_ID = "workflow-snapshot";
 const WORKFLOW_SNAPSHOT_MANIFEST_TARGET_ID = "workflow-snapshot-manifest";
 // The private projection is a content-addressed cache, not an event log. A
@@ -373,7 +374,7 @@ function readWorkflowSnapshotContentHash(content: string): string | null {
     return null;
   }
   const lines = content.slice(4, end).split(/\r?\n/u).map((line) => line.trim());
-  if (!lines.includes("kiln:workflow-snapshot:v1")) {
+  if (!lines.includes(WORKFLOW_SNAPSHOT_MARKER)) {
     return null;
   }
   const contentHash = lines
@@ -502,7 +503,7 @@ function renderWorkflowSnapshotMarkdown(workflowSnapshot: WorkflowSnapshotExport
   const body = renderWorkflowSnapshotBody(workflowSnapshot);
   return [
     "<!--",
-    "kiln:workflow-snapshot:v1",
+    WORKFLOW_SNAPSHOT_MARKER,
     `generator: ${workflowSnapshot.manifest.generator}`,
     `contentHash: sha256:${hashText(body)}`,
     "-->",

@@ -782,15 +782,18 @@ describe("RuntimeManagedAgentInvocationService recovery", () => {
 
       await mkdir(rootPath, { recursive: true });
       await mkdir(join(rootPath, "directory.json"));
-      await writeFile(join(rootPath, "malformed.json"), JSON.stringify({ version: 2 }), "utf-8");
+      await writeFile(join(rootPath, "malformed.json"), JSON.stringify({ version: 3 }), "utf-8");
+      await writeFile(join(rootPath, "legacy-v2.json"), JSON.stringify({ version: 2 }), "utf-8");
 
       const checkpoints = await recoveryStore.listRecoverable();
 
       expect(checkpoints).toEqual([]);
       const quarantined = await readdir(join(rootPath, "quarantine"));
       const checkpointFile = quarantined.find((fileName) => fileName.endsWith(".malformed.json"));
+      const legacyFile = quarantined.find((fileName) => fileName.endsWith(".legacy-v2.json"));
       const directoryFile = quarantined.find((fileName) => fileName.endsWith(".directory.json"));
       expect(checkpointFile).toBeDefined();
+      expect(legacyFile).toBeDefined();
       expect(directoryFile).toBeDefined();
       expect(quarantined).toContain(`${checkpointFile}.metadata.json`);
       expect(quarantined).toContain(`${directoryFile}.metadata.json`);
@@ -801,6 +804,11 @@ describe("RuntimeManagedAgentInvocationService recovery", () => {
         originalFileName: "malformed.json",
       });
       expect(String(metadata.reason)).toContain("Managed runtime recovery checkpoint lifecycle state");
+      const legacyMetadata = JSON.parse(
+        await readFile(join(rootPath, "quarantine", `${legacyFile}.metadata.json`), "utf-8"),
+      ) as Record<string, unknown>;
+      expect(legacyMetadata).toMatchObject({ originalFileName: "legacy-v2.json" });
+      expect(String(legacyMetadata.reason)).toContain("Managed runtime recovery checkpoint version is not supported");
       const directoryMetadata = JSON.parse(
         await readFile(join(rootPath, "quarantine", `${directoryFile}.metadata.json`), "utf-8"),
       ) as Record<string, unknown>;
@@ -1602,7 +1610,7 @@ describe("RuntimeManagedAgentInvocationService recovery", () => {
       invocationId: "invocation-1",
       agentId: "agent-reviewer",
       lifecycleState: "completed",
-      decision: { authorityProfileId: "foundation-readonly" },
+      decision: { authorityProfileId: "read-only" },
     });
     expect(snapshot?.record?.agentId).toBe("agent-reviewer");
     expect(service.list()[0]).toMatchObject({

@@ -472,7 +472,7 @@ describe("work-governance-tool", () => {
         risk: "high",
         triggers: ["managed-agents", "runtime", "cross-surface"],
         routeId: "codex-runtime",
-        authorityProfile: "foundation-readonly-plan",
+        access: "read-only",
       },
     });
 
@@ -499,7 +499,7 @@ describe("work-governance-tool", () => {
       risk: "high",
       triggers: ["managed-agents", "runtime", "cross-surface"],
       routeId: "codex-runtime",
-      authorityProfile: "foundation-readonly-plan",
+      access: "read-only",
       providedEvidence: ["surface-map"],
       skippedVerificationGates: ["tests"],
       residualRisk: "Tests remain unexecuted and must be run before release.",
@@ -518,7 +518,7 @@ describe("work-governance-tool", () => {
         workflowProfile: "architecture-change",
         risk: "medium",
         triggers: ["architecture", "cross-surface"],
-        authorityProfile: "foundation-readonly-plan",
+      access: "read-only",
         workClassification: {
           intents: ["analyze", "review"],
           artifacts: ["code"],
@@ -1073,7 +1073,7 @@ describe("work-governance-tool", () => {
       goalRunId: "goal-managed-handoff",
       routeId: "opencode-readonly",
       assignedAgentProfile: "coder",
-      authorityProfile: "foundation-propose-writes",
+      access: "propose",
       managedOrchestration: {
         orchestrationId: "orch-cli",
         mode: "decomposition",
@@ -1254,7 +1254,7 @@ describe("work-governance-tool", () => {
       goalRunId: "goal-managed-readiness",
       routeId: "opencode-readonly",
       assignedAgentProfile: "coder",
-      authorityProfile: "foundation-apply-approved-writes",
+      access: "approved-write",
       managedOrchestration: {
         orchestrationId: "orch-cli-readiness",
         mode: "decomposition",
@@ -2276,7 +2276,7 @@ describe("work-governance-tool", () => {
           "visual-reference-research": "opencode-go-qwen3-6-plus-readonly",
         },
         assignedAgentProfile: "frontend-coder",
-        authorityProfile: "foundation-apply-approved-writes",
+        access: "approved-write",
       },
     });
 
@@ -2529,7 +2529,7 @@ describe("work-governance-tool", () => {
         risk: "high",
         triggers: ["ui", "cross-surface"],
         routeId: "opencode-go-frontend-approved-write",
-        authorityProfile: "foundation-apply-approved-writes",
+        access: "approved-write",
         expectedEvidence: ["visual-reference-research", "tests", "typecheck"],
         phaseRoutes: {},
       },
@@ -2560,7 +2560,7 @@ describe("work-governance-tool", () => {
         risk: "high",
         triggers: ["ui", "cross-surface"],
         routeId: "opencode-go-frontend-approved-write",
-        authorityProfile: "foundation-apply-approved-writes",
+        access: "approved-write",
         expectedEvidence: ["visual-reference-research", "tests", "typecheck"],
         phaseRoutes: {
           "visual-reference-research": "opencode-go-qwen3-6-plus-readonly",
@@ -2591,7 +2591,7 @@ describe("work-governance-tool", () => {
         phaseRoutes: {
           "visual-reference-research": "opencode-go-qwen3-6-plus-readonly",
         },
-        authorityProfile: "foundation-apply-approved-writes",
+        access: "approved-write",
       },
     });
     const output = JSON.parse(created?.output ?? "{}") as {
@@ -2860,7 +2860,7 @@ describe("work-governance-tool", () => {
       goalRunId: "goal-managed",
       routeId: "opencode-readonly",
       assignedAgentProfile: "coder",
-      authorityProfile: "foundation-propose-writes",
+      access: "propose",
       workClassification: {
         intents: [" write ", "review"],
         artifacts: [" document "],
@@ -2935,7 +2935,7 @@ describe("work-governance-tool", () => {
     const missingInvocationOutput = JSON.parse(missingInvocation?.output ?? "{}") as {
       readonly nextTool?: string;
       readonly managedInvocationRequest?: {
-        readonly profile?: string;
+        readonly access?: string;
         readonly routeId?: string;
         readonly providerRoute?: {
           readonly providerId?: string;
@@ -2965,7 +2965,7 @@ describe("work-governance-tool", () => {
     };
     expect(missingInvocationOutput.nextTool).toBe("managed_agent.invoke");
     expect(missingInvocationOutput.managedInvocationRequest).toMatchObject({
-      profile: "foundation-propose-writes",
+      access: "propose",
       routeId: "opencode-readonly",
       providerRoute: {
         providerId: "opencode",
@@ -3077,7 +3077,7 @@ describe("work-governance-tool", () => {
       goalRunId: "goal-managed-route",
       routeId: "opencode-go-frontend-approved-write",
       assignedAgentProfile: "frontend-coder",
-      authorityProfile: "foundation-apply-approved-writes",
+      access: "approved-write",
     });
     const goal = goalRunStore.create({
       id: "goal-managed-route",
@@ -3150,7 +3150,7 @@ describe("work-governance-tool", () => {
       },
       referenceRoots: ["/workspace/references/cloned"],
       assignedAgentProfile: "frontend-coder",
-      authorityProfile: "foundation-apply-approved-writes",
+      access: "approved-write",
     });
     const goal = goalRunStore.create({
       id: "goal-managed-ui-phase",
@@ -3183,7 +3183,7 @@ describe("work-governance-tool", () => {
     });
     const output = JSON.parse(missingInvocation?.output ?? "{}") as {
       readonly managedInvocationRequest?: {
-        readonly profile?: string;
+        readonly access?: string;
         readonly routeId?: string;
         readonly agentProfile?: string;
         readonly forbiddenInputFields?: readonly string[];
@@ -3211,7 +3211,7 @@ describe("work-governance-tool", () => {
 
     expect(missingInvocation?.isError).toBe(true);
     expect(output.managedInvocationRequest).toMatchObject({
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       routeId: "opencode-go-qwen3-6-plus-readonly",
       forbiddenInputFields: ["agentProfile"],
       providerRoute: {
@@ -3272,7 +3272,7 @@ describe("work-governance-tool", () => {
       goalRunId: "goal-managed-authority",
       routeId: "opencode-go-frontend-approved-write",
       assignedAgentProfile: "frontend-coder",
-      authorityProfile: "foundation-apply-approved-writes",
+      access: "approved-write",
     });
     const goal = goalRunStore.create({
       id: "goal-managed-authority",
@@ -3300,13 +3300,13 @@ describe("work-governance-tool", () => {
       input: {
         goalRunId: goal.id,
         governanceRecommendation: "orchestrate",
-        managedProfile: "foundation-readonly-plan",
+        managedAccess: "read-only",
         requestedAuthority: "read_only",
       },
     });
     const output = JSON.parse(missingInvocation?.output ?? "{}") as {
       readonly managedInvocationRequest?: {
-        readonly profile?: string;
+        readonly access?: string;
         readonly requestedAuthority?: string;
         readonly routeId?: string;
       };
@@ -3314,7 +3314,7 @@ describe("work-governance-tool", () => {
 
     expect(missingInvocation?.isError).toBe(true);
     expect(output.managedInvocationRequest).toMatchObject({
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       requestedAuthority: "audited",
       routeId: "opencode-go-frontend-approved-write",
     });
@@ -3348,7 +3348,7 @@ describe("work-governance-tool", () => {
       goalRunId: "goal-readonly-ceiling",
       routeId: "codex-oauth-critical-approved-write",
       assignedAgentProfile: "scout",
-      authorityProfile: "foundation-apply-approved-writes",
+      access: "approved-write",
     });
     const goal = goalRunStore.create({
       id: "goal-readonly-ceiling",
@@ -3377,13 +3377,13 @@ describe("work-governance-tool", () => {
     });
     const output = JSON.parse(result?.output ?? "{}") as {
       readonly managedInvocationRequest?: {
-        readonly profile?: string;
+        readonly access?: string;
         readonly requestedAuthority?: string;
       };
     };
 
     expect(output.managedInvocationRequest).toMatchObject({
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       requestedAuthority: "read_only",
     });
   });
@@ -3402,7 +3402,7 @@ describe("work-governance-tool", () => {
       goalRunId: "goal-managed-verification",
       routeId: "codex-oauth-verification-approved-write",
       assignedAgentProfile: "tdd",
-      authorityProfile: "foundation-apply-approved-writes",
+      access: "approved-write",
     });
     const goal = goalRunStore.create({
       id: "goal-managed-verification",

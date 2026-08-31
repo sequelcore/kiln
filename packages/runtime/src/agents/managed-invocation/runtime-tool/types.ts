@@ -7,7 +7,7 @@ import type {
   CommunicationIntent,
   DeliberationIntent,
   KilnWorkGovernanceEvidence,
-  ManagedAgentAdmissionProfile,
+  ManagedAgentAccess,
   ManagedAgentAuthorityProfile,
   ManagedAgentCallerAttachmentIdentity,
   ManagedAgentCapabilitySnapshotInput,
@@ -44,8 +44,7 @@ import type { ManagedEconomicCandidateSet } from "./economic-candidate-collectio
 
 export interface ManagedInvocationRouteProfile {
   readonly authorityProfileId: string;
-  readonly admissionProfile: ManagedAgentAdmissionProfile;
-  readonly permissionProfile: string;
+  readonly access: ManagedAgentAccess;
   readonly allowedToolNames: readonly string[];
   /**
    * Roadmap 01 Slice 1 - Evidence Realization Contract. Declares which of
@@ -102,7 +101,7 @@ export interface ManagedInvocationToolRoute {
   /**
    * Roadmap 01 Slice 3.1 - External-runtime target identity. A property of
    * the physical target, so it lives at route level (not per-profile): every
-   * admission profile of one route addresses the same attached instance.
+   * access level of one route addresses the same attached instance.
    * When declared, every dispatch against this route must request the exact
    * same attachment or be denied - see `evaluateManagedAgentAdmission` in
    * `@kilnai/core`.
@@ -118,7 +117,7 @@ export interface ManagedInvocationUnavailableRoute {
   readonly routeSource: ManagedAgentRouteSource;
   readonly providerId: string;
   readonly model?: string;
-  readonly profiles: readonly ManagedAgentAdmissionProfile[];
+  readonly accessLevels: readonly ManagedAgentAccess[];
   readonly reason: string;
 }
 
@@ -182,7 +181,7 @@ export interface ManagedInvocationToolAttachment {
 export interface ManagedInvocationGovernedScopeAdmissionInput {
   readonly parentSessionId: string;
   readonly goalRunId: string;
-  readonly profile: ManagedAgentAdmissionProfile;
+  readonly access: ManagedAgentAccess;
   readonly requestedAuthority: ManagedAgentRequestedAuthority;
   readonly workItemId?: string;
   readonly attemptId?: string;
@@ -255,7 +254,7 @@ export interface ManagedInvocationAgentCatalogEntry {
   readonly goal: string;
   readonly tier: string;
   readonly authorityProfileId: string;
-  readonly admissionProfile: ManagedAgentAdmissionProfile;
+  readonly access: ManagedAgentAccess;
   readonly skills?: readonly string[];
   /** Explicit operator-configured input modalities; never inferred from role prose. */
   readonly modalities?: readonly string[];
@@ -355,7 +354,7 @@ export interface ManagedCommittedInvocationRequest {
   readonly dispatchFenceId: string;
   readonly abortSignal: AbortSignal;
   readonly authorityProfileId: string;
-  readonly admissionProfile: ManagedAgentAdmissionProfile;
+  readonly access: ManagedAgentAccess;
   readonly profileAuthorityDigest: string;
   readonly invocationId: string;
 }
@@ -383,7 +382,7 @@ export type ManagedInvocationExecutableRoute = ManagedInvocationToolRoute & {
 };
 
 export interface ManagedInvocationToolInput {
-  readonly profile: ManagedAgentAdmissionProfile;
+  readonly access: ManagedAgentAccess;
   readonly routeId?: string;
   readonly providerRoute: ManagedAgentProviderRoute;
   readonly externalRuntimeAttachment?: { readonly runtimeId: string; readonly attachmentId: string };

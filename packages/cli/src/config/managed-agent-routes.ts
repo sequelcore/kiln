@@ -4,7 +4,7 @@ import { basename, dirname, join, posix, resolve, win32 } from "node:path";
 import type {
   ArtifactResourceStore,
   DefaultBuiltinToolRegistryOptions,
-  ManagedAgentAdmissionProfile,
+  ManagedAgentAccess,
   ManagedAgentCredentialRoute,
   ManagedAgentExternalRuntimeAttachmentIdentity,
   ManagedAgentMemoryScope,
@@ -75,7 +75,7 @@ import type {
 import type { CliSessionFactory } from "@kilnai/runtime";
 import type {
   KilnManagedAgentsConfig,
-  KilnManagedAgentProfile,
+  KilnManagedAgentAccess,
   KilnModelTaskSuitabilityOverride,
   KilnYamlSkillsConfig,
   KilnAuthorityProfileConfig,
@@ -148,15 +148,15 @@ function managedRouteCapability(input: {
   readonly profiles: ManagedInvocationToolRoute["profiles"];
   readonly adapterKind: RouteCapability["adapter"]["kind"];
   readonly settlement: RouteCapability["settlement"];
-  readonly provenProfiles?: readonly ManagedAgentAdmissionProfile[];
+  readonly provenAccess?: readonly ManagedAgentAccess[];
   readonly externalRuntimeAttachment?: ManagedAgentExternalRuntimeAttachmentIdentity;
   /** Direct-target capacity authority is the catalog policy. */
   readonly accountPolicyId?: string;
 }): RouteCapability {
-  const profileValues = input.profiles;
-  const profileNames = [...new Set(profileValues.map((profile) => profile.admissionProfile))];
-  const write = profileValues.some((profile) => profile?.writeAllowed === true)
-    && (input.provenProfiles ?? profileNames).some((profile) => WRITE_PROFILES.has(profile as KilnManagedAgentProfile));
+  const routeProfiles = input.profiles;
+  const accessLevels = [...new Set(routeProfiles.map((profile) => profile.access))];
+  const write = routeProfiles.some((profile) => profile?.writeAllowed === true)
+    && (input.provenAccess ?? accessLevels).some((access) => WRITE_ACCESS.has(access as KilnManagedAgentAccess));
   const revision = digestManagedEconomicValue({
     route: input.route,
     provider: input.provider,
@@ -164,7 +164,7 @@ function managedRouteCapability(input: {
     profiles: input.profiles,
     adapterKind: input.adapterKind,
     settlement: input.settlement,
-    provenProfiles: input.provenProfiles ?? profileNames,
+    provenAccess: input.provenAccess ?? accessLevels,
     externalRuntimeAttachment: input.externalRuntimeAttachment,
     accountPolicyId: input.accountPolicyId,
   });
@@ -173,12 +173,12 @@ function managedRouteCapability(input: {
     target: { providerId: input.provider, modelId: input.model },
     adapter: { kind: input.adapterKind, capabilityId: `managed:${input.route.id}`, capabilityVersion: "v1" },
     authorityCeiling: write ? "destructive" : "read_only",
-    toolNames: [...new Set(profileValues.flatMap((profile) => profile?.allowedToolNames ?? []))],
+    toolNames: [...new Set(routeProfiles.flatMap((profile) => profile?.allowedToolNames ?? []))],
     supportsRecursion: true,
     supportsAttachments: input.externalRuntimeAttachment !== undefined,
     supportsWrite: write,
     ...(input.externalRuntimeAttachment ? { externalRuntimeAttachment: input.externalRuntimeAttachment } : {}),
-    proof: { status: "configured", source: "provider-adapter-catalog", provenProfiles: profileNames.filter((profile) => (input.provenProfiles ?? profileNames).includes(profile)) },
+    proof: { status: "configured", source: "provider-adapter-catalog", provenAccess: accessLevels.filter((access) => (input.provenAccess ?? accessLevels).includes(access)) },
     capacity: input.route.kind === "direct" && input.accountPolicyId
       ? { kind: "policy-bound", accountPolicyId: input.accountPolicyId }
       : { kind: "accountless" },
@@ -194,7 +194,7 @@ export interface ManagedAgentRouteHealth {
   readonly kind: "harness" | "direct";
   readonly provider: string;
   readonly model?: string;
-  readonly profiles: readonly ManagedAgentAdmissionProfile[];
+  readonly accessLevels: readonly ManagedAgentAccess[];
   readonly available: boolean;
   readonly reason?: string;
 }
@@ -544,7 +544,7 @@ function isManagedEconomicAdoptionSubject(value: unknown): value is ManagedEcono
     !isObjectRecord(candidateSet)
     || !isNonEmptyText(candidateSet.economicPolicyId)
     || !isNonEmptyText(candidateSet.economicPolicyRevision)
-    || !isNonEmptyText(candidateSet.admissionProfileId)
+    || !isNonEmptyText(candidateSet.access)
     || !isObjectRecord(candidateSet.constraints)
     || !Array.isArray(candidateSet.candidates)
     || !Array.isArray(candidateSet.rejections)
@@ -578,11 +578,10 @@ function isIsoTimestamp(value: unknown): value is string {
   return isNonEmptyText(value) && Number.isFinite(Date.parse(value));
 }
 
-const READONLY_PROFILE: KilnManagedAgentProfile = "foundation-readonly-plan";
-const WRITE_PROFILES = new Set<KilnManagedAgentProfile>([
-  "foundation-propose-writes",
-  "foundation-apply-approved-writes",
-  "foundation-memory-write-proposals",
+const READ_ONLY_ACCESS: KilnManagedAgentAccess = "read-only";
+const WRITE_ACCESS = new Set<KilnManagedAgentAccess>([
+  "propose",
+  "approved-write",
 ]);
 const DEFAULT_ALLOWED_TOOLS = ["read", "tree", "grep", "glob"] as const;
 const DEFAULT_WRITE_ALLOWED_TOOLS = ["read", "tree", "grep", "glob", "write", "edit", "apply-patch"] as const;
@@ -748,7 +747,7 @@ export async function resolveManagedInvocationToolOptions(
         routeSource: route.routeSource,
         providerId: route.provider,
         ...(route.model ? { model: route.model } : {}),
-        profiles: route.profiles,
+        accessLevels: route.accessLevels,
         reason: route.reason ?? "Route is unavailable.",
       };
     });
@@ -865,16 +864,16 @@ function createManagedEconomicDispatchWithAuthority(
 } {
   const coordinator = new ManagedEconomicDispatchCoordinator({
     authority,
-    resolveLifecycleTimeoutMs: (commitment, admissionProfile, authorityProfileId) => {
+    resolveLifecycleTimeoutMs: (commitment, access, authorityProfileId) => {
       const routeId = commitment.reservation.selectedIdentity.route.routeId;
       const route = routes.find((candidate) => candidate.routeId === routeId);
       if (!route) throw new Error(`Committed managed economic route '${routeId}' is not configured.`);
       const profile = resolveConfiguredManagedInvocationRouteProfile(
         route,
-        { authorityProfileId, admissionProfile },
-        admissionProfile,
+        { authorityProfileId, access },
+        access,
       );
-      if (!profile) throw new Error(`Committed managed economic route '${routeId}' does not admit '${admissionProfile}'.`);
+      if (!profile) throw new Error(`Committed managed economic route '${routeId}' does not admit '${access}'.`);
       return profile.timeoutMs;
     },
     createAdapter: async (request) => {
@@ -914,7 +913,7 @@ function createManagedEconomicDispatchWithAuthority(
         admissionBundle: input.admissionBundle,
         effectIdentity: input.effectIdentity,
         adoption,
-        admissionProfile: input.candidateSet.admissionProfileId,
+        access: input.candidateSet.access,
         authorityProfileId: input.authorityProfileId,
         invocationId: input.invocationId,
         ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
@@ -1069,7 +1068,7 @@ function projectManagedAgentCatalogEntry(
     return { health: explicitRouteHealth };
   }
   const routeHint = resolveAgentRouteHint(agent, routes);
-  const admissionProfile = resolveAgentAdmissionProfile(agent, config.authorityProfiles)!;
+  const access = resolveAgentAccess(agent, config.authorityProfiles)!;
   const intent = config.managedAgents?.intents?.find((candidate) => candidate.id === agent.name);
   return {
     entry: {
@@ -1080,7 +1079,7 @@ function projectManagedAgentCatalogEntry(
       goal: agent.goal,
       tier: agent.tier,
       authorityProfileId: agent.authorityProfileId!,
-      admissionProfile,
+      access,
       ...(agent.skills ? { skills: agent.skills } : {}),
       ...(agent.modalities ? { modalities: agent.modalities } : {}),
       ...(agent.structured !== undefined ? { structured: agent.structured } : {}),
@@ -1124,8 +1123,8 @@ function validateExplicitAgentRoute(
       reason: `Agent references unavailable managed target '${agent.targetId}'.`,
     };
   }
-  const admissionProfile = resolveAgentAdmissionProfile(agent, authorityProfiles);
-  if (agent.authorityProfileId && !admissionProfile) {
+  const access = resolveAgentAccess(agent, authorityProfiles);
+  if (agent.authorityProfileId && !access) {
     return {
       agentName: agent.name,
       available: false,
@@ -1133,13 +1132,13 @@ function validateExplicitAgentRoute(
       reason: `Agent authority profile '${agent.authorityProfileId}' is not configured.`,
     };
   }
-  const routeProfile = agent.authorityProfileId && admissionProfile
+  const routeProfile = agent.authorityProfileId && access
     ? resolveConfiguredManagedInvocationRouteProfile(route, {
         authorityProfileId: agent.authorityProfileId,
-        admissionProfile,
-      }, admissionProfile)
+        access,
+      }, access)
     : undefined;
-  if (admissionProfile && !routeProfile) {
+  if (access && !routeProfile) {
     return {
       agentName: agent.name,
       available: false,
@@ -1339,12 +1338,12 @@ function resolveSourceExecutionTargetCatalog(config: ManagedAgentRouteConfigSour
   return config.executionCatalog;
 }
 
-function resolveAgentAdmissionProfile(
+function resolveAgentAccess(
   agent: KilnAgentDefinition,
   authorityProfiles: readonly KilnAuthorityProfileConfig[] | undefined,
-): ManagedAgentAdmissionProfile | undefined {
+): ManagedAgentAccess | undefined {
   if (!agent.authorityProfileId) return undefined;
-  return authorityProfiles?.find((profile) => profile.id === agent.authorityProfileId)?.admissionProfile;
+  return authorityProfiles?.find((profile) => profile.id === agent.authorityProfileId)?.access;
 }
 
 function projectedRoute(
@@ -1369,7 +1368,7 @@ async function resolveRouteConfig(
   readonly route?: ManagedInvocationToolRoute;
 }> {
   const { routeConfig, routeSource } = projection;
-  const profiles = normalizeProfiles(routeConfig.authorityProfiles.map((profile) => profile.admissionProfile));
+  const accessLevels = normalizeAccessLevels(routeConfig.authorityProfiles.map((profile) => profile.access));
   let target: ManagedRouteProjection;
   try {
     target = projectManagedRoute(routeConfig, config.executionCatalog);
@@ -1379,7 +1378,7 @@ async function resolveRouteConfig(
       routeSource,
       kind: routeConfig.kind,
       provider: "unresolved",
-      profiles,
+      accessLevels,
     }, error instanceof Error ? error.message : String(error));
   }
   const baseHealth = {
@@ -1388,10 +1387,10 @@ async function resolveRouteConfig(
     kind: routeConfig.kind,
     provider: target.providerId,
     ...(target.providerModelId ? { model: target.providerModelId } : {}),
-    profiles,
+    accessLevels,
   };
 
-  const writeRequired = routeRequiresWriteAuthority(profiles);
+  const writeRequired = routeRequiresWriteAuthority(accessLevels);
   if (config.engines?.[target.providerId]?.enabled === false) {
     return unhealthy(baseHealth, `Provider '${target.providerId}' is disabled in engine config.`);
   }
@@ -1469,15 +1468,15 @@ async function resolveRouteConfig(
 
   const privatePlanArtifactCapability = routeConfig.provider === "claude"
     && !writeRequired
-    && profiles.length === 1
-    && profiles[0] === READONLY_PROFILE
+    && accessLevels.length === 1
+    && accessLevels[0] === READ_ONLY_ACCESS
     ? resolveClaudePrivatePlanArtifactCapability(harnessExecutable?.evidence.version)
     : undefined;
   if (
     routeConfig.provider === "claude"
     && !writeRequired
-    && profiles.length === 1
-    && profiles[0] === READONLY_PROFILE
+    && accessLevels.length === 1
+    && accessLevels[0] === READ_ONLY_ACCESS
     && privatePlanArtifactCapability === undefined
   ) {
     return unhealthy(
@@ -1485,7 +1484,7 @@ async function resolveRouteConfig(
       "Claude Code executable version lacks the admitted private plan artifact-location capability.",
     );
   }
-  if (writeRequired && !(catalogEntry.entry.provenProfiles ?? profiles).some((profile) => WRITE_PROFILES.has(profile as KilnManagedAgentProfile))) {
+  if (writeRequired && !(catalogEntry.entry.provenAccess ?? accessLevels).some((access) => WRITE_ACCESS.has(access as KilnManagedAgentAccess))) {
     return unhealthy(baseHealth, `Provider '${routeConfig.provider}' model '${model}' has no catalog-proven write enforcement.`);
   }
   const profileResolution = buildRouteProfiles(routeConfig, context.cwd, config.managedAgents?.worktreeLease, config.executionCatalog);
@@ -1522,7 +1521,7 @@ async function resolveRouteConfig(
     providerId: routeConfig.provider,
     model,
     ...(voiceProfile ? { voiceProfile } : {}),
-    capability: managedRouteCapability({ route: routeConfig, provider: routeConfig.provider, model, profiles: profileResolution.profiles, adapterKind: "cli-harness", settlement: { kind: "not-required" }, provenProfiles: catalogEntry.entry.provenProfiles, ...(externalRuntimeAttachment ? { externalRuntimeAttachment } : {}) }),
+    capability: managedRouteCapability({ route: routeConfig, provider: routeConfig.provider, model, profiles: profileResolution.profiles, adapterKind: "cli-harness", settlement: { kind: "not-required" }, provenAccess: catalogEntry.entry.provenAccess, ...(externalRuntimeAttachment ? { externalRuntimeAttachment } : {}) }),
     createAdapter,
     surface: "cli-harness",
     ...(externalRuntimeAttachment ? { externalRuntimeAttachment } : {}),
@@ -1530,7 +1529,7 @@ async function resolveRouteConfig(
       routeConfig.provider,
       model,
       config.modelTaskSuitability,
-      liveProofEvidence(routeConfig.provider, model, profiles),
+      liveProofEvidence(routeConfig.provider, model, accessLevels),
     ),
     profiles: profileResolution.profiles,
   };
@@ -1556,7 +1555,7 @@ async function resolveRemoteHarnessRouteConfig(
   readonly route?: ManagedInvocationToolRoute;
 }> {
   if (writeRequired) {
-    return unhealthy(baseHealth, "Remote harness managed invocation routes currently support foundation-readonly-plan only.");
+    return unhealthy(baseHealth, "Remote harness managed invocation routes currently support read-only only.");
   }
   const remoteHarness = routeConfig.remoteHarness;
   if (remoteHarness === undefined) {
@@ -1599,7 +1598,7 @@ async function resolveRemoteHarnessRouteConfig(
       routeConfig.provider,
       model,
       config.modelTaskSuitability,
-      remoteHarnessEvidence(routeConfig.provider, model, normalizeProfiles(routeConfig.authorityProfiles.map((profile) => profile.admissionProfile))),
+      remoteHarnessEvidence(routeConfig.provider, model, normalizeAccessLevels(routeConfig.authorityProfiles.map((profile) => profile.access))),
     ),
     profiles: profileResolution.profiles,
   };
@@ -1614,9 +1613,9 @@ async function resolveRemoteHarnessRouteConfig(
 }
 
 function routeRequiresWriteAuthority(
-  profiles: readonly ManagedAgentAdmissionProfile[],
+  accessLevels: readonly ManagedAgentAccess[],
 ): boolean {
-  return profiles.some((profile) => WRITE_PROFILES.has(profile as KilnManagedAgentProfile));
+  return accessLevels.some((access) => WRITE_ACCESS.has(access as KilnManagedAgentAccess));
 }
 
 function buildRouteProfiles(
@@ -1635,8 +1634,8 @@ function buildRouteProfiles(
   for (const authorityProfile of routeConfig.authorityProfiles) {
     const workingDirectoryLease = resolveWorkingDirectoryLease(authorityProfile, cwd, worktreeLeaseConfig);
     if (!workingDirectoryLease.ok) return workingDirectoryLease;
-    const admissionProfile = authorityProfile.admissionProfile;
-    if (admissionProfile === READONLY_PROFILE) {
+    const access = authorityProfile.access;
+    if (access === READ_ONLY_ACCESS) {
       resolved.push(buildReadonlyProfile(
         routeConfig,
         authorityProfile,
@@ -1647,13 +1646,13 @@ function buildRouteProfiles(
       ));
       continue;
     }
-    if (admissionProfile === "foundation-propose-writes" || admissionProfile === "foundation-apply-approved-writes" || admissionProfile === "foundation-memory-write-proposals") {
+    if (access === "propose" || access === "approved-write") {
       const writeProfile = buildWriteProfile(
         routeConfig,
         authorityProfile,
         authorityProfile.id,
         cwd,
-        admissionProfile,
+        access,
         workingDirectoryLease.lease,
         executionCatalog,
       );
@@ -1665,7 +1664,7 @@ function buildRouteProfiles(
     }
     return {
       ok: false,
-      reason: `Managed invocation profile '${admissionProfile}' is not supported by target projection.`,
+      reason: `Managed invocation access '${access}' is not supported by target projection.`,
     };
   }
   return { ok: true, profiles: resolved };
@@ -1692,8 +1691,7 @@ function buildReadonlyProfile(
   const timeout = resolveRouteTimeout(authorityProfile);
   return {
     authorityProfileId,
-    admissionProfile: READONLY_PROFILE,
-    permissionProfile: "read-only",
+    access: READ_ONLY_ACCESS,
     allowedToolNames: authorityProfile.tools?.allowed ?? DEFAULT_ALLOWED_TOOLS,
     writeAllowed: false,
     networkAllowed: authorityProfile.tools?.network === true,
@@ -1730,7 +1728,7 @@ function buildWriteProfile(
   authorityProfile: KilnAuthorityProfileConfig,
   authorityProfileId: string,
   cwd: string,
-  profile: Exclude<KilnManagedAgentProfile, "foundation-readonly-plan">,
+  access: Exclude<KilnManagedAgentAccess, "read-only">,
   workingDirectoryLease: ManagedInvocationRouteProfile["workingDirectoryLease"] | undefined,
   executionCatalog: ExecutionTargetCatalog | undefined,
 ): {
@@ -1744,21 +1742,20 @@ function buildWriteProfile(
   if (networkEnabled) {
     return {
       ok: false,
-      reason: `${profile} routes cannot enable tools.network. Use a separate foundation-readonly-plan route for web, browser, computer-use, or visual-reference research phases.`,
+      reason: `${access} routes cannot enable tools.network. Use a separate read-only route for web, browser, computer-use, or visual-reference research phases.`,
     };
   }
-  const writeAuthority = buildWriteAuthority(authorityProfile, cwd, profile);
+  const writeAuthority = buildWriteAuthority(authorityProfile, cwd, access);
   if (!writeAuthority.ok) {
     return writeAuthority;
   }
-  const applyApproved = profile === "foundation-apply-approved-writes";
+  const applyApproved = access === "approved-write";
   const timeout = resolveRouteTimeout(authorityProfile);
   return {
     ok: true,
     profile: {
       authorityProfileId,
-      admissionProfile: profile,
-      permissionProfile: applyApproved ? "apply-approved-writes" : "propose-writes",
+      access,
       allowedToolNames: authorityProfile.tools?.allowed ?? (applyApproved ? DEFAULT_WRITE_ALLOWED_TOOLS : DEFAULT_ALLOWED_TOOLS),
       writeAllowed: applyApproved,
       networkAllowed: false,
@@ -1767,7 +1764,7 @@ function buildWriteProfile(
       timeoutMs: timeout.timeoutMs,
       timeoutSource: timeout.source,
       credentialRoute: resolveCredentialRoute(routeConfig, executionCatalog),
-      memoryScope: resolveMemoryScope(authorityProfile, cwd, writeAuthority.authority.scope.memory.mode === "propose" ? "write-proposals" : undefined),
+      memoryScope: resolveMemoryScope(authorityProfile, cwd),
       writeAuthority: writeAuthority.authority,
     },
   };
@@ -1776,7 +1773,7 @@ function buildWriteProfile(
 function buildWriteAuthority(
   authorityProfile: KilnAuthorityProfileConfig,
   cwd: string,
-  profile: Exclude<KilnManagedAgentProfile, "foundation-readonly-plan">,
+  access: Exclude<KilnManagedAgentAccess, "read-only">,
 ): {
   readonly ok: true;
   readonly authority: NonNullable<ManagedAgentAuthorityProfile["writeAuthority"]>;
@@ -1791,24 +1788,21 @@ function buildWriteAuthority(
       reason: "Write-capable managed invocation routes require explicit writeAuthority scope and approval config.",
     };
   }
-  const applyApproved = profile === "foundation-apply-approved-writes";
-  const memoryOnly = profile === "foundation-memory-write-proposals";
+  const applyApproved = access === "approved-write";
   const configuredWorkspaceMode = config.workspace?.mode;
-  const workspaceMode = memoryOnly
-    ? "none"
-    : applyApproved
+  const workspaceMode = applyApproved
       ? "apply-approved"
-      : configuredWorkspaceMode ?? "propose";
+      : configuredWorkspaceMode ?? "none";
   if (applyApproved && configuredWorkspaceMode !== undefined && configuredWorkspaceMode !== "apply-approved") {
     return {
       ok: false,
-      reason: "foundation-apply-approved-writes routes require writeAuthority.workspace.mode apply-approved.",
+      reason: "approved-write routes require writeAuthority.workspace.mode apply-approved.",
     };
   }
   if (!applyApproved && configuredWorkspaceMode === "apply-approved") {
     return {
       ok: false,
-      reason: `${profile} routes cannot use writeAuthority.workspace.mode apply-approved.`,
+      reason: `${access} routes cannot use writeAuthority.workspace.mode apply-approved.`,
     };
   }
   const allowedWorkspacePaths = normalizeManagedRoutePaths(config.workspace?.allowedPaths ?? [], cwd);
@@ -1827,16 +1821,14 @@ function buildWriteAuthority(
       reason: "isolated-worktree write routes require writeAuthority.workspace.allowedPaths to stay inside the repository root.",
     };
   }
-  const memoryMode = profile === "foundation-memory-write-proposals"
-    ? "propose"
-    : config.memory?.mode ?? "none";
-  if (profile === "foundation-memory-write-proposals" && config.memory?.mode !== undefined && config.memory.mode !== "propose") {
+  const memoryWriteEnabled = authorityProfile.memory?.access === "write-proposals";
+  const artifactMode = config.artifacts?.mode ?? "none";
+  if (!applyApproved && artifactMode === "apply-approved") {
     return {
       ok: false,
-      reason: "foundation-memory-write-proposals routes require writeAuthority.memory.mode propose.",
+      reason: `${access} routes cannot use writeAuthority.artifacts.mode apply-approved.`,
     };
   }
-  const artifactMode = config.artifacts?.mode ?? "none";
   if (!config.approval || (config.approval.mode !== "required-before-apply" && config.approval.mode !== "policy-approved")) {
     return {
       ok: false,
@@ -1847,7 +1839,6 @@ function buildWriteAuthority(
   return {
     ok: true,
     authority: defineManagedAgentWriteAuthority({
-      profile,
       scope: defineManagedAgentWriteScope({
         workspace: {
           mode: workspaceMode,
@@ -1860,9 +1851,7 @@ function buildWriteAuthority(
             ]),
         },
         memory: {
-          mode: memoryMode,
-          ...(memoryMode === "propose" ? { scope: { kind: "project" as const, id: basename(cwd.replace(/\\/g, "/")) || "project" } } : {}),
-          operations: memoryMode === "propose" ? config.memory?.operations ?? ["create", "update"] : [],
+          operations: memoryWriteEnabled ? config.memory?.operations ?? ["create", "update"] : [],
         },
         artifacts: {
           mode: artifactMode,
@@ -1937,7 +1926,7 @@ async function resolveDirectRouteConfig(
     return unhealthy(baseHealth, managedEligibilityUnavailableReason(provider, model, undefined));
   }
   if (writeRequired) {
-    const writeSupport = validateDirectRouteWriteSupport(normalizeProfiles(routeConfig.authorityProfiles.map((profile) => profile.admissionProfile)));
+    const writeSupport = validateDirectRouteWriteSupport(normalizeAccessLevels(routeConfig.authorityProfiles.map((profile) => profile.access)));
     if (!writeSupport.ok) {
       return unhealthy(baseHealth, writeSupport.reason);
     }
@@ -1989,7 +1978,7 @@ async function resolveDirectRouteConfig(
       }
       const committedProfiles = profileResolution.profiles.filter((profile) =>
         profile.authorityProfileId === request.authorityProfileId
-        && profile.admissionProfile === request.admissionProfile
+        && profile.access === request.access
       );
       const committedProfile = committedProfiles.length === 1 ? committedProfiles[0] : undefined;
       if (
@@ -2036,7 +2025,7 @@ async function resolveDirectRouteConfig(
       provider,
       model,
       config.modelTaskSuitability,
-      liveProofEvidence(provider, model, normalizeProfiles(routeConfig.authorityProfiles.map((profile) => profile.admissionProfile))),
+      liveProofEvidence(provider, model, normalizeAccessLevels(routeConfig.authorityProfiles.map((profile) => profile.access))),
     ),
     profiles: profileResolution.profiles,
   };
@@ -2109,25 +2098,24 @@ function awaitManagedRoutePreparation<T>(promise: Promise<T>, signal: AbortSigna
   });
 }
 
-const DIRECT_WRITE_CAPABLE_PROFILES: readonly ManagedAgentAdmissionProfile[] = [
-  "foundation-readonly-plan",
-  "foundation-propose-writes",
-  "foundation-apply-approved-writes",
-  "foundation-memory-write-proposals",
+const DIRECT_WRITE_CAPABLE_ACCESS: readonly ManagedAgentAccess[] = [
+  "read-only",
+  "propose",
+  "approved-write",
 ];
 
-// Determines write capability from route/profile configuration alone, without
+// Determines write capability from route/access configuration alone, without
 // constructing the (now always-deferred) direct provider adapter. The direct
 // adapter factory grants LIVE_PROVEN_DIRECT_WRITE_AUTHORITY whenever
 // routeRequiresWriteAuthority(route) is true, so this mirrors that contract.
 function validateDirectRouteWriteSupport(
-  profiles: readonly ManagedAgentAdmissionProfile[],
+  accessLevels: readonly ManagedAgentAccess[],
 ): { readonly ok: true } | { readonly ok: false; readonly reason: string } {
-  const unsupportedProfile = profiles.find((profile) => !DIRECT_WRITE_CAPABLE_PROFILES.includes(profile));
-  if (unsupportedProfile !== undefined) {
+  const unsupportedAccess = accessLevels.find((access) => !DIRECT_WRITE_CAPABLE_ACCESS.includes(access));
+  if (unsupportedAccess !== undefined) {
     return {
       ok: false,
-      reason: `Direct managed invocation route does not support profile '${unsupportedProfile}'.`,
+      reason: `Direct managed invocation route does not support access '${unsupportedAccess}'.`,
     };
   }
   return { ok: true };
@@ -2150,31 +2138,31 @@ function resolveTaskSuitability(
 function liveProofEvidence(
   provider: string,
   model: string,
-  profiles: readonly ManagedAgentAdmissionProfile[],
+  accessLevels: readonly ManagedAgentAccess[],
 ): ModelTaskSuitabilityEvidence {
   return {
     source: "live-proof",
     status: "observed",
-    summary: `Managed invocation route for ${provider}/${model} is available with live-proven profiles: ${profiles.join(", ")}.`,
+    summary: `Managed invocation route for ${provider}/${model} is available with live-proven access levels: ${accessLevels.join(", ")}.`,
   };
 }
 
 function remoteHarnessEvidence(
   provider: string,
   model: string,
-  profiles: readonly ManagedAgentAdmissionProfile[],
+  accessLevels: readonly ManagedAgentAccess[],
 ): ModelTaskSuitabilityEvidence {
   return {
     source: "configured-route",
     status: "declared",
-    summary: `Remote harness managed invocation route for ${provider}/${model} is endpoint-configured with admitted profiles: ${profiles.join(", ")}.`,
+    summary: `Remote harness managed invocation route for ${provider}/${model} is endpoint-configured with admitted access levels: ${accessLevels.join(", ")}.`,
   };
 }
 
-function normalizeProfiles(
-  profiles: readonly ManagedAgentAdmissionProfile[] | undefined,
-): readonly ManagedAgentAdmissionProfile[] {
-  return profiles && profiles.length > 0 ? profiles : [READONLY_PROFILE];
+function normalizeAccessLevels(
+  accessLevels: readonly ManagedAgentAccess[] | undefined,
+): readonly ManagedAgentAccess[] {
+  return accessLevels && accessLevels.length > 0 ? accessLevels : [READ_ONLY_ACCESS];
 }
 
 function unhealthy(

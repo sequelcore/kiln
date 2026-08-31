@@ -180,7 +180,7 @@ interface AgentTaskOperatorProjection {
   readonly state?: string;
   readonly availability?: string;
   readonly configuredAgentProfileId?: string;
-  readonly admissionProfileId?: string;
+  readonly access?: string;
   readonly routeId?: string;
   readonly providerId?: string;
   readonly diagnostic?: string;
@@ -205,7 +205,7 @@ function projectOperatorValue(operation: string, value: unknown): AgentTaskOpera
     state,
     availability: readString(record, "availability") ?? readString(record, "resultAvailability"),
     configuredAgentProfileId: readString(record, "configuredAgentProfileId"),
-    admissionProfileId: readString(record, "admissionProfileId"),
+    access: readString(record, "access"),
     routeId: readString(record, "routeId") ?? readString(nestedResult, "routeId"),
     providerId: readString(record, "providerId") ?? readString(nestedResult, "providerId"),
     diagnostic: readString(record, "diagnostic"),

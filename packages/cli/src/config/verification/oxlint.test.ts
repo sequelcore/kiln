@@ -18,7 +18,7 @@ const managedBinary: ResolvedVendoredToolBinary = {
 
 function globalConfig(): KilnGlobalConfig {
   return {
-    version: "6",
+    version: "7",
     verification: {
       static: {
         oxlint: { enabled: true },

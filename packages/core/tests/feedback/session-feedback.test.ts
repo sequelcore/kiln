@@ -455,7 +455,7 @@ describe("session feedback repair work item", () => {
       ],
       routeId: "codex-managed-coder",
       assignedAgentProfile: "coder",
-      authorityProfile: "audited",
+      authority: "audited",
     });
     const store = new WorkItemStore({ now: () => "2026-05-18T12:06:00.000Z" });
     const item = store.upsert(workItemInput);
@@ -468,7 +468,7 @@ describe("session feedback repair work item", () => {
       surface: "session-feedback",
       assignedAgentProfile: "coder",
       routeId: "codex-managed-coder",
-      authorityProfile: "audited",
+      authority: "audited",
       sourceFeedbackId: "feedback-2026-05-18-repair",
       feedbackRepair: {
         feedbackId: "feedback-2026-05-18-repair",

@@ -5,7 +5,7 @@ import { resolveOperatorVoiceRuntime } from "../../src/config/operator-voice.js"
 describe("resolveOperatorVoiceRuntime", () => {
   it("dynamically loads the Runtime factories for both configured voice adapters", async () => {
     const config = {
-      version: "6",
+      version: "7",
       operatorVoice: {
         stt: {
           provider: "whisper-local",

@@ -40,7 +40,7 @@ describe("managed_agent.orchestrate", () => {
         routeSource: "explicit-managed-route",
         providerId: "opencode-go",
         model: "kimi-k3",
-        profiles: ["foundation-readonly-plan"],
+        accessLevels: ["read-only"],
         reason: "schema projection fixture",
       }],
       agentCatalog: [{
@@ -49,7 +49,7 @@ describe("managed_agent.orchestrate", () => {
         goal: "Produce a bounded visual handoff.",
         tier: "reasoning",
         authorityProfileId: "authority:frontend-readonly",
-        admissionProfile: "foundation-readonly-plan",
+        access: "read-only",
         routeId: "frontend-readonly",
       }],
     });
@@ -63,7 +63,7 @@ describe("managed_agent.orchestrate", () => {
 
   it("rejects cyclic work graphs before route selection or child start", async () => {
     const result = await execute({
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       taskRisk: "medium",
       requiresIndependentReview: false,
       workItems: [
@@ -78,7 +78,7 @@ describe("managed_agent.orchestrate", () => {
 
   it("returns the canonical denied decision when runtime capacity is unavailable", async () => {
     const result = await execute({
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       taskRisk: "low",
       requiresIndependentReview: false,
       workItems: [
@@ -141,7 +141,7 @@ describe("managed_agent.orchestrate", () => {
       registerEconomicSettlement: (settlement: PromiseLike<ManagedEconomicSettlement>) => void Promise.resolve(settlement),
     }));
     const input = {
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       taskRisk: "low",
       requiresIndependentReview: false,
       workItems: [
@@ -157,7 +157,7 @@ describe("managed_agent.orchestrate", () => {
         goal: "Execute after durable economic commitment.",
         tier: "reasoning",
         authorityProfileId: "authority:economic",
-        admissionProfile: "foundation-readonly-plan",
+        access: "read-only",
         economicPolicyId: "economic-policy",
         economicPolicyRevision: "revision-001",
         economicPolicyCandidateRouteIds: ["economic-route"],
@@ -275,7 +275,7 @@ function economicRoute(): ManagedInvocationToolRoute {
       supportsRecursion: true,
       supportsAttachments: false,
       supportsWrite: false,
-      proof: { status: "configured", source: "test-fixture", provenProfiles: ["foundation-readonly-plan"] },
+      proof: { status: "configured", source: "test-fixture", provenAccess: ["read-only"] },
       capacity: { kind: "accountless" },
       settlement: { kind: "managed-economic-selection", contractVersion: "managed-economic-v1", policyIds: ["economic-policy"], pendingSettlement: "required", recovery: "required" },
     },
@@ -287,8 +287,7 @@ function economicRoute(): ManagedInvocationToolRoute {
     },
     profiles: [{
         authorityProfileId: "authority:economic",
-        admissionProfile: "foundation-readonly-plan" as const,
-        permissionProfile: "read-only" as const,
+        access: "read-only" as const,
         allowedToolNames: ["read", "grep"],
         workingDirectory: { path: "C:/repo", mode: "read-only" as const },
         timeoutMs: 1000,
@@ -304,7 +303,7 @@ function economicAdapter(invoked: (invocationId: string) => void) {
       adapterDescriptorId: "adapter:economic-test",
       providerId: "codex",
       adapterKind: "harness",
-      supportedProfiles: ["foundation-readonly-plan"],
+      supportedAccess: ["read-only"],
       supportedExecutionModes: ["cli-harness"],
       lifecycle: { exposesStart: true, exposesTerminal: true, exposesCleanup: true },
       cancellation: { supported: true }, timeout: { supported: true, diagnosticArtifactOnTimeout: true },
@@ -322,7 +321,7 @@ function economicAdapter(invoked: (invocationId: string) => void) {
       registerAdapterCompletion(Promise.resolve());
       return defineManagedAgentInvocationRecord({
         invocationId: request.invocationId, agentId: request.agentId, parentSessionId: request.parentSessionId, parentTurnId: request.parentTurnId,
-        profile: request.profile, lifecycleState: "completed", providerRoute: request.providerRoute, adapterKind: request.adapterKind,
+        access: request.access, lifecycleState: "completed", providerRoute: request.providerRoute, adapterKind: request.adapterKind,
         executionMode: request.executionMode, authority: request.authority, capabilitySnapshot: admission.capabilitySnapshot,
         resultHandoff: {
           provenance: { delivery: "runtime-generated", configuredModelId: "gpt-test", observedModelIds: [] },

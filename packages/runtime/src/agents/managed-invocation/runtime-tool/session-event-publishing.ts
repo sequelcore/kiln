@@ -144,7 +144,7 @@ export function createManagedInvocationToolCallMetadataResolver(
     if (agentProfile?.economicPolicyId && agentProfile.economicPolicyRevision) {
       return {
         kind: "managed-economic-invocation-precommit",
-        profile: parsed.input.profile,
+        access: parsed.input.access,
         economicPolicyId: agentProfile.economicPolicyId,
         economicPolicyRevision: agentProfile.economicPolicyRevision,
         ...(parsed.input.routeId ? { routeIdConstraint: parsed.input.routeId } : {}),
@@ -170,14 +170,14 @@ export function createManagedInvocationToolCallMetadataResolver(
     if (!route.createAdapter && route.economicCapability?.status !== "verified") {
       return undefined;
     }
-    const profileDefaults = resolveManagedInvocationRouteProfile(route, parsed.input.profile, agentProfile);
+    const profileDefaults = resolveManagedInvocationRouteProfile(route, parsed.input.access, agentProfile);
     if (!profileDefaults) {
       return undefined;
     }
     const handoffContract = buildHandoffContract(parsed.input);
     return {
       kind: "managed-invocation",
-      profile: parsed.input.profile,
+      access: parsed.input.access,
       routeId: route.routeId,
       providerRoute: {
         providerId: route.providerId,

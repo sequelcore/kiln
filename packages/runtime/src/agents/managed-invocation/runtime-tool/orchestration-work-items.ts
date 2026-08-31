@@ -8,7 +8,7 @@ import {
   decideManagedAgentCoordination,
 } from "@kilnai/core";
 import type {
-  ManagedAgentAdmissionProfile,
+  ManagedAgentAccess,
   ManagedAgentCallerAttachmentIdentity,
   ManagedAgentRequestedAuthority,
   ManagedAgentWorkingDirectory,
@@ -27,7 +27,7 @@ import type {
 } from "./types.js";
 import type { EffectiveAuthorityAdmissionBundle } from "../../../session/effective-authority-admission-bundle.js";
 import { unique } from "./catalog-descriptions.js";
-import { MANAGED_AGENT_ORCHESTRATION_PROFILES } from "./tool-schema.js";
+import { MANAGED_AGENT_ORCHESTRATION_ACCESS } from "./tool-schema.js";
 import { errorResult, readText } from "./input-parsing.js";
 import { requireManagedInvocationSessionContext } from "./lifecycle-tool-executors.js";
 import { resolveManagedInvocationRouteProfile } from "./profile-resolution.js";
@@ -69,9 +69,9 @@ export async function executeManagedAgentOrchestrationTool(
     }, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
   }
   const effectiveCallerIdentity = callerResolution.callerIdentity;
-  const profile = readText(rawInput.profile) as ManagedAgentAdmissionProfile | undefined;
-  if (!profile || profile === "rejected" || !MANAGED_AGENT_ORCHESTRATION_PROFILES.includes(profile)) {
-    return errorResult("managed_agent.orchestrate requires a supported profile.", {}, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
+  const access = readText(rawInput.access) as ManagedAgentAccess | undefined;
+  if (!access || !MANAGED_AGENT_ORCHESTRATION_ACCESS.includes(access)) {
+    return errorResult("managed_agent.orchestrate requires a supported access.", {}, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
   }
   const taskRisk = readText(rawInput.taskRisk);
   if (taskRisk !== "low" && taskRisk !== "medium" && taskRisk !== "high" && taskRisk !== "unknown") {
@@ -90,7 +90,7 @@ export async function executeManagedAgentOrchestrationTool(
   const includesAdHocWork = orderedWorkItems.workItems.some((item) => !item.agentProfile);
   const availableRoutes = eligibleManagedOrchestrationRoutes(
     options,
-    profile,
+    access,
     requestedAgents.filter((agent): agent is NonNullable<typeof agent> => agent !== undefined),
     includesAdHocWork,
   );
@@ -118,7 +118,7 @@ export async function executeManagedAgentOrchestrationTool(
       coordinationDecision: decision,
     }, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
   }
-  const resolvedWorkItems = resolveManagedOrchestrationWorkItems(orderedWorkItems.workItems, profile, options);
+  const resolvedWorkItems = resolveManagedOrchestrationWorkItems(orderedWorkItems.workItems, access, options);
   if (!resolvedWorkItems.ok) {
     return errorResult(resolvedWorkItems.message, { operation: "managed_orchestration_denied" }, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
   }
@@ -126,7 +126,7 @@ export async function executeManagedAgentOrchestrationTool(
   const workingDirectoryModes = unique(resolvedWorkItems.workItems.map((item) => {
     const route = routesById.get(item.routeId)!;
     const agent = resolveManagedInvocationAgentProfile(options, item.agentProfile);
-    return resolveManagedInvocationRouteProfile(route, profile, agent)!.workingDirectory.mode;
+    return resolveManagedInvocationRouteProfile(route, access, agent)!.workingDirectory.mode;
   }));
   if (workingDirectoryModes.length !== 1) {
     return errorResult(
@@ -180,8 +180,8 @@ export async function executeManagedAgentOrchestrationTool(
     const result = await runManagedAgentOrchestrationLifecycle({
       orchestrationRequest,
       managedInvocation: options,
-      profile,
-      requestedAuthority: managedOrchestrationRequestedAuthority(profile),
+      access,
+      requestedAuthority: managedOrchestrationRequestedAuthority(access),
       callerIdentity: effectiveCallerIdentity,
       economicAdoptedDecisionAt: session.context.session.createdAt.toISOString(),
       ...(authorityAdmission
@@ -248,13 +248,9 @@ export async function executeManagedAgentOrchestrationTool(
 }
 
 function managedOrchestrationRequestedAuthority(
-  profile: ManagedAgentAdmissionProfile,
+  access: ManagedAgentAccess,
 ): ManagedAgentRequestedAuthority {
-  return profile === "foundation-readonly-plan"
-    || profile === "diagnostic-only"
-    || profile === "comparison-only"
-    ? "read_only"
-    : "audited";
+  return access === "read-only" ? "read_only" : "audited";
 }
 
 function readManagedOrchestrationWorkItems(value: unknown):
@@ -303,14 +299,14 @@ function readManagedOrchestrationWorkItems(value: unknown):
 
 function resolveManagedOrchestrationWorkItems(
   workItems: readonly ManagedOrchestrationWorkItemInput[],
-  profile: ManagedAgentAdmissionProfile,
+  access: ManagedAgentAccess,
   options: ManagedInvocationToolOptions,
 ):
   | { readonly ok: true; readonly workItems: readonly ResolvedManagedOrchestrationWorkItem[] }
   | { readonly ok: false; readonly message: string } {
   const eligibleById = new Map(options.routes
     .filter((route) => route.profiles.some((candidate) =>
-      candidate.admissionProfile === profile && isEligibleManagedOrchestrationProfile(candidate, route, options)
+      candidate.access === access && isEligibleManagedOrchestrationProfile(candidate, route, options)
     ))
     .map((route) => [route.routeId, route]));
   const resolved: ResolvedManagedOrchestrationWorkItem[] = [];
@@ -325,14 +321,14 @@ function resolveManagedOrchestrationWorkItems(
         message: `managed_agent.orchestrate work item '${item.id}' routeId '${item.routeId}' contradicts agentProfile '${agent.name}' route hint '${agent.routeId}'.`,
       };
     }
-    if (agent && agent.admissionProfile !== profile) {
+    if (agent && agent.access !== access) {
       return {
         ok: false,
-        message: `managed_agent.orchestrate work item '${item.id}' agentProfile '${agent.name}' requires admission profile '${agent.admissionProfile}', not '${profile}'.`,
+        message: `managed_agent.orchestrate work item '${item.id}' agentProfile '${agent.name}' requires admission access '${agent.access}', not '${access}'.`,
       };
     }
     const itemEligibleRoutes = options.routes.filter((route) => {
-      const routeProfile = resolveManagedInvocationRouteProfile(route, profile, agent);
+      const routeProfile = resolveManagedInvocationRouteProfile(route, access, agent);
       return routeProfile !== undefined && isEligibleManagedOrchestrationProfile(routeProfile, route, options);
     });
     const routeId = item.routeId
@@ -345,10 +341,10 @@ function resolveManagedOrchestrationWorkItems(
       };
     }
     const route = eligibleById.get(routeId);
-    if (!route || !resolveManagedInvocationRouteProfile(route, profile, agent)) {
+    if (!route || !resolveManagedInvocationRouteProfile(route, access, agent)) {
       return {
         ok: false,
-        message: `managed_agent.orchestrate work item '${item.id}' route '${routeId}' does not expose the requested governed profile.`,
+        message: `managed_agent.orchestrate work item '${item.id}' route '${routeId}' does not expose the requested governed access.`,
       };
     }
     resolved.push({
@@ -362,15 +358,15 @@ function resolveManagedOrchestrationWorkItems(
 
 function eligibleManagedOrchestrationRoutes(
   options: ManagedInvocationToolOptions,
-  profile: ManagedAgentAdmissionProfile,
+  access: ManagedAgentAccess,
   agents: readonly NonNullable<ManagedInvocationToolOptions["agentCatalog"]>[number][] = [],
   includeAdHoc = true,
 ): readonly ManagedInvocationToolRoute[] {
   return options.routes.filter((route) => {
     const routeProfile = agents
-      .map((agent) => resolveManagedInvocationRouteProfile(route, profile, agent))
+      .map((agent) => resolveManagedInvocationRouteProfile(route, access, agent))
       .find((candidate) => candidate !== undefined)
-      ?? (includeAdHoc ? resolveManagedInvocationRouteProfile(route, profile) : undefined);
+      ?? (includeAdHoc ? resolveManagedInvocationRouteProfile(route, access) : undefined);
     return routeProfile !== undefined && isEligibleManagedOrchestrationProfile(routeProfile, route, options);
   });
 }

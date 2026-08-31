@@ -127,7 +127,7 @@ function buildManagedVisionRequest(
   externalRuntimeAttachment: ManagedAgentExternalRuntimeAttachmentIdentity | undefined,
 ): Record<string, unknown> {
   const request: Record<string, unknown> = {
-    profile: "foundation-readonly-plan",
+    access: "read-only",
     routeId,
     providerRoute: Object.freeze({
       providerId: providerRoute.providerId,

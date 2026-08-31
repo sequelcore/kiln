@@ -53,7 +53,7 @@ function makeRequest(sessionId = "session-parent", turnId = `${sessionId}:turn:1
     agentId: "agent-reviewer",
     parentSessionId: sessionId,
     parentTurnId: turnId,
-    profile: "foundation-readonly-plan",
+    access: "read-only",
     requestedBy: "operator",
     requestSource: "manual",
     providerRoute: {
@@ -64,8 +64,7 @@ function makeRequest(sessionId = "session-parent", turnId = `${sessionId}:turn:1
     adapterKind: "harness",
     executionMode: "cli-harness",
     authority: {
-      authorityProfileId: "foundation-readonly",
-      permissionProfile: "read-only",
+      authorityProfileId: "read-only",
       toolAuthority: {
         allowedToolNames: ["read", "rg"],
         writeAllowed: false,
@@ -99,8 +98,6 @@ function makeWriteScope(resourceUris: readonly string[] = ["kiln://artifacts/man
       deniedPaths: ["C:/workspace/kiln/.git"],
     },
     memory: {
-      mode: "propose",
-      scope: { kind: "project", id: "kiln" },
       operations: ["create", "update"],
     },
     artifacts: {
@@ -120,7 +117,7 @@ function makeDescriptor() {
     adapterDescriptorId: "adapter:opencode:harness",
     providerId: "opencode",
     adapterKind: "harness",
-    supportedProfiles: ["foundation-readonly-plan", "foundation-propose-writes"],
+    supportedAccess: ["read-only", "propose"],
     supportedExecutionModes: ["cli-harness"],
     lifecycle: {
       exposesStart: true,
@@ -173,7 +170,7 @@ function makeWriteRequest(
     agentId: "agent-implementer",
     parentSessionId: sessionId,
     parentTurnId: turnId,
-    profile: "foundation-propose-writes",
+    access: "propose",
     requestedBy: "operator",
     requestSource: "manual",
     providerRoute: {
@@ -184,8 +181,7 @@ function makeWriteRequest(
     adapterKind: "harness",
     executionMode: "cli-harness",
     authority: {
-      authorityProfileId: "authority:foundation-propose-writes",
-      permissionProfile: "propose-writes",
+      authorityProfileId: "authority:propose",
       toolAuthority: {
         allowedToolNames: ["read", "rg"],
         writeAllowed: false,
@@ -205,7 +201,6 @@ function makeWriteRequest(
         access: "write-proposals",
       },
       writeAuthority: defineManagedAgentWriteAuthority({
-        profile: "foundation-propose-writes",
         scope: makeWriteScope(writeResourceUris),
         approval: {
           mode: "required-before-apply",
@@ -225,10 +220,10 @@ function makeDecision(status: "admitted" | "denied"): ManagedAgentAdmissionDecis
     return {
       status: "denied",
       invocationId: "invocation-1",
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       routeId: "fixture-route",
       routeSource: "explicit-managed-route",
-      reason: "foundation-readonly-plan denied: timeout.supported",
+      reason: "read-only denied: timeout.supported",
       missingCapabilities: ["timeout.supported"],
     };
   }
@@ -239,7 +234,7 @@ function makeAdmittedDecision(request: ManagedAgentInvocationRequest): Extract<M
   return {
     status: "admitted",
     invocationId: request.invocationId,
-    profile: request.profile,
+    access: request.access,
     adapterDescriptorId: "adapter:opencode:harness",
     authorityProfileId: request.authority.authorityProfileId,
     credentialRouteId: "credential-route:opencode:primary",
@@ -253,17 +248,17 @@ function makeWriteDecision(status: "admitted" | "denied", request = makeWriteReq
     return {
       status: "denied",
       invocationId: request.invocationId,
-      profile: request.profile,
+    access: request.access,
       routeId: "fixture-route",
       routeSource: "explicit-managed-route",
-      reason: "foundation-propose-writes denied: writeAuthority.proposalSupported",
+      reason: "propose denied: writeAuthority.proposalSupported",
       missingCapabilities: ["writeAuthority.proposalSupported"],
     };
   }
   return {
     status: "admitted",
     invocationId: request.invocationId,
-    profile: request.profile,
+    access: request.access,
     adapterDescriptorId: "adapter:opencode:harness",
     authorityProfileId: request.authority.authorityProfileId,
     credentialRouteId: "credential-route:opencode:primary",
@@ -280,7 +275,7 @@ function makeRecord(lifecycleState: ManagedAgentInvocationRecord["lifecycleState
     agentId: request.agentId,
     parentSessionId: request.parentSessionId,
     parentTurnId: request.parentTurnId,
-    profile: request.profile,
+    access: request.access,
     lifecycleState,
     providerRoute: request.providerRoute,
     adapterKind: request.adapterKind,
@@ -324,7 +319,7 @@ function makeWriteRecord(request = makeWriteRequest()): ManagedAgentInvocationRe
     agentId: request.agentId,
     parentSessionId: request.parentSessionId,
     parentTurnId: request.parentTurnId,
-    profile: request.profile,
+    access: request.access,
     lifecycleState: "completed",
     providerRoute: request.providerRoute,
     adapterKind: request.adapterKind,
@@ -389,7 +384,7 @@ describe("appendManagedInvocationSessionEvents", () => {
       parentSessionId: request.parentSessionId,
       requestedBy: request.requestedBy,
       requestSource: request.requestSource,
-      profile: request.profile,
+    access: request.access,
       providerRoute: request.providerRoute,
       adapterKind: request.adapterKind,
       executionMode: request.executionMode,
@@ -400,7 +395,7 @@ describe("appendManagedInvocationSessionEvents", () => {
       sequence: 2,
       invocationId: request.invocationId,
       parentSessionId: request.parentSessionId,
-      profile: request.profile,
+    access: request.access,
       providerRoute: request.providerRoute,
       adapterKind: request.adapterKind,
       executionMode: request.executionMode,
@@ -557,7 +552,7 @@ describe("appendManagedInvocationSessionEvents", () => {
       lifecycleState: "running",
       parentSessionId: request.parentSessionId,
       parentTurnId: request.parentTurnId,
-      profile: record.profile,
+    access: record.access,
       providerRoute: record.providerRoute,
       adapterKind: record.adapterKind,
       executionMode: record.executionMode,
@@ -569,7 +564,7 @@ describe("appendManagedInvocationSessionEvents", () => {
       lifecycleState: "completed",
       parentSessionId: request.parentSessionId,
       parentTurnId: request.parentTurnId,
-      profile: record.profile,
+    access: record.access,
       providerRoute: record.providerRoute,
       adapterKind: record.adapterKind,
       executionMode: record.executionMode,
@@ -613,7 +608,7 @@ describe("appendManagedInvocationSessionEvents", () => {
         providerId: "opencode",
         model: "sonic",
         contextMode: "resources",
-        authorityProfileId: "foundation-readonly",
+        authorityProfileId: "read-only",
         sourceResourceUris: ["kiln://session/work-items/work-source"],
         resourceLease: {
           leaseId: "invocation-1:resource-lease",
@@ -1005,15 +1000,12 @@ describe("appendManagedInvocationSessionEvents", () => {
 
     expect(evidence).toMatchObject({
       writeAuthority: {
-        profile: "foundation-propose-writes",
         scope: {
           workspace: {
             mode: "propose",
             allowedPaths: ["packages/core/src/agents/managed-invocation"],
           },
           memory: {
-            mode: "propose",
-            scope: { kind: "project", id: "kiln" },
           },
         },
         approval: {
@@ -1060,7 +1052,6 @@ describe("appendManagedInvocationSessionEvents", () => {
 
     expect(evidence).toMatchObject({
       writeAuthority: {
-        profile: "foundation-propose-writes",
         scope: {
           artifacts: {
             resourceUris: [
@@ -1085,7 +1076,7 @@ describe("appendManagedInvocationSessionEvents", () => {
     const decision: ManagedAgentAdmissionDecision = {
       status: "denied",
       invocationId: request.invocationId,
-      profile: request.profile,
+      access: request.access,
       routeId: "fixture-route",
       routeSource: "explicit-managed-route",
       reason: [

@@ -513,7 +513,7 @@
       "type": "object"
     },
     "version": {
-      "const": "6",
+      "const": "7",
       "type": "string"
     },
     "web": {

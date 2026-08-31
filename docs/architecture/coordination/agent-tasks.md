@@ -32,16 +32,18 @@ second provider, harness, or task abstraction.
 
 ## Canonical record
 
-The supported persisted schema is v15. An `AgentTaskRecord` contains the
+The supported persisted schema is v16. An `AgentTaskRecord` contains the
 trusted project and caller identities, configured agent profile, exact admitted
-route, governance/admission evidence, idempotency fingerprint, lifecycle,
-write-approval receipt, data-policy proof, and the single `AgentRun`. When a
-capability is admitted, the record also carries its canonical typed request and
-input digest; a successful result carries the validated typed output beside the
-bounded text handoff so result and replay projections remain deterministic.
+route, governance/admission evidence, and access (`read-only | propose |
+approved-write`), idempotency fingerprint, lifecycle, write-approval receipt,
+data-policy proof, and the single `AgentRun`. v16 replaces the former
+admission-profile field with `access`; a capability admission record also
+carries its canonical typed request and input digest, while a successful result
+carries the validated typed output beside the bounded text handoff so result
+and replay projections remain deterministic.
 
 An Agent Run has deterministic identity `agent-run:<taskId>`. It is not a retry
-history: v15 has exactly one run per task. Its state is one of
+history: v16 has exactly one run per task. Its state is one of
 `awaiting_approval`, `queued`, `running`, `succeeded`, `failed`, `timed_out`,
 `interrupted`, or `cancelled`. Terminal records and successful handoffs are
 immutable.
@@ -74,6 +76,13 @@ Before an external effect, Runtime requires fresh authoritative governance,
 the exact configured profile and route, valid authority/permission/tool scope,
 data-policy evidence, and any required write approval. Missing, stale,
 contradictory, or unsupported evidence fails closed.
+
+Managed write approvals use SQLite schema v2, whose binding stores the exact
+`approved-write` access level. A v1 approval store used the obsolete admission
+profile binding and is rejected without mutation; operators must recreate its
+approvals explicitly. Runtime recovery checkpoints use schema v3 for the same
+access contract. Obsolete v2 checkpoints are quarantined and are never
+reinterpreted or redispatched.
 
 Economic routes adopt and commit one immutable route/account decision before
 dispatch. That resource commitment is not by itself the action fence. During
@@ -180,14 +189,16 @@ Process restart also ends every attended trusted-execution lease. Recovery may
 project retained admission and terminal evidence, but it cannot recreate the
 process-local principal or authorize a new effect from the former lease.
 
-Only the current Agent Task schema is admitted. Obsolete or malformed local
-state is rejected without mutation; Runtime has no legacy reader, writer,
-migration, archive, or compatibility alias.
+Only the current Agent Task v16 schema is admitted. Agent Task configurations
+or records written as v15 are legacy state: they are rejected by schema without
+mutation and are never reinterpreted through the new `access` field. Runtime
+has no legacy reader, writer, migration, archive, or compatibility alias;
+operators must recreate v15 tasks explicitly under v16.
 
 ## Invariants
 
 - one Runtime owner for Agent Task and Agent Run lifecycle;
-- one deterministic run per v15 task;
+- one deterministic run per v16 task;
 - one explicit route and policy decision before dispatch;
 - native harnesses retain native loops, tools, and subagents;
 - attended trusted-execution leases are process-local, non-persistent, and

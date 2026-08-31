@@ -85,7 +85,7 @@ describe("TUI managed-agent cockpit projection", () => {
   it("normalizes managed invocation events and projects them through shared cockpit view state", () => {
     const started = event("evt-started", 2, "agent_invocation_started", {
       invocationId: "child-running",
-      profile: "reviewer",
+      access: "read-only",
       providerRoute: {
         providerId: "codex-oauth",
         model: "gpt-5.5",
@@ -93,7 +93,7 @@ describe("TUI managed-agent cockpit projection", () => {
     });
     const completedWithReview = event("evt-completed", 3, "agent_invocation_completed", {
       invocationId: "child-review",
-      profile: "coder",
+      access: "propose",
       providerRoute: {
         providerId: "opencode-go",
         model: "minimax-m2.5",

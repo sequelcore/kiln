@@ -170,7 +170,7 @@ function profile(
     authorityProfileId: "authority:agent-task-readonly",
     economicPolicyId: "economy-policy",
     economicPolicyRevision: "revision-001",
-    admissionProfileId: "foundation-readonly-plan",
+    access: "read-only",
     constraints,
   };
 }
@@ -181,7 +181,7 @@ function candidateSet(
   return {
     economicPolicyId: "economy-policy",
     economicPolicyRevision: "revision-001",
-    admissionProfileId: "foundation-readonly-plan",
+    access: "read-only",
     constraints,
     candidates: [{
       routeId: "codex-primary",
@@ -329,7 +329,7 @@ const nativeHarnessAcknowledgement = {
   routeRevision: "configured-v1",
   providerId: "claude",
   model: "claude-sonnet-5",
-  admissionProfileId: "foundation-readonly-plan" as const,
+  access: "read-only" as const,
   adapterCapabilityId: "managed:claude-sonnet-readonly",
   adapterCapabilityVersion: "v1",
 };
@@ -339,7 +339,7 @@ const nativeHarnessProfile: AgentTaskNativeHarnessProfile = {
   id: "claude-reviewer",
   authorityProfileId: "authority:agent-task-native-readonly",
   supportedCapabilityIds: ["vision.analyze"],
-  admissionProfileId: "foundation-readonly-plan",
+  access: "read-only",
   routeId: "claude-sonnet-readonly",
   routeRevision: "configured-v1",
   providerId: "claude",
@@ -351,7 +351,7 @@ const nativeHarnessProfile: AgentTaskNativeHarnessProfile = {
 
 const nativeHarnessRoute: AgentTaskNativeHarnessRoute = {
   kind: "native-harness",
-  admissionProfileId: nativeHarnessProfile.admissionProfileId,
+  access: nativeHarnessProfile.access,
   routeId: nativeHarnessProfile.routeId,
   routeRevision: nativeHarnessProfile.routeRevision,
   providerId: nativeHarnessProfile.providerId,
@@ -424,7 +424,7 @@ function nativeStoredJob(input: {
     ...(actionClaim ? { actionClaim } : {}),
   };
   return {
-    version: 15,
+    version: 16,
     run: {
       runId: `agent-run:${input.id}`,
       state: input.state,
@@ -437,7 +437,7 @@ function nativeStoredJob(input: {
     projectId: "kiln",
     callerId: query.callerId,
     configuredAgentProfileId: nativeHarnessProfile.id,
-    admissionProfileId: nativeHarnessProfile.admissionProfileId,
+    access: nativeHarnessProfile.access,
     dispatch,
     governanceSource: "kiln-work-governance",
     admissionId: admissionBundle.admissionId,
@@ -467,25 +467,25 @@ async function dispatchAccepted(
   return accepted;
 }
 
-describe("AgentTaskApplicationService V15 AgentTask/AgentRun record", () => {
+describe("AgentTaskApplicationService V16 AgentTask/AgentRun record", () => {
   it("holds approved-write work awaiting approval and never dispatches it without an attached receipt", async () => {
     const execute = vi.fn();
     const service = new AgentTaskApplicationService({
       ...createOptions({
         currentProfile: () => ({
           ...profile(),
-          admissionProfileId: "foundation-apply-approved-writes",
+          access: "approved-write",
         }),
         currentCandidates: () => ({
           ...candidateSet(),
-          admissionProfileId: "foundation-apply-approved-writes",
+          access: "approved-write",
         }),
       }),
       economicExecution: { execute },
     });
 
     const accepted = await service.accept(submission);
-    expect(accepted).toMatchObject({ version: 15, state: "awaiting_approval" });
+    expect(accepted).toMatchObject({ version: 16, state: "awaiting_approval" });
     await expect(service.attachWriteApproval(query, accepted.id, "approval-000001")).rejects.toMatchObject({
       code: "admission_denied",
     });
@@ -497,19 +497,19 @@ describe("AgentTaskApplicationService V15 AgentTask/AgentRun record", () => {
     const writeAcknowledgement = {
       ...nativeHarnessAcknowledgement,
       routeId: "claude-sonnet-approved-write",
-      admissionProfileId: "foundation-apply-approved-writes" as const,
+      access: "approved-write" as const,
     };
     const writeProfile: AgentTaskNativeHarnessProfile = {
       ...nativeHarnessProfile,
       id: "claude-writer",
       routeId: writeAcknowledgement.routeId,
-      admissionProfileId: writeAcknowledgement.admissionProfileId,
+      access: writeAcknowledgement.access,
       acknowledgement: writeAcknowledgement,
     };
     const writeRoute: AgentTaskNativeHarnessRoute = {
       ...nativeHarnessRoute,
       routeId: writeAcknowledgement.routeId,
-      admissionProfileId: writeAcknowledgement.admissionProfileId,
+      access: writeAcknowledgement.access,
       acknowledgement: writeAcknowledgement,
     };
     const store = new InMemoryAgentTaskStore();
@@ -572,7 +572,7 @@ describe("AgentTaskApplicationService V15 AgentTask/AgentRun record", () => {
         callerId: accepted.callerId,
         workItemFingerprint: accepted.requestFingerprint,
         configuredAgentProfileId: accepted.configuredAgentProfileId,
-        admissionProfileId: "foundation-apply-approved-writes",
+        access: "approved-write",
         routeId: dispatch.routeId,
         providerId: dispatch.providerId,
         model: dispatch.model,
@@ -854,7 +854,7 @@ describe("AgentTaskApplicationService V15 AgentTask/AgentRun record", () => {
     });
 
     expect(job).toMatchObject({
-      version: 15,
+      version: 16,
       state: "succeeded",
       dispatch: {
         kind: "native-harness",
@@ -1553,12 +1553,12 @@ describe("AgentTaskApplicationService V15 AgentTask/AgentRun record", () => {
     });
     const writeProfile = {
       ...profile(),
-      admissionProfileId: "foundation-apply-approved-writes" as const,
+      access: "approved-write" as const,
       economicSpendApproval: "required" as const,
     };
     const writeCandidates = {
       ...candidateSet(),
-      admissionProfileId: "foundation-apply-approved-writes" as const,
+      access: "approved-write" as const,
     };
     const service = new AgentTaskApplicationService({
       ...createOptions({
@@ -1589,7 +1589,7 @@ describe("AgentTaskApplicationService V15 AgentTask/AgentRun record", () => {
         callerId: accepted.callerId,
         workItemFingerprint: accepted.requestFingerprint,
         configuredAgentProfileId: accepted.configuredAgentProfileId,
-        admissionProfileId: "foundation-apply-approved-writes",
+        access: "approved-write",
         routeId: candidate.routeId,
         providerId: candidate.providerId,
         model: candidate.model,
@@ -2081,7 +2081,7 @@ describe("AgentTaskApplicationService V15 AgentTask/AgentRun record", () => {
     const job = await dispatchAccepted(service, submission);
 
     expect(job).toMatchObject({
-      version: 15,
+      version: 16,
       state: "failed",
       diagnostic: "economic_commitment_unavailable",
       dispatch: {
@@ -2176,7 +2176,7 @@ describe("AgentTaskApplicationService V15 AgentTask/AgentRun record", () => {
     await expect(corrupt.getReplay(query, job.id)).resolves.toMatchObject({ dispatch: { kind: "economic", economic: { availability: "unavailable", reason: "evidence-unprojectable" } } });
   });
 
-  it("persists one V15 terminal result after commitment, exact adapter construction, fence, and settlement", async () => {
+    it("persists one V16 terminal result after commitment, exact adapter construction, fence, and settlement", async () => {
     const fenceDispatch = vi.fn();
     const settleExecution = vi.fn();
     const selectedCommitment = {
@@ -2272,7 +2272,7 @@ describe("AgentTaskApplicationService V15 AgentTask/AgentRun record", () => {
 
     const completed = await dispatchAccepted(service, submission);
     expect(completed).toMatchObject({
-      version: 15,
+      version: 16,
       state: "succeeded",
       objective: submission.objective,
       dispatch: {
@@ -2347,7 +2347,7 @@ describe("AgentTaskApplicationService V15 AgentTask/AgentRun record", () => {
       projectId: "kiln",
       callerId: "codex-app:caller-001",
       configuredAgentProfileId: "scout",
-      admissionProfileId: "foundation-readonly-plan",
+      access: "read-only",
       economicPolicyId: "economy-policy",
       economicPolicyRevision: "revision-001",
       constraints: {},
@@ -2372,7 +2372,7 @@ describe("AgentTaskApplicationService V15 AgentTask/AgentRun record", () => {
     );
   });
 
-  it("returns the persisted V15 run identity and decision time on a later replay", async () => {
+    it("returns the persisted V16 run identity and decision time on a later replay", async () => {
     let currentTime = now;
     const store = new InMemoryAgentTaskStore();
     const service = new AgentTaskApplicationService(createOptions({
@@ -2386,7 +2386,7 @@ describe("AgentTaskApplicationService V15 AgentTask/AgentRun record", () => {
 
     expect(replay).toEqual(first);
     expect(replay).toMatchObject({
-      version: 15,
+      version: 16,
       dispatch: { kind: "economic", economicAttemptId: "economic-attempt:attempt-000000001" },
       adoptedDecisionAt: now.toISOString(),
     });
@@ -2466,7 +2466,7 @@ describe("AgentTaskApplicationService V15 AgentTask/AgentRun record", () => {
     });
   });
 
-  it("preserves V15 idempotency across a filesystem restart", async () => {
+    it("preserves V16 idempotency across a filesystem restart", async () => {
     const root = await mkdtemp(join(tmpdir(), "kiln-agent-tasks-v9-"));
     try {
       const first = new AgentTaskApplicationService(createOptions({
@@ -2483,7 +2483,7 @@ describe("AgentTaskApplicationService V15 AgentTask/AgentRun record", () => {
         await readFile(join(root, "agent-tasks", "agent-tasks.json"), "utf8"),
       ) as unknown[];
       expect(persisted).toHaveLength(1);
-      expect(persisted[0]).toMatchObject({ version: 15 });
+      expect(persisted[0]).toMatchObject({ version: 16 });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -2512,7 +2512,7 @@ describe("AgentTaskApplicationService V15 AgentTask/AgentRun record", () => {
     }])).rejects.toMatchObject({ code: "job_persistence_corrupt" });
   });
 
-  it("fails closed for corrupt V15 candidate evidence", async () => {
+    it("fails closed for corrupt V16 candidate evidence", async () => {
     const root = await mkdtemp(join(tmpdir(), "kiln-agent-tasks-corrupt-"));
     try {
       const service = new AgentTaskApplicationService(createOptions({
@@ -2636,7 +2636,7 @@ describe("AgentTaskApplicationService V15 AgentTask/AgentRun record", () => {
           routeRevision: nativeHarnessRoute.routeRevision,
           providerId: nativeHarnessRoute.providerId,
           model: nativeHarnessRoute.model,
-          admissionProfileId: nativeHarnessRoute.admissionProfileId,
+          access: nativeHarnessRoute.access,
           adapterCapabilityId: nativeHarnessRoute.adapterCapabilityId,
           adapterCapabilityVersion: nativeHarnessRoute.adapterCapabilityVersion,
           acknowledgement: {
@@ -2647,7 +2647,7 @@ describe("AgentTaskApplicationService V15 AgentTask/AgentRun record", () => {
             routeRevision: nativeHarnessRoute.acknowledgement.routeRevision,
             providerId: nativeHarnessRoute.acknowledgement.providerId,
             model: nativeHarnessRoute.acknowledgement.model,
-            admissionProfileId: nativeHarnessRoute.acknowledgement.admissionProfileId,
+            access: nativeHarnessRoute.acknowledgement.access,
             adapterCapabilityId: nativeHarnessRoute.acknowledgement.adapterCapabilityId,
             adapterCapabilityVersion: nativeHarnessRoute.acknowledgement.adapterCapabilityVersion,
           },
@@ -2673,7 +2673,7 @@ describe("AgentTaskApplicationService V15 AgentTask/AgentRun record", () => {
       ) as unknown[];
       expect(persisted).toHaveLength(1);
       expect(persisted[0]).toMatchObject({
-        version: 15,
+        version: 16,
         capability: expectedCapability,
         result: { capabilityOutput: visionOutput },
       });

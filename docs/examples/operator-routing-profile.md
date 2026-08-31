@@ -72,10 +72,17 @@ target.
 Target choice answers *where the model call runs*. An authority profile answers
 *what that child may do*. Keep those decisions independent:
 
+- `read-only` can inspect and report;
+- `propose` can create governed proposals but cannot apply them;
+- `approved-write` can apply changes only within configured scopes and approval.
+
+Terms such as plan, review, research, and implementation describe the work,
+not the access level.
+
 ```yaml
 authorityProfiles:
   - id: readonly-plan
-    admissionProfile: foundation-readonly-plan
+    access: read-only
     workingDirectory: project
     tools:
       allowed: [read, tree, grep, glob]
@@ -84,7 +91,7 @@ authorityProfiles:
     memory: { access: read-only }
 
   - id: approved-service-work
-    admissionProfile: foundation-apply-approved-writes
+    access: approved-write
     workingDirectory: project
     tools:
       allowed: [read, tree, grep, glob, write, edit, apply-patch]

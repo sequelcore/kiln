@@ -20,7 +20,7 @@ function makeRequest(): ManagedAgentInvocationRequest {
     agentId: "agent-reviewer",
     parentSessionId: "session-parent",
     parentTurnId: "session-parent:turn:1",
-    profile: "foundation-readonly-plan",
+    access: "read-only",
     requestedBy: "operator",
     requestSource: "manual",
     providerRoute: {
@@ -31,8 +31,7 @@ function makeRequest(): ManagedAgentInvocationRequest {
     adapterKind: "harness",
     executionMode: "cli-harness",
     authority: {
-      authorityProfileId: "foundation-readonly",
-      permissionProfile: "read-only",
+      authorityProfileId: "read-only",
       toolAuthority: {
         allowedToolNames: ["read", "rg"],
         writeAllowed: false,
@@ -65,7 +64,7 @@ function makeRequest(): ManagedAgentInvocationRequest {
 function snapshotInputFor(request: ManagedAgentInvocationRequest): ManagedAgentCapabilitySnapshotInput {
   return {
     capturedAt: "2026-08-01T08:00:00.000Z",
-    routeId: `${request.providerRoute.providerId}:${request.profile}`,
+    routeId: `${request.providerRoute.providerId}:${request.access}`,
     routeSource: "explicit-managed-route",
   };
 }

@@ -211,7 +211,7 @@ contract named by the profile.
 | `permissions.agentScopes[].memory` | GP | I | C | grant intersection | session | supported |
 | `permissions.agentScopes[].mcpTools[]` | GP | I | C | set intersection | session | supported |
 | `authorityProfiles[].id` | GP | I | C | required unique | session | supported |
-| `authorityProfiles[].admissionProfile` | GP | I | C | named profile | session | supported |
+| `authorityProfiles[].access` | GP | I | C | named access level | session | supported |
 | `authorityProfiles[].voiceProfile` | GP | I | H | reference | session | supported |
 | `authorityProfiles[].workingDirectory` | GP | I | C | bounded enum | session | supported |
 | `authorityProfiles[].timeoutMs` | GP | I | H | positive | session | supported |
@@ -224,7 +224,6 @@ contract named by the profile.
 | `authorityProfiles[].writeAuthority.workspace.mode` | GP | I | C | bounded write mode | session | supported |
 | `authorityProfiles[].writeAuthority.workspace.allowedPaths[]` | GP | I | C | allow set | session | supported |
 | `authorityProfiles[].writeAuthority.workspace.deniedPaths[]` | GP | I | C | deny set | session | supported |
-| `authorityProfiles[].writeAuthority.memory.mode` | GP | I | C | bounded write mode | session | supported |
 | `authorityProfiles[].writeAuthority.memory.operations[]` | GP | I | C | allow set | session | supported |
 | `authorityProfiles[].writeAuthority.artifacts.mode` | GP | I | C | bounded write mode | session | supported |
 | `authorityProfiles[].writeAuthority.artifacts.resourceUris[]` | GP | I | C | allow set | session | supported |

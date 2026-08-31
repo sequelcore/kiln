@@ -1,5 +1,5 @@
 import {
-  MANAGED_AGENT_ADMISSION_PROFILES,
+  MANAGED_AGENT_ACCESS_LEVELS,
   type VoiceConfig,
 } from "@kilnai/core";
 import { KilnYamlError } from "../../../kiln-yaml.js";
@@ -19,14 +19,14 @@ export function validateAuthorityProfiles(value: unknown, operatorVoice: VoiceCo
     const path = `authorityProfiles[${index}]`;
     if (!isRecord(profile)) throw new KilnYamlError(`${path} must be an object`);
     rejectUnknownFields(profile, [
-      "id", "admissionProfile", "voiceProfile", "workingDirectory", "timeoutMs", "tools", "memory",
+      "id", "access", "voiceProfile", "workingDirectory", "timeoutMs", "tools", "memory",
       "readAuthority", "writeAuthority",
     ], path);
     validateCanonicalId(profile.id, `${path}.id`);
     if (ids.has(String(profile.id))) throw new KilnYamlError(`${path}.id must be unique`);
     ids.add(String(profile.id));
-    if (!MANAGED_AGENT_ADMISSION_PROFILES.includes(profile.admissionProfile as never)) {
-      throw new KilnYamlError(`${path}.admissionProfile is unsupported`);
+    if (!MANAGED_AGENT_ACCESS_LEVELS.includes(profile.access as never)) {
+      throw new KilnYamlError(`${path}.access is unsupported`);
     }
     if (profile.workingDirectory !== undefined && !["project", "isolated-worktree", "sandbox"].includes(String(profile.workingDirectory))) {
       throw new KilnYamlError(`${path}.workingDirectory is invalid`);
@@ -320,7 +320,7 @@ function validateManagedAgentMemoryWriteConfig(value: unknown, path: string): vo
   if (!isRecord(value)) {
     throw new KilnYamlError(`${path} must be an object`);
   }
-  validateOptionalWriteMode(value.mode, `${path}.mode`);
+  rejectUnknownFields(value, ["operations"], path);
   if (value.operations !== undefined) {
     if (!Array.isArray(value.operations) || value.operations.some((item) => !isManagedAgentMemoryWriteOperation(item))) {
       throw new KilnYamlError(`${path}.operations contains an unsupported memory write operation`);

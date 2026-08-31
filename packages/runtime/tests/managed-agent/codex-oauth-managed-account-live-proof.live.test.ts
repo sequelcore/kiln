@@ -165,7 +165,7 @@ describeManagedAgentProviderLive(
             workingDirectoryMode: "read-only",
           }),
           managedInvocation,
-          profile: "foundation-readonly-plan",
+          access: "read-only",
         });
 
         expect(orchestration.orchestrationResult).toMatchObject({

@@ -291,7 +291,7 @@ function projectInvocationSummary(snapshot: ManagedAgentRuntimeInvocationSnapsho
     agentId: snapshot.agentId,
     parentSessionId: snapshot.parentSessionId,
     parentTurnId: snapshot.parentTurnId,
-    profile: snapshot.profile,
+    access: snapshot.access,
     providerRoute: snapshot.providerRoute,
     adapterKind: snapshot.adapterKind,
     executionMode: snapshot.executionMode,
@@ -322,7 +322,7 @@ function projectInvocationDetail(
       summary: snapshot.request.input.summary,
       contextMode: snapshot.request.input.context?.mode,
       requestedAuthority: snapshot.request.requestedAuthority,
-      profile: snapshot.request.profile,
+      access: snapshot.request.access,
       requestedBy: snapshot.request.requestedBy,
       requestSource: snapshot.request.requestSource,
       workingDirectory: snapshot.request.authority.workingDirectory,
@@ -472,7 +472,7 @@ function projectInvocationEfficiencyEvidence(
       evidenceUris: result.evidenceUris,
     }));
   const configurationHash = `sha256:${createHash("sha256").update(JSON.stringify({
-    profile: snapshot.profile,
+    access: snapshot.access,
     routeId: snapshot.decision.capabilitySnapshot.routeId,
     contextMode: snapshot.decision.capabilitySnapshot.contextMode,
     authorityProfileId: snapshot.authorityProfileId,
@@ -761,7 +761,7 @@ function summarizeManagedInvocations(
     },
     facets: {
       agentIds: uniqueSorted(snapshots.map((snapshot) => snapshot.agentId)),
-      profiles: uniqueSorted(snapshots.map((snapshot) => snapshot.profile)),
+      accessLevels: uniqueSorted(snapshots.map((snapshot) => snapshot.access)),
       adapterKinds: uniqueSorted(snapshots.map((snapshot) => snapshot.adapterKind)),
       providerIds: uniqueSorted(snapshots.map((snapshot) => snapshot.providerRoute.providerId)),
     },

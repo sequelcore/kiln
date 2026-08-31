@@ -15,7 +15,7 @@ function makeDescriptor(): ManagedAgentAdapterDescriptor {
     adapterDescriptorId: "adapter:opencode:harness",
     providerId: "opencode",
     adapterKind: "harness",
-    supportedProfiles: ["foundation-readonly-plan"],
+    supportedAccess: ["read-only"],
     supportedExecutionModes: ["cli-harness"],
     lifecycle: {
       exposesStart: true,
@@ -56,7 +56,7 @@ function makeRequest(): ManagedAgentInvocationRequest {
     agentId: "agent-reviewer",
     parentSessionId: "session-parent",
     parentTurnId: "turn-parent",
-    profile: "foundation-readonly-plan",
+    access: "read-only",
     requestedBy: "operator",
     requestSource: "manual",
     providerRoute: {
@@ -67,8 +67,7 @@ function makeRequest(): ManagedAgentInvocationRequest {
     adapterKind: "harness",
     executionMode: "cli-harness",
     authority: {
-      authorityProfileId: "foundation-readonly",
-      permissionProfile: "read-only",
+      authorityProfileId: "read-only",
       toolAuthority: {
         allowedToolNames: ["read", "rg"],
         writeAllowed: false,
@@ -102,21 +101,21 @@ function makeSnapshotInput(): ManagedAgentCapabilitySnapshotInput {
 }
 
 describe("managed agent admission policy", () => {
-  it("admits foundation-readonly-plan only when route, authority, credential, memory, timeout, lifecycle, and handoff evidence are explicit", () => {
+  it("admits read-only access only when route, authority, credential, memory, timeout, lifecycle, and handoff evidence are explicit", () => {
     const decision = evaluateManagedAgentAdmission(makeRequest(), makeDescriptor(), makeSnapshotInput());
 
     expect(decision).toMatchObject({
       status: "admitted",
       invocationId: "invocation-1",
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       adapterDescriptorId: "adapter:opencode:harness",
-      authorityProfileId: "foundation-readonly",
+      authorityProfileId: "read-only",
       credentialRouteId: "credential-route:opencode:primary",
       memoryScope: { kind: "project", id: "kiln" },
     });
   });
 
-  it("admits destructive requested authority only with approval evidence", () => {
+  it("rejects destructive requested authority when access is read-only", () => {
     const denied = evaluateManagedAgentAdmission(
       defineManagedAgentInvocationRequest({
         ...makeRequest(),
@@ -138,25 +137,25 @@ describe("managed agent admission policy", () => {
       makeSnapshotInput(),
     );
 
-    expect(denied).toMatchObject({
-      status: "denied",
-      missingCapabilities: ["request.requestedAuthority.destructiveApprovalFlow"],
-    });
+    expect(denied).toMatchObject({ status: "denied" });
+    if (denied.status !== "denied") throw new Error("expected denied admission");
+    expect(denied.missingCapabilities).toEqual(expect.arrayContaining([
+      "request.requestedAuthority.destructiveApprovalFlow",
+      "request.requestedAuthority.accessMismatch",
+    ]));
     expect(admitted).toMatchObject({
-      status: "admitted",
+      status: "denied",
       invocationId: "invocation-1",
-      profile: "foundation-readonly-plan",
+      access: "read-only",
     });
+    if (admitted.status !== "denied") throw new Error("expected denied admission");
+    expect(admitted.missingCapabilities).toContain("request.requestedAuthority.accessMismatch");
   });
 
   it.each([
     ["provider route", (request: ManagedAgentInvocationRequest) => ({ ...request, providerRoute: undefined })],
     ["adapter kind", (request: ManagedAgentInvocationRequest) => ({ ...request, adapterKind: undefined })],
     ["execution mode", (request: ManagedAgentInvocationRequest) => ({ ...request, executionMode: undefined })],
-    ["permission profile", (request: ManagedAgentInvocationRequest) => ({
-      ...request,
-      authority: { ...request.authority, permissionProfile: undefined },
-    })],
     ["tool authority", (request: ManagedAgentInvocationRequest) => ({
       ...request,
       authority: { ...request.authority, toolAuthority: undefined },
@@ -177,13 +176,13 @@ describe("managed agent admission policy", () => {
       ...request,
       authority: { ...request.authority, memoryScope: undefined },
     })],
-  ])("denies foundation-readonly-plan when %s is missing", (_label, mutate) => {
+  ])("denies read-only access when %s is missing", (_label, mutate) => {
     const malformed = mutate(makeRequest()) as never;
     const decision = evaluateManagedAgentAdmission(malformed, makeDescriptor(), makeSnapshotInput());
 
     expect(decision.status).toBe("denied");
     if (decision.status !== "denied") throw new Error("expected denied admission");
-    expect(decision.reason).toContain("foundation-readonly-plan");
+    expect(decision.reason).toContain("read-only");
     expect(decision.missingCapabilities.length).toBeGreaterThan(0);
   });
 
@@ -206,7 +205,7 @@ describe("managed agent admission policy", () => {
     expect(decision).toMatchObject({
       status: "denied",
       invocationId: "invocation-1",
-      profile: "foundation-readonly-plan",
+      access: "read-only",
     });
     if (decision.status !== "denied") throw new Error("expected denied admission");
     expect(decision.missingCapabilities).toEqual(expect.arrayContaining([

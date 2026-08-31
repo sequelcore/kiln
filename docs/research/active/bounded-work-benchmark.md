@@ -48,7 +48,7 @@ Compare a control arm with the bounded-work-authority arm while freezing:
 
 - task definitions, repository/project snapshot, target and acceptance tests;
 - provider/model, reasoning setting, route policy, harness and adapter commits;
-- authority profile, tool catalog, context/memory inputs, and configuration
+- access level, tool catalog, context/memory inputs, and configuration
   hash;
 - contract revision, scope envelope, ceiling policy, tripwire policy, scorer
   versions, and operator intervention protocol.

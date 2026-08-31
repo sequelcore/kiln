@@ -795,7 +795,7 @@ describe("session-store", () => {
         toolCallId: "tool-managed",
         toolName: "managed_agent.invoke",
         input: {
-          profile: "foundation-readonly-plan",
+          access: "read-only",
           providerRoute: {
             providerId: "codex-oauth",
             model: "gpt-5.4-mini",
@@ -826,7 +826,7 @@ describe("session-store", () => {
             invocationId: "inv-1",
             routeId: "codex-oauth",
             status: "completed",
-            profile: "foundation-readonly-plan",
+            access: "read-only",
             providerRoute: {
               providerId: "codex-oauth",
               model: "gpt-5.4-mini",
@@ -841,7 +841,7 @@ describe("session-store", () => {
             },
             adapterKind: "direct",
             executionMode: "runtime-direct",
-            authorityProfileId: "authority:foundation-readonly-plan",
+            authorityProfileId: "authority:read-only",
             childSessionId: "child-session-1",
           },
         }),
@@ -856,7 +856,7 @@ describe("session-store", () => {
     expect(completedEntry).toMatchObject({
       type: "event",
       eventKind: "tool_call_completed",
-      summary: "foundation-readonly-plan via codex-oauth/gpt-5.4-mini (direct-provider) · Inspection completed.",
+      summary: "read-only via codex-oauth/gpt-5.4-mini (direct-provider) · Inspection completed.",
     });
     expect(completedEntry?.type).toBe("event");
     if (completedEntry?.type !== "event") {
@@ -2074,10 +2074,10 @@ describe("session-store", () => {
       kind: "agent_invocation_requested",
       payload: {
         invocationId: "inv-1",
-        agentId: "codex-oauth:foundation-readonly-plan",
+        agentId: "codex-oauth:read-only",
         requestedBy: "user",
         requestSource: "manual",
-        profile: "foundation-readonly-plan",
+        access: "read-only",
         providerRoute: {
           providerId: "codex-oauth",
           model: "gpt-5.4-mini",
@@ -2085,7 +2085,7 @@ describe("session-store", () => {
         },
         adapterKind: "direct",
         executionMode: "runtime-direct",
-        authorityProfileId: "authority:foundation-readonly-plan",
+        authorityProfileId: "authority:read-only",
       },
     });
     useSessionStore.getState().onSessionEvent({
@@ -2096,8 +2096,8 @@ describe("session-store", () => {
       kind: "agent_invocation_started",
       payload: {
         invocationId: "inv-1",
-        agentId: "codex-oauth:foundation-readonly-plan",
-        profile: "foundation-readonly-plan",
+        agentId: "codex-oauth:read-only",
+        access: "read-only",
         providerRoute: {
           providerId: "codex-oauth",
           model: "gpt-5.4-mini",
@@ -2114,8 +2114,8 @@ describe("session-store", () => {
       kind: "agent_invocation_completed",
       payload: {
         invocationId: "inv-1",
-        agentId: "codex-oauth:foundation-readonly-plan",
-        profile: "foundation-readonly-plan",
+        agentId: "codex-oauth:read-only",
+        access: "read-only",
         providerRoute: {
           providerId: "codex-oauth",
           model: "gpt-5.4-mini",
@@ -2161,21 +2161,21 @@ describe("session-store", () => {
       eventKind: "agent_invocation_requested",
       title: "Agent invocation requested",
       tone: "info",
-      summary: "foundation-readonly-plan via codex-oauth/gpt-5.4-mini (direct-provider)",
+      summary: "read-only via codex-oauth/gpt-5.4-mini (direct-provider)",
     });
     expect(invocationEntries[1]).toMatchObject({
       type: "event",
       eventKind: "agent_invocation_started",
       title: "Agent invocation started",
       tone: "running",
-      summary: "foundation-readonly-plan via codex-oauth/gpt-5.4-mini (direct-provider)",
+      summary: "read-only via codex-oauth/gpt-5.4-mini (direct-provider)",
     });
     expect(invocationEntries[2]).toMatchObject({
       type: "event",
       eventKind: "agent_invocation_completed",
       title: "Agent invocation completed",
       tone: "success",
-      summary: "foundation-readonly-plan via codex-oauth/gpt-5.4-mini (direct-provider) · Planner returned focused steps",
+      summary: "read-only via codex-oauth/gpt-5.4-mini (direct-provider) · Planner returned focused steps",
     });
     expect(invocationEntries[3]).toMatchObject({
       type: "event",

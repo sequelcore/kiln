@@ -2,7 +2,6 @@ import {
   defineManagedAgentAdapterWriteAuthorityDescriptor,
   defineManagedAgentCapabilitySnapshot,
   evaluateManagedAgentAdmission,
-  isManagedAgentWriteAuthorityProfile,
 } from "@kilnai/core";
 import type {
   ManagedAgentAdmissionDecision,
@@ -34,8 +33,8 @@ export function requireRuntimeAdmission(input: {
   if (input.admission.invocationId !== input.request.invocationId) {
     throw new ManagedAgentRuntimeAdmissionError("Managed agent admission invocation id does not match request");
   }
-  if (input.admission.profile !== input.request.profile) {
-    throw new ManagedAgentRuntimeAdmissionError("Managed agent admission profile does not match request");
+  if (input.admission.access !== input.request.access) {
+    throw new ManagedAgentRuntimeAdmissionError("Managed agent access does not match request");
   }
 
   const runtimeDecision = evaluateManagedAgentAdmission(
@@ -60,14 +59,10 @@ export function assertWriteAdmissionSupported(
   descriptor: ManagedAgentAdapterDescriptor,
   admission: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>,
 ): void {
-  if (request.profile === "foundation-readonly-plan") {
+  if (request.access === "read-only") {
     if (request.authority.writeAuthority !== undefined || admission.writeAuthority !== undefined) {
       throw new ManagedAgentRuntimeAdmissionError("Managed agent read-only runtime invocation cannot carry write authority");
     }
-    return;
-  }
-
-  if (!isManagedAgentWriteAuthorityProfile(request.profile)) {
     return;
   }
 
@@ -82,17 +77,12 @@ export function assertWriteAdmissionSupported(
   if (!writeCapabilities.proposalSupported || !writeCapabilities.scopeReduction) {
     throw new ManagedAgentRuntimeAdmissionError("Managed agent runtime adapter cannot enforce write proposal scope");
   }
-  if (request.profile === "foundation-apply-approved-writes") {
+  if (request.access === "approved-write") {
     if (!writeCapabilities.approvedApplySupported || !writeCapabilities.cleanupEvidence || !writeCapabilities.rollbackEvidence) {
       throw new ManagedAgentRuntimeAdmissionError("Managed agent runtime adapter cannot enforce approved-write authority");
     }
   }
-  if (
-    (request.profile === "foundation-memory-write-proposals" ||
-      request.authority.writeAuthority.scope.memory.mode !== "none" ||
-      request.authority.memoryScope.access === "write-proposals") &&
-    !writeCapabilities.memoryProposalSupported
-  ) {
+  if (request.authority.memoryScope.access === "write-proposals" && !writeCapabilities.memoryProposalSupported) {
     throw new ManagedAgentRuntimeAdmissionError("Managed agent runtime adapter cannot enforce memory write proposals");
   }
 }
@@ -154,7 +144,7 @@ export function assertRecordWithinAdmission(
   if (record.agentId !== request.agentId) {
     throw new ManagedAgentRuntimeAdmissionError("Managed agent record agent id does not match admitted request");
   }
-  if (record.profile !== request.profile || record.profile !== admission.profile) {
+  if (record.access !== request.access || record.access !== admission.access) {
     throw new ManagedAgentRuntimeAdmissionError("Managed agent record profile does not match admitted request");
   }
   if (!sameJson(record.providerRoute, request.providerRoute)) {
@@ -232,7 +222,7 @@ function deniedWriteLeaseConflictDecision(input: {
   return {
     status: "denied",
     invocationId: input.request.invocationId,
-    profile: input.request.profile,
+    access: input.request.access,
     routeId: input.decision.capabilitySnapshot.routeId,
     routeSource: input.decision.capabilitySnapshot.routeSource,
     reason: `Managed agent ${input.reason}: ${activeInvocationId} already holds ${input.request.authority.workingDirectory.path}`,

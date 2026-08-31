@@ -42,7 +42,7 @@ describe("managed invocation runtime tool — external runtime and materializati
       adapter = makeAdapter({
         adapterDescriptorId: "adapter:mcp-external-runtime:harness",
         providerId: "mcp-external-runtime",
-        supportedProfiles: ["foundation-readonly-plan"],
+        supportedAccess: ["read-only"],
       }),
     ) {
       return createAttachedRuntimeBuiltinToolSurface({
@@ -62,15 +62,14 @@ describe("managed invocation runtime tool — external runtime and materializati
                 routeId: "external-runtime-mcp-only",
                 providerId: "mcp-external-runtime",
                 model: "external-runtime-fixture",
-                profiles: ["foundation-readonly-plan"],
+                profiles: ["read-only"],
                 toolNames: externalRuntimeToolNames,
               }),
               createAdapter: async () => adapter,
               profiles: [
                 {
-                  authorityProfileId: "authority:external-runtime-mcp-only:foundation-readonly-plan",
-                  admissionProfile: "foundation-readonly-plan",
-                  permissionProfile: "read-only",
+                  authorityProfileId: "authority:external-runtime-mcp-only:read-only",
+                  access: "read-only",
                   allowedToolNames: [...externalRuntimeToolNames],
                   // Roadmap 01 Slice 1 - this route's own capability-aware
                   // realization: its qualified MCP tools satisfy tests/typecheck
@@ -109,7 +108,7 @@ describe("managed invocation runtime tool — external runtime and materializati
       const result = (await surface.callBuiltinTools.get("managed_agent.invoke")?.(
         {
           routeId: "external-runtime-mcp-only",
-          profile: "foundation-readonly-plan",
+          access: "read-only",
           providerRoute: { providerId: "mcp-external-runtime", model: "external-runtime-fixture" },
           task: "Run the Studio playtest and verify the console is clean before promotion.",
           summary: "Verify the Studio prototype.",
@@ -168,7 +167,7 @@ describe("managed invocation runtime tool — external runtime and materializati
       adapter = makeAdapter({
         adapterDescriptorId: "adapter:mcp-external-runtime:harness",
         providerId: "mcp-external-runtime",
-        supportedProfiles: ["foundation-readonly-plan"],
+        supportedAccess: ["read-only"],
       }),
       routeAttachment:
         | { readonly kind: "external-runtime"; readonly runtimeId: string; readonly attachmentId: string }
@@ -191,16 +190,15 @@ describe("managed invocation runtime tool — external runtime and materializati
                 routeId: "external-runtime-attached",
                 providerId: "mcp-external-runtime",
                 model: "external-runtime-fixture",
-                profiles: ["foundation-readonly-plan"],
+                profiles: ["read-only"],
                 externalRuntimeAttachment: routeAttachment,
               }),
               createAdapter: async () => adapter,
               ...(routeAttachment ? { externalRuntimeAttachment: routeAttachment } : {}),
               profiles: [
                 {
-                  authorityProfileId: "authority:external-runtime-attached:foundation-readonly-plan",
-                  admissionProfile: "foundation-readonly-plan",
-                  permissionProfile: "read-only",
+                  authorityProfileId: "authority:external-runtime-attached:read-only",
+                  access: "read-only",
                   allowedToolNames: ["read", "grep", "glob"],
                   networkAllowed: false,
                   workingDirectory: {
@@ -227,7 +225,7 @@ describe("managed invocation runtime tool — external runtime and materializati
 
     const baseInvokeInput = {
       routeId: "external-runtime-attached",
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       providerRoute: { providerId: "mcp-external-runtime", model: "external-runtime-fixture" },
       task: "Run a bounded external-runtime dispatch.",
     };
@@ -237,7 +235,7 @@ describe("managed invocation runtime tool — external runtime and materializati
         const adapter = makeAdapter({
           adapterDescriptorId: "adapter:mcp-external-runtime:harness",
           providerId: "mcp-external-runtime",
-          supportedProfiles: ["foundation-readonly-plan"],
+          supportedAccess: ["read-only"],
         });
         const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
         const session = makeSession();
@@ -271,7 +269,7 @@ describe("managed invocation runtime tool — external runtime and materializati
         const adapter = makeAdapter({
           adapterDescriptorId: "adapter:mcp-external-runtime:harness",
           providerId: "mcp-external-runtime",
-          supportedProfiles: ["foundation-readonly-plan"],
+          supportedAccess: ["read-only"],
         });
         const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
         const session = makeSession();
@@ -306,7 +304,7 @@ describe("managed invocation runtime tool — external runtime and materializati
         const adapter = makeAdapter({
           adapterDescriptorId: "adapter:mcp-external-runtime:harness",
           providerId: "mcp-external-runtime",
-          supportedProfiles: ["foundation-readonly-plan"],
+          supportedAccess: ["read-only"],
         });
         const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
         const session = makeSession();
@@ -335,7 +333,7 @@ describe("managed invocation runtime tool — external runtime and materializati
         const adapter = makeAdapter({
           adapterDescriptorId: "adapter:mcp-external-runtime:harness",
           providerId: "mcp-external-runtime",
-          supportedProfiles: ["foundation-readonly-plan"],
+          supportedAccess: ["read-only"],
         });
         const surface = makeAttachedRuntimeSurface(adapter, undefined);
         const session = makeSession();
@@ -369,7 +367,7 @@ describe("managed invocation runtime tool — external runtime and materializati
         const adapter = makeAdapter({
           adapterDescriptorId: "adapter:mcp-external-runtime:harness",
           providerId: "mcp-external-runtime",
-          supportedProfiles: ["foundation-readonly-plan"],
+          supportedAccess: ["read-only"],
         });
         const surface = makeAttachedRuntimeSurface(adapter, undefined);
         const session = makeSession();
@@ -387,7 +385,7 @@ describe("managed invocation runtime tool — external runtime and materializati
         const adapter = makeAdapter({
           adapterDescriptorId: "adapter:mcp-external-runtime:harness",
           providerId: "mcp-external-runtime",
-          supportedProfiles: ["foundation-readonly-plan"],
+          supportedAccess: ["read-only"],
         });
         const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
         const session = makeSession();
@@ -416,7 +414,7 @@ describe("managed invocation runtime tool — external runtime and materializati
         const adapter = makeAdapter({
           adapterDescriptorId: "adapter:mcp-external-runtime:harness",
           providerId: "mcp-external-runtime",
-          supportedProfiles: ["foundation-readonly-plan"],
+          supportedAccess: ["read-only"],
         });
         const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
         const session = makeSession();
@@ -440,7 +438,7 @@ describe("managed invocation runtime tool — external runtime and materializati
         const adapter = makeAdapter({
           adapterDescriptorId: "adapter:mcp-external-runtime:harness",
           providerId: "mcp-external-runtime",
-          supportedProfiles: ["foundation-readonly-plan"],
+          supportedAccess: ["read-only"],
         });
         const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
         const session = makeSession();
@@ -465,7 +463,7 @@ describe("managed invocation runtime tool — external runtime and materializati
       const adapter = makeAdapter({
         adapterDescriptorId: "adapter:mcp-external-runtime:harness",
         providerId: "mcp-external-runtime",
-        supportedProfiles: ["foundation-readonly-plan"],
+        supportedAccess: ["read-only"],
       });
       const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
       const session = makeSession();
@@ -497,7 +495,7 @@ describe("managed invocation runtime tool — external runtime and materializati
       const adapter = makeAdapter({
         adapterDescriptorId: "adapter:mcp-external-runtime:harness",
         providerId: "mcp-external-runtime",
-        supportedProfiles: ["foundation-readonly-plan"],
+        supportedAccess: ["read-only"],
       });
       const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
       const session = makeSession();
@@ -536,7 +534,7 @@ describe("managed invocation runtime tool — external runtime and materializati
         return makeAdapter({
           adapterDescriptorId: "adapter:mcp-external-runtime:harness",
           providerId: "mcp-external-runtime",
-          supportedProfiles: ["foundation-readonly-plan"],
+          supportedAccess: ["read-only"],
         });
       }
 
@@ -763,7 +761,7 @@ describe("managed invocation runtime tool — external runtime and materializati
       const result = (await surface.callBuiltinTools.get("managed_agent.invoke")?.(
         {
           routeId: "opencode-readonly",
-          profile: "foundation-readonly-plan",
+          access: "read-only",
           providerRoute: { providerId: "opencode", model: "opencode-default-model" },
           task: "Inspect capability binding.",
         },
@@ -790,7 +788,7 @@ describe("managed invocation runtime tool — external runtime and materializati
       const result = (await surface.callBuiltinTools.get("managed_agent.invoke")?.(
         {
           routeId: "opencode-readonly",
-          profile: "foundation-readonly-plan",
+          access: "read-only",
           providerRoute: { providerId: "opencode", model: "opencode-default-model" },
           task: "Inspect adapter binding.",
         },
@@ -823,7 +821,7 @@ describe("managed invocation runtime tool — external runtime and materializati
                 routeId: "codex-cloud-remote-readonly",
                 providerId: "codex-cloud",
                 model: "gpt-5.5",
-                profiles: ["foundation-readonly-plan"],
+                profiles: ["read-only"],
                 adapterKind: "governed-external-runtime",
               }),
               createAdapter,
@@ -835,7 +833,7 @@ describe("managed invocation runtime tool — external runtime and materializati
       const result = (await surface.callBuiltinTools.get("managed_agent.invoke")?.(
         {
           routeId: "codex-cloud-remote-readonly",
-          profile: "foundation-readonly-plan",
+          access: "read-only",
           providerRoute: { providerId: "codex-cloud", model: "gpt-5.5" },
           task: "Inspect remote adapter binding.",
         },
@@ -875,7 +873,7 @@ describe("managed invocation runtime tool — external runtime and materializati
       const result = (await surface.callBuiltinTools.get("managed_agent.invoke")?.(
         {
           routeId: "opencode-readonly",
-          profile: "foundation-readonly-plan",
+          access: "read-only",
           providerRoute: { providerId: "opencode", model: "opencode-default-model" },
           task: "Delete production data.",
           requestedAuthority: "destructive",

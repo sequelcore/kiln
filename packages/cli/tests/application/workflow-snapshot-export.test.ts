@@ -82,8 +82,8 @@ describe("workflow-snapshot-export", () => {
 
     expect(first).toEqual(second);
     expect(first.manifest).toMatchObject({
-      version: "1",
-      generator: "workflow-snapshot-export-v1",
+      version: "2",
+      generator: "workflow-snapshot-export-v2",
       generatedAt: "2026-05-12T00:00:00.000Z",
       sourceIds: [
         "project-context:sample-project",

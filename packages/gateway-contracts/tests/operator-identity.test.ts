@@ -9,8 +9,8 @@ import {
 describe("operator identity projection", () => {
   it("uses child identity as the stable managed-agent avatar source", () => {
     expect(projectManagedAgentIdentity({
-      agentId: "codex-oauth:foundation-readonly-plan",
-      profile: "foundation-readonly-plan",
+      agentId: "codex-oauth:read-only",
+      access: "read-only",
       providerRoute: {
         providerId: "codex-oauth",
         model: "gpt-5.4-mini",
@@ -45,16 +45,16 @@ describe("operator identity projection", () => {
           diagnosticUris: [],
         },
         childIdentity: {
-          agentId: "codex-oauth:foundation-readonly-plan",
+          agentId: "codex-oauth:read-only",
           displayName: "Piama",
           admittedAgentProfile: "architecture-reviewer",
         },
       },
     })).toEqual({
       kind: "agent",
-      id: "codex-oauth:foundation-readonly-plan",
+      id: "codex-oauth:read-only",
       label: "Piama",
-      seed: "agent:codex-oauth:foundation-readonly-plan",
+      seed: "agent:codex-oauth:read-only",
       subtitle: "codex-oauth/gpt-5.4-mini (direct-provider)",
     });
   });
@@ -83,6 +83,6 @@ describe("operator identity projection", () => {
 
   it("formats deterministic initials for text-only surfaces", () => {
     expect(operatorIdentityInitials("Piama")).toBe("PI");
-    expect(operatorIdentityInitials("codex-oauth:foundation-readonly-plan")).toBe("CO");
+    expect(operatorIdentityInitials("codex-oauth:read-only")).toBe("CO");
   });
 });

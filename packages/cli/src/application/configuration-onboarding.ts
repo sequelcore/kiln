@@ -47,7 +47,7 @@ export interface ConfigurationOnboardingProjectState {
 }
 
 export interface ConfigurationOnboardingDependencies {
-  /** Reads the validated global V4 configuration. */
+  /** Reads the validated global V7 configuration. */
   readonly readGlobalConfig?: () => KilnGlobalConfig | null;
   /** Verifies that the global catalog's referenced evidence is current and projectable. */
   readonly readTargetAuthority?: (config: KilnGlobalConfig, globalConfigPath: string) => unknown;
@@ -115,7 +115,7 @@ type ConfigurationOnboardingPorts = typeof defaultDependencies;
 
 /**
  * Builds the shared first-run read model. A project is ready only against an
- * already-admitted direct target in the current global V4 catalog; this
+ * already-admitted direct target in the current global V7 catalog; this
  * function never discovers providers or manufactures target evidence.
  */
 export function readConfigurationOnboarding(

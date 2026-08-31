@@ -2488,7 +2488,7 @@ function resolveParallelWorkerAdmissionLimits(
   workerCount: number,
 ): ManagedAgentOrchestrationAdmissionLimits {
   const lifecycleRoutes = managedInvocation.routes.filter((route) => {
-    const profile = resolveAdHocManagedInvocationRouteProfile(route, "foundation-apply-approved-writes");
+    const profile = resolveAdHocManagedInvocationRouteProfile(route, "approved-write");
     return (
       profile !== undefined &&
       route.createAdapter !== undefined &&
@@ -2568,7 +2568,7 @@ export async function runParallelWorkers(
     lifecycleResult = await runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: admission.request,
       managedInvocation: managedInvocationWithService,
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       routeSelector: {},
       callerIdentity: parentAuthorityResolution.callerIdentity,
       requestedAuthority: flags.requestedAuthority ?? "audited",

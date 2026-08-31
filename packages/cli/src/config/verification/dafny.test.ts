@@ -22,7 +22,7 @@ function globalConfig(
   installationRoot = "C:/tools",
 ): KilnGlobalConfig {
   return {
-    version: "6",
+    version: "7",
     verification: {
       formal: {
         dafny: {

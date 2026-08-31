@@ -58,7 +58,7 @@ import {
 import { AgentTaskApplicationError } from "./errors.js";
 import {
   hasOnly,
-  isApprovedWriteProfile,
+  isApprovedWriteAccess,
   isCanonicalHash,
   isDiagnostic,
   isIdentifier,
@@ -136,7 +136,7 @@ export class AgentTaskApplicationService {
   }
 
   /**
-   * Accepts and durably reserves governed V15 work without crossing an
+   * Accepts and durably reserves governed V16 work without crossing an
    * economic/native dispatch boundary. Completion is observed through the
    * status, result, and replay queries after the project owner schedules the
    * returned job.
@@ -147,7 +147,7 @@ export class AgentTaskApplicationService {
 
   async attachWriteApproval(context: TrustedAgentTaskQueryContext, id: string, approvalId: string): Promise<AgentTaskRecord> {
     const job = await this.getStatus(context, id);
-    if (job.state !== "awaiting_approval" || !isApprovedWriteProfile(job.admissionProfileId)) {
+    if (job.state !== "awaiting_approval" || !isApprovedWriteAccess(job.access)) {
       throw new AgentTaskApplicationError("invalid_transition", "Attach approval only to awaiting approved-write work.");
     }
     if (!this.options.writeApprovals) {
@@ -197,7 +197,7 @@ export class AgentTaskApplicationService {
         project,
         objective: request.objective,
         configuredAgentProfileId: profile.id,
-        admissionProfileId: profile.admissionProfileId,
+        access: profile.access,
         evidence: governance,
       });
     } catch {
@@ -223,12 +223,12 @@ export class AgentTaskApplicationService {
       !candidateSet
       || candidateSet.economicPolicyId !== profile.economicPolicyId
       || candidateSet.economicPolicyRevision !== profile.economicPolicyRevision
-      || candidateSet.admissionProfileId !== profile.admissionProfileId
+      || candidateSet.access !== profile.access
       || !sameAgentTaskConstraints(candidateSet.constraints, profile.constraints ?? {})
     ) {
       throw new AgentTaskApplicationError("route_unavailable", "Refresh managed economic candidate admission.");
     }
-    const awaitingApproval = isApprovedWriteProfile(profile.admissionProfileId);
+    const awaitingApproval = isApprovedWriteAccess(profile.access);
     if (awaitingApproval && candidateSet.candidates.length !== 1) {
       throw new AgentTaskApplicationError("route_unavailable", "Approved managed writes require one exact admitted route candidate.");
     }
@@ -261,7 +261,7 @@ export class AgentTaskApplicationService {
       projectId: project.id,
       callerId: request.callerId,
       configuredAgentProfileId: profile.id,
-      admissionProfileId: profile.admissionProfileId,
+      access: profile.access,
       ...(request.capability ? { capability: request.capability } : {}),
       dispatch,
       run: {
@@ -307,7 +307,7 @@ export class AgentTaskApplicationService {
         project,
         objective: request.objective,
         configuredAgentProfileId: profile.id,
-        admissionProfileId: profile.admissionProfileId,
+        access: profile.access,
         evidence: governance,
       });
     } catch {
@@ -328,7 +328,7 @@ export class AgentTaskApplicationService {
     if (!resolved || !sameNativeHarnessRoute(profile, resolved)) {
       throw new AgentTaskApplicationError("route_unavailable", "Refresh the exact native-harness route admission.");
     }
-    const awaitingApproval = isApprovedWriteProfile(profile.admissionProfileId);
+    const awaitingApproval = isApprovedWriteAccess(profile.access);
     const now = this.now();
     const dispatch = {
       kind: "native-harness" as const,
@@ -336,7 +336,7 @@ export class AgentTaskApplicationService {
       routeRevision: resolved.routeRevision,
       providerId: resolved.providerId,
       model: resolved.model,
-      admissionProfileId: resolved.admissionProfileId,
+      access: resolved.access,
       adapterCapabilityId: resolved.adapterCapabilityId,
       adapterCapabilityVersion: resolved.adapterCapabilityVersion,
       acknowledgement: resolved.acknowledgement,
@@ -353,7 +353,7 @@ export class AgentTaskApplicationService {
         routeRevision: dispatch.routeRevision,
         providerId: dispatch.providerId,
         model: dispatch.model,
-        admissionProfileId: dispatch.admissionProfileId,
+        access: dispatch.access,
         adapterCapabilityId: dispatch.adapterCapabilityId,
         adapterCapabilityVersion: dispatch.adapterCapabilityVersion,
         acknowledgement: {
@@ -364,7 +364,7 @@ export class AgentTaskApplicationService {
           routeRevision: dispatch.acknowledgement.routeRevision,
           providerId: dispatch.acknowledgement.providerId,
           model: dispatch.acknowledgement.model,
-          admissionProfileId: dispatch.acknowledgement.admissionProfileId,
+          access: dispatch.acknowledgement.access,
           adapterCapabilityId: dispatch.acknowledgement.adapterCapabilityId,
           adapterCapabilityVersion: dispatch.acknowledgement.adapterCapabilityVersion,
           ...(dispatch.acknowledgement.deliberationResolution
@@ -385,7 +385,7 @@ export class AgentTaskApplicationService {
       projectId: project.id,
       callerId: request.callerId,
       configuredAgentProfileId: profile.id,
-      admissionProfileId: profile.admissionProfileId,
+      access: profile.access,
       ...(request.capability ? { capability: request.capability } : {}),
       dispatch,
       run: {
@@ -680,7 +680,7 @@ export class AgentTaskApplicationService {
         jobId: fenced.id,
         runtimeInvocationId: execution.runtimeInvocationId,
         configuredAgentProfileId: fenced.configuredAgentProfileId,
-        admissionProfileId: fenced.admissionProfileId,
+        access: fenced.access,
         routeId: selected.routeId,
         providerId: selected.providerId,
         terminalState: "completed",
@@ -718,7 +718,7 @@ export class AgentTaskApplicationService {
         economicAttemptId: dispatch.economicAttemptId,
         projectId: job.projectId,
         callerId: job.callerId,
-        admissionProfileId: job.admissionProfileId,
+        access: job.access,
         admissionId: job.admissionId,
         governanceSource: job.governanceSource,
         requestFingerprint: job.requestFingerprint,
@@ -757,14 +757,14 @@ export class AgentTaskApplicationService {
         admissionBundle: job.admissionBundle,
         effectIdentity: "agent-task:managed-provider-dispatch",
         adoption: adopted,
-        admissionProfile: job.admissionProfileId,
+        access: job.access,
         authorityProfileId: executionProfile.authorityProfileId,
         invocationId: `agent-task:${job.id}`,
         ...(abortSignal ? { abortSignal } : {}),
         ...(executionProfile.workLimits?.maxDurationMs !== undefined
           ? { workLimitDurationMs: executionProfile.workLimits.maxDurationMs }
           : {}),
-        ...(executionProfile.economicSpendApproval === "required" || isApprovedWriteProfile(job.admissionProfileId)
+        ...(executionProfile.economicSpendApproval === "required" || isApprovedWriteAccess(job.access)
           ? {
               validateAndConsumeApprovalBeforeFence: async ({ commitment }: { readonly commitment: import("@kilnai/core").ManagedEconomicCommitment }) => {
                 if (executionProfile.economicSpendApproval === "required") {
@@ -788,7 +788,7 @@ export class AgentTaskApplicationService {
                     }
                   }
                 }
-                if (isApprovedWriteProfile(job.admissionProfileId)) {
+                if (isApprovedWriteAccess(job.access)) {
                   consumedWriteApproval = await this.consumeWriteApproval(job);
                 }
               },
@@ -858,7 +858,7 @@ export class AgentTaskApplicationService {
           jobId: job.id,
           runtimeInvocationId: execution.runtimeInvocationId,
           configuredAgentProfileId: job.configuredAgentProfileId,
-          admissionProfileId: job.admissionProfileId,
+          access: job.access,
           routeId: selected.routeId,
           providerId: selected.providerId,
           terminalState: "completed",
@@ -943,7 +943,7 @@ export class AgentTaskApplicationService {
     }
   }
 
-  /** Re-checks the persisted V15 candidate identity before and after fencing. */
+  /** Re-checks the persisted V16 candidate identity before and after fencing. */
   private async validateCurrentEconomicCandidateIdentity(job: AgentTaskRecord): Promise<void> {
     const dispatch = economicDispatchOf(job);
     let profile: AgentTaskProfile | undefined;
@@ -963,13 +963,13 @@ export class AgentTaskApplicationService {
     } catch {
       throw new AgentTaskApplicationError(
         "identity-revision-conflict",
-        "Restore the exact V15 managed economic candidate identity before execution.",
+        "Restore the exact V16 managed economic candidate identity before execution.",
       );
     }
     if (!isManagedEconomicCandidateSet(resolved) || !sameManagedEconomicCandidateSet(dispatch.candidateSet, resolved)) {
       throw new AgentTaskApplicationError(
         "identity-revision-conflict",
-        "Restore the exact V15 managed economic candidate identity before execution.",
+        "Restore the exact V16 managed economic candidate identity before execution.",
       );
     }
   }
@@ -977,7 +977,7 @@ export class AgentTaskApplicationService {
   private async consumeWriteApproval(
     job: AgentTaskRecord,
   ): Promise<ManagedAgentRuntimeConsumedWriteApproval | undefined> {
-    if (!isApprovedWriteProfile(job.admissionProfileId)) return undefined;
+    if (!isApprovedWriteAccess(job.access)) return undefined;
     if (!job.writeApproval || !this.options.writeApprovals) {
       throw new AgentTaskApplicationError("admission_denied", "Provide a current managed write approval before dispatch.");
     }
@@ -1203,7 +1203,7 @@ function matchesAttachedApproval(job: AgentTaskRecord, binding: ManagedWriteAppr
     || binding.callerId !== job.callerId
     || binding.workItemFingerprint !== job.requestFingerprint
     || binding.configuredAgentProfileId !== job.configuredAgentProfileId
-    || binding.admissionProfileId !== job.admissionProfileId
+    || binding.access !== job.access
   ) return false;
   if (job.dispatch.kind === "native-harness") {
     return binding.routeId === job.dispatch.routeId

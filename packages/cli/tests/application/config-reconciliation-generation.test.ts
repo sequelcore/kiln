@@ -29,7 +29,7 @@ describe("reconciliation source generations", () => {
     mkdirSync(projectStateBinding.agentsPath, { recursive: true });
     mkdirSync(join(projectStateBinding.skillsPath, "review"), { recursive: true });
     mkdirSync(join(root, "home", ".kiln"), { recursive: true });
-    writeFileSync(mocks.globalPath, "version: '6'\n", "utf8");
+    writeFileSync(mocks.globalPath, "version: '7'\n", "utf8");
     writeFileSync(projectStateBinding.configPath, "version: '1'\n", "utf8");
     const agentPath = join(projectStateBinding.agentsPath, "reviewer.md");
     const skillPath = join(projectStateBinding.skillsPath, "review", "SKILL.md");

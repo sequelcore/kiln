@@ -92,7 +92,7 @@ describeManagedAgentProviderLive(
           });
           expect(accepted).toMatchObject({
             state: "awaiting_approval",
-            admissionProfileId: "foundation-apply-approved-writes",
+            access: "approved-write",
             dispatch: { kind: "economic", candidateSet: { candidates: [{ routeId, model: liveRoute.model }] } },
           });
           await expect(workspace.readFile("proof.txt")).resolves.toBe("before\n");
@@ -297,7 +297,7 @@ function assertLiveTarget(targetId: string): { readonly authorityProfileId: stri
   const config = readGlobalConfig();
   const target = config?.targetCatalog?.targets.find((candidate) => candidate.id === targetId);
   const authorityProfile = config?.authorityProfiles?.find(
-    (candidate) => candidate.admissionProfile === "foundation-apply-approved-writes",
+    (candidate) => candidate.access === "approved-write",
   );
   const intent = config?.managedAgents?.intents?.find(
     (candidate) => candidate.target?.mode === "explicit" && candidate.target.targetId === targetId,

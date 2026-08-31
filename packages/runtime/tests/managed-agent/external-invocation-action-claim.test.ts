@@ -34,10 +34,10 @@ const READ_EFFECT: ActionEffectEnvelope = {
 function request(): ManagedAgentInvocationRequest {
   return defineManagedAgentInvocationRequest({
     invocationId: "external-claim-1",
-    agentId: "remote:foundation-readonly-plan",
+    agentId: "remote:read-only",
     parentSessionId: "parent-session",
     parentTurnId: "parent-session:turn:1",
-    profile: "foundation-readonly-plan",
+    access: "read-only",
     requestedBy: "assistant",
     requestSource: "test",
     providerRoute: { providerId: "remote", surface: "remote-harness", model: "remote-model" },
@@ -45,7 +45,6 @@ function request(): ManagedAgentInvocationRequest {
     executionMode: "remote-harness",
     authority: {
       authorityProfileId: "authority:read-only",
-      permissionProfile: "read-only",
       toolAuthority: { allowedToolNames: ["read"], writeAllowed: false, networkAllowed: false },
       workingDirectory: { path: "C:/repo", mode: "read-only" },
       timeoutMs: 5_000,

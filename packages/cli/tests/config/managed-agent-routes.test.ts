@@ -92,11 +92,11 @@ async function resolveManagedInvocationToolOptions(
   return result;
 }
 
-function profileByAdmission(
+function profileByAccess(
   route: ManagedInvocationToolRoute | undefined,
-  admissionProfile: string,
+  access: string,
 ) {
-  return route?.profiles.find((profile) => profile.admissionProfile === admissionProfile);
+  return route?.profiles.find((profile) => profile.access === access);
 }
 
 const READONLY_POLICY: KilnPermissionPolicy = {
@@ -186,10 +186,10 @@ function observedProviderModels(
           catalogDiagnosticEvidence: route,
           catalogDiagnosticDecision: deriveProviderModelEligibility(route, managedCatalogRequirements(), []),
           // Mirrors the production derivation in managed-agent-provider-models.ts:
-          // codex proves the write profiles, every other provider proves read-only.
-          provenProfiles: providerId === "codex"
-            ? ["foundation-readonly-plan", "foundation-propose-writes", "foundation-apply-approved-writes", "foundation-memory-write-proposals"]
-            : ["foundation-readonly-plan"],
+          // codex proves write access, every other provider proves read-only.
+          provenAccess: providerId === "codex"
+            ? ["read-only", "propose", "approved-write"]
+            : ["read-only"],
         },
       ])),
     ];
@@ -228,7 +228,7 @@ function withDiscoveredDeliberation(
       ...diagnostics[provider],
       [model]: {
         ...entry,
-        provenProfiles: ["foundation-readonly-plan"],
+        provenAccess: ["read-only"],
         deliberationCapabilities: {
           provider,
           model,
@@ -395,7 +395,7 @@ type ManagedTargetFixture = {
   readonly kind: "direct" | "harness";
   readonly provider?: string;
   readonly model?: string;
-  readonly profiles?: readonly AuthorityProfileFixture["admissionProfile"][];
+  readonly profiles?: readonly AuthorityProfileFixture["access"][];
   readonly workingDirectory?: AuthorityProfileFixture["workingDirectory"];
   readonly timeoutMs?: number;
   readonly tools?: AuthorityProfileFixture["tools"];
@@ -504,9 +504,9 @@ function baseConfig(overrides: ManagedConfigFixture = {}): KilnGlobalConfig & Ma
   });
 
   const authorityProfiles = targetFixtures.flatMap((target) =>
-    (target.profiles ?? ["foundation-readonly-plan"]).map((admissionProfile) => ({
-      id: `authority:${admissionProfile}`,
-      admissionProfile,
+    (target.profiles ?? ["read-only"]).map((access) => ({
+      id: `authority:${access}`,
+      access,
       ...(target.workingDirectory ? { workingDirectory: target.workingDirectory } : {}),
       ...(target.timeoutMs ? { timeoutMs: target.timeoutMs } : {}),
       ...(target.tools ? { tools: target.tools } : {}),
@@ -517,7 +517,7 @@ function baseConfig(overrides: ManagedConfigFixture = {}): KilnGlobalConfig & Ma
     .filter((profile, index, profiles) => profiles.findIndex((candidate) => candidate.id === profile.id) === index);
 
   return {
-    version: "6",
+    version: "7",
     executionCatalog,
     targetCatalog: {
       evidenceRevision: `sha256:${"f".repeat(64)}`,
@@ -684,7 +684,7 @@ function managedAgentIntentCovering(
   return [{
     id: intentId,
     purpose: "Run the bounded managed-agent route composition fixture.",
-    authorityProfileId: "authority:foundation-readonly-plan",
+    authorityProfileId: "authority:read-only",
     target: targetIds.length === 1
       ? { mode: "explicit" as const, targetId: targetIds[0]! }
       : { mode: "inherited" as const },
@@ -705,14 +705,13 @@ function makeDirectAdapter(providerId = "openai", writeCapable = false): Managed
       adapterDescriptorId: `adapter:${providerId}:direct-provider`,
       providerId,
       adapterKind: "direct",
-      supportedProfiles: writeCapable
+      supportedAccess: writeCapable
         ? [
-          "foundation-readonly-plan",
-          "foundation-propose-writes",
-          "foundation-apply-approved-writes",
-          "foundation-memory-write-proposals",
+          "read-only",
+          "propose",
+          "approved-write",
         ]
-        : ["foundation-readonly-plan"],
+        : ["read-only"],
       supportedExecutionModes: ["direct-provider"],
       lifecycle: {
         exposesStart: true,
@@ -755,7 +754,7 @@ function makeDirectAdapter(providerId = "openai", writeCapable = false): Managed
         agentId: request.agentId,
         parentSessionId: request.parentSessionId,
         parentTurnId: request.parentTurnId,
-        profile: request.profile,
+        access: request.access,
         lifecycleState: "completed",
         providerRoute: request.providerRoute,
         adapterKind: request.adapterKind,
@@ -809,7 +808,7 @@ describe("resolveManagedInvocationToolOptions", () => {
           id: `${provider}-missing-model`,
           kind: "harness",
           provider,
-          profiles: ["foundation-readonly-plan"],
+          profiles: ["read-only"],
           workingDirectory: "project",
           tools: {
             allowed: ["read", "tree", "grep", "glob"],
@@ -842,10 +841,10 @@ describe("resolveManagedInvocationToolOptions", () => {
         targetFixtures: [{
           id: "codex-readonly",
           kind: "harness",
-          provider: "codex",
-          model: "gpt-5.3-codex-spark",
-          profiles: ["foundation-readonly-plan"],
-          timeoutMs: 120000,
+       provider: "codex",
+        model: "gpt-5.3-codex-spark",
+        profiles: ["read-only"],
+           timeoutMs: 120000,
           workingDirectory: "project",
           tools: {
             allowed: ["read", "tree", "grep", "glob"],
@@ -873,9 +872,9 @@ describe("resolveManagedInvocationToolOptions", () => {
       routeId: "codex-readonly",
       routeSource: "explicit-managed-route",
       kind: "harness",
-      provider: "codex",
+         provider: "codex",
       model: "gpt-5.3-codex-spark",
-      profiles: ["foundation-readonly-plan"],
+      accessLevels: ["read-only"],
       available: true,
     }]);
     expect(result.managedInvocation?.routes).toHaveLength(1);
@@ -904,9 +903,8 @@ describe("resolveManagedInvocationToolOptions", () => {
         }),
       ]),
     );
-    expect(profileByAdmission(result.managedInvocation?.routes[0], "foundation-readonly-plan")).toMatchObject({
-      authorityProfileId: "authority:foundation-readonly-plan",
-      permissionProfile: "read-only",
+    expect(profileByAccess(result.managedInvocation?.routes[0], "read-only")).toMatchObject({
+      authorityProfileId: "authority:read-only",
       allowedToolNames: ["read", "tree", "grep", "glob"],
       workingDirectory: {
         path: TEST_PROJECT_ROOT,
@@ -921,7 +919,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     });
 
     const route = result.managedInvocation?.routes[0];
-    const profile = profileByAdmission(route, "foundation-readonly-plan");
+    const profile = profileByAccess(route, "read-only");
     const service = result.managedInvocation?.invocationService;
     const createAdapter = route?.createAdapter;
     if (!route || !profile || !service || !createAdapter) {
@@ -932,10 +930,10 @@ describe("resolveManagedInvocationToolOptions", () => {
     const invoke = vi.spyOn(adapter, "invoke");
     const request = defineManagedAgentInvocationRequest({
       invocationId: "codex-background-unproven",
-      agentId: "codex-readonly:foundation-readonly-plan",
+      agentId: "codex-readonly:read-only",
       parentSessionId: "codex-parent-session",
       parentTurnId: "codex-parent-session:turn:1",
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       requestedBy: "assistant",
       requestSource: "background-job",
       requestedAuthority: "audited",
@@ -949,7 +947,6 @@ describe("resolveManagedInvocationToolOptions", () => {
       executionMode: "cli-harness",
       authority: {
         authorityProfileId: profile.authorityProfileId,
-        permissionProfile: profile.permissionProfile,
         toolAuthority: {
           allowedToolNames: profile.allowedToolNames,
           writeAllowed: profile.writeAllowed === true,
@@ -984,7 +981,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       kind: "harness" as const,
       provider: "codex" as const,
       model: "gpt-5.3-codex-spark",
-      profiles: ["foundation-readonly-plan" as const],
+      profiles: ["read-only" as const],
       timeoutMs: 120000,
       workingDirectory: "project" as const,
       tools: { allowed: ["read", "tree"], network: false, writes: false },
@@ -1016,7 +1013,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         targetFixtures: [{
         id: "openai-readonly",
         kind: "direct",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
       }],
       }),
     }, {
@@ -1062,7 +1059,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         targetFixtures: [{
           id: "openai-readonly",
           kind: "direct",
-          profiles: ["foundation-readonly-plan"],
+          profiles: ["read-only"],
         }],
       }), context);
       await vi.waitFor(() => expect(recoverPersistedInvocations).toHaveBeenCalledOnce());
@@ -1085,7 +1082,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         targetFixtures: [{
           id: "openai-readonly",
           kind: "direct",
-          profiles: ["foundation-readonly-plan"],
+          profiles: ["read-only"],
         }],
       }), {
         ...context,
@@ -1114,7 +1111,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         targetFixtures: [{
           id: "openai-readonly",
           kind: "direct",
-          profiles: ["foundation-readonly-plan"],
+          profiles: ["read-only"],
         }],
       }), {
         cwd: TEST_PROJECT_ROOT,
@@ -1142,7 +1139,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       targetFixtures: [{
         id: "openai-readonly",
         kind: "direct",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
       }],
     });
     const recoverPersistedInvocations = vi
@@ -1174,7 +1171,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         targetFixtures: [{
           id: "openai-replacement",
           kind: "direct",
-          profiles: ["foundation-readonly-plan"],
+          profiles: ["read-only"],
         }],
       });
       await catalog.refreshNow();
@@ -1199,7 +1196,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         kind: "harness",
         provider: "codex",
         model: "gpt-5.3-codex-spark",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
         externalRuntimeAttachment: {
           runtimeId: "mcp-external-runtime",
           attachmentId: "instance-a",
@@ -1226,7 +1223,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         kind: "harness",
         provider: "codex",
         model: "gpt-5.3-codex-spark",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
         externalRuntimeAttachment: {
           runtimeId: "mcp-external-runtime",
           attachmentId: "   ",
@@ -1247,7 +1244,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         kind: "harness",
         provider: "codex",
         model: "gpt-5.3-codex-spark",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
         externalRuntimeAttachment: {
           runtimeId: "",
           attachmentId: "instance-a",
@@ -1271,7 +1268,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         kind: "harness",
         provider: "codex",
         model: "gpt-5.3-codex-spark",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
         externalRuntimeAttachment: {
           runtimeId: " mcp-external-runtime ",
           attachmentId: " instance-a",
@@ -1317,7 +1314,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         kind: "harness",
         provider: "codex",
         model: "gpt-5.3-codex-spark",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
       }],
     }), {
       cwd: TEST_PROJECT_ROOT,
@@ -1335,7 +1332,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
     const route = result.managedInvocation?.routes[0];
     expect(route).toBeDefined();
-    const profile = profileByAdmission(route, "foundation-readonly-plan");
+    const profile = profileByAccess(route, "read-only");
     expect(profile).toBeDefined();
     const service = result.managedInvocation?.invocationService ?? new RuntimeManagedAgentInvocationService();
     const adapter = await route!.createAdapter!();
@@ -1343,10 +1340,10 @@ describe("resolveManagedInvocationToolOptions", () => {
 
     const invokeResult = await service.invoke(defineManagedAgentInvocationRequest({
       invocationId: "cli-harness-resource-1",
-      agentId: "codex-readonly:foundation-readonly-plan",
+      agentId: "codex-readonly:read-only",
       parentSessionId: "cli-parent-session",
       parentTurnId: "cli-parent-session:turn:1",
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       requestedBy: "assistant",
       requestSource: "test",
       providerRoute: {
@@ -1358,7 +1355,6 @@ describe("resolveManagedInvocationToolOptions", () => {
       executionMode: "cli-harness",
       authority: {
         authorityProfileId: profile!.authorityProfileId,
-        permissionProfile: profile!.permissionProfile,
         toolAuthority: {
           allowedToolNames: profile!.allowedToolNames,
           writeAllowed: profile!.writeAllowed === true,
@@ -1402,7 +1398,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         targetFixtures: [{
         id: "openai-readonly",
         kind: "direct",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
       }],
       }),
     }, {
@@ -1414,7 +1410,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       managedAccountComposition: TEST_MANAGED_ACCOUNT_COMPOSITION,
     });
 
-    expect(profileByAdmission(result.managedInvocation?.routes[0], "foundation-readonly-plan")?.credentialRoute).toEqual({
+    expect(profileByAccess(result.managedInvocation?.routes[0], "read-only")?.credentialRoute).toEqual({
       mode: "account-leased",
       routeId: "openai-readonly",
       accountPolicyId: "policy:openai-readonly",
@@ -1431,7 +1427,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         kind: "harness",
         provider: "codex",
         model: "gpt-5.3-codex-spark",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
       }],
     }), {
       cwd: TEST_PROJECT_ROOT,
@@ -1452,7 +1448,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       targetFixtures: [{
         id: "codex-oauth-sandbox-readonly",
         kind: "direct",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
         workingDirectory: "sandbox",
       }],
     })));
@@ -1462,7 +1458,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       targetFixtures: [{
         id: "codex-oauth-sandbox-readonly",
         kind: "direct",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
         workingDirectory: "sandbox",
         tools: {
           allowed: ["read", "grep"],
@@ -1483,10 +1479,10 @@ describe("resolveManagedInvocationToolOptions", () => {
       kind: "direct",
       provider: "codex-oauth",
       model: "gpt-5.4-mini",
-      profiles: ["foundation-readonly-plan"],
-      available: true,
+      accessLevels: ["read-only"],
+       available: true,
     }]);
-    expect(profileByAdmission(result.managedInvocation?.routes[0], "foundation-readonly-plan")).toMatchObject({
+    expect(profileByAccess(result.managedInvocation?.routes[0], "read-only")).toMatchObject({
       workingDirectory: {
         path: TEST_PROJECT_ROOT,
         mode: "sandbox",
@@ -1502,8 +1498,8 @@ describe("resolveManagedInvocationToolOptions", () => {
         id: "codex-sandbox-readonly",
         kind: "harness",
         provider: "codex",
-        model: "gpt-5.3-codex-spark",
-        profiles: ["foundation-readonly-plan"],
+       model: "gpt-5.3-codex-spark",
+        profiles: ["read-only"],
         workingDirectory: "sandbox",
       }],
     }), {
@@ -1520,7 +1516,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       kind: "harness",
       provider: "codex",
       model: "gpt-5.3-codex-spark",
-      profiles: ["foundation-readonly-plan"],
+      accessLevels: ["read-only"],
       available: false,
       reason: "Harness sandbox working-directory routes require live-proven sandbox enforcement.",
     }]);
@@ -1538,7 +1534,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         kind: "harness",
         provider: "codex-cloud",
         model: "gpt-5.5",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
         workingDirectory: "sandbox",
         remoteHarness: {
           invokeUrl: "https://remote.example.test/managed-agent/invoke",
@@ -1562,7 +1558,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       kind: "harness",
       provider: "codex-cloud",
       model: "gpt-5.5",
-      profiles: ["foundation-readonly-plan"],
+      accessLevels: ["read-only"],
       available: true,
     }]);
     expect(result.managedInvocation?.routes[0]).toMatchObject({
@@ -1593,7 +1589,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       target: { providerId: "codex-cloud" },
       adapter: { kind: "governed-external-runtime" },
     });
-    expect(profileByAdmission(result.managedInvocation?.routes[0], "foundation-readonly-plan")).toMatchObject({
+    expect(profileByAccess(result.managedInvocation?.routes[0], "read-only")).toMatchObject({
       workingDirectory: {
         path: TEST_PROJECT_ROOT,
         mode: "sandbox",
@@ -1624,7 +1620,7 @@ describe("resolveManagedInvocationToolOptions", () => {
           "role: TDD guide",
           "goal: Write tests before behavior changes",
           "tier: reasoning",
-          "authorityProfileId: authority:foundation-readonly-plan",
+          "authorityProfileId: authority:read-only",
           "taskAffinity:",
           "  - test-writing",
           "skills:",
@@ -1686,8 +1682,8 @@ describe("resolveManagedInvocationToolOptions", () => {
           id: "codex-readonly",
           kind: "harness",
           provider: "codex",
-          model: "gpt-5.3-codex-spark",
-          profiles: ["foundation-readonly-plan"],
+        model: "gpt-5.3-codex-spark",
+        profiles: ["read-only"],
         }],
       }), {
         cwd: root,
@@ -1753,7 +1749,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         "tier: reasoning",
         "mode: managed-child",
         "targetId: codex-readonly",
-        "authorityProfileId: authority:foundation-readonly-plan",
+        "authorityProfileId: authority:read-only",
         "---",
         "Remain within the native harness route.",
       ].join("\n"));
@@ -1764,7 +1760,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         "goal: Execute only policy-admitted work.",
         "tier: reasoning",
         "mode: managed-child",
-        "authorityProfileId: authority:foundation-readonly-plan",
+        "authorityProfileId: authority:read-only",
         policyLine,
         routeLine,
         "---",
@@ -1773,7 +1769,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       const intents = [{
         id: "economic-worker",
         purpose: "Run only policy-admitted work.",
-        authorityProfileId: "authority:foundation-readonly-plan",
+        authorityProfileId: "authority:read-only",
         target: { mode: "explicit" as const, targetId: "admitted-route" },
         paidUsage: "ask-before-spend" as const,
       }];
@@ -1782,13 +1778,13 @@ describe("resolveManagedInvocationToolOptions", () => {
         targetFixtures: [{
           id: "admitted-route",
           kind: "direct",
-          profiles: ["foundation-readonly-plan"],
+          profiles: ["read-only"],
         }, {
           id: "codex-readonly",
           kind: "harness",
           provider: "codex",
           model: "gpt-5.3-codex-spark",
-          profiles: ["foundation-readonly-plan"],
+          profiles: ["read-only"],
         }],
       });
       // Start without the intent to prove the affected agent is isolated;
@@ -1868,7 +1864,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         "goal: Execute only policy-admitted work.",
         "tier: reasoning",
         "mode: managed-child",
-        "authorityProfileId: authority:foundation-readonly-plan",
+        "authorityProfileId: authority:read-only",
         "---",
         "Remain within the configured economic policy.",
       ].join("\n"));
@@ -1876,14 +1872,14 @@ describe("resolveManagedInvocationToolOptions", () => {
         intents: [{
           id: "economic-worker",
           purpose: "Run only policy-admitted work.",
-          authorityProfileId: "authority:foundation-readonly-plan",
+          authorityProfileId: "authority:read-only",
           target: { mode: "explicit" as const, targetId: "admitted-route" },
           paidUsage: "ask-before-spend" as const,
         }],
         targetFixtures: [{
           id: "admitted-route",
           kind: "direct",
-          profiles: ["foundation-readonly-plan"],
+          profiles: ["read-only"],
         }],
       }), {
         cwd: root,
@@ -1912,14 +1908,14 @@ describe("resolveManagedInvocationToolOptions", () => {
       intents: [{
         id: "bounded-policy",
         purpose: "Run only policy-admitted work.",
-        authorityProfileId: "authority:foundation-readonly-plan",
+        authorityProfileId: "authority:read-only",
         target: { mode: "explicit" as const, targetId: "admitted-route" },
         paidUsage: "ask-before-spend" as const,
       }],
       targetFixtures: [{
         id: "admitted-route",
         kind: "direct",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
       }],
     }), {
       cwd: TEST_PROJECT_ROOT,
@@ -1965,7 +1961,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         "role: Repository scout",
         "goal: Collect bounded repository evidence.",
         "tier: fast",
-        "authorityProfileId: authority:foundation-readonly-plan",
+        "authorityProfileId: authority:read-only",
         "taskAffinity:",
         "  - mechanical-edit",
         "---",
@@ -1977,11 +1973,11 @@ describe("resolveManagedInvocationToolOptions", () => {
           targetFixtures: [{
             id: "codex-oauth-reasoning-readonly",
             kind: "direct",
-            profiles: ["foundation-readonly-plan"],
+            profiles: ["read-only"],
           }, {
             id: "codex-oauth-bounded-readonly",
             kind: "direct",
-            profiles: ["foundation-readonly-plan"],
+            profiles: ["read-only"],
           }],
         }),
         targetRouting: { defaultTargetId: "codex-oauth-bounded-readonly" },
@@ -2031,7 +2027,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       targetFixtures: [{
         id: "codex-oauth-bounded-readonly",
         kind: "direct",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
       }],
     }), {
       cwd: TEST_PROJECT_ROOT,
@@ -2061,7 +2057,7 @@ describe("resolveManagedInvocationToolOptions", () => {
           "tier: reasoning",
           "structured: true",
           "targetId: opencode-go-kimi-k2-6-readonly",
-          "authorityProfileId: authority:foundation-readonly-plan",
+          "authorityProfileId: authority:read-only",
           "taskAffinity:",
           "  - frontend-design",
           "  - research",
@@ -2081,7 +2077,7 @@ describe("resolveManagedInvocationToolOptions", () => {
           targetFixtures: [{
             id: "opencode-go-kimi-k2-6-readonly",
             kind: "direct",
-            profiles: ["foundation-readonly-plan"],
+            profiles: ["read-only"],
             tools: {
               allowed: ["read", "tree", "grep", "glob", "web_search", "web_fetch", "browser_session_start", "browser_navigate", "browser_observe"],
               network: true,
@@ -2107,7 +2103,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       expect(result.managedInvocation?.routes.filter((route) =>
         route.routeId === "opencode-go-kimi-k2-6-readonly"
       )).toHaveLength(1);
-      expect(profileByAdmission(visualRoute, "foundation-readonly-plan")).toMatchObject({
+      expect(profileByAccess(visualRoute, "read-only")).toMatchObject({
         allowedToolNames: ["read", "tree", "grep", "glob", "web_search", "web_fetch", "browser_session_start", "browser_navigate", "browser_observe"],
         networkAllowed: true,
       });
@@ -2134,7 +2130,7 @@ describe("resolveManagedInvocationToolOptions", () => {
           kind: "harness",
           provider: "codex",
           model: "gpt-5.3-codex-spark",
-          profiles: ["foundation-readonly-plan"],
+          profiles: ["read-only"],
         }],
       }),
       engines: {
@@ -2162,7 +2158,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         kind: "harness",
         provider: "codex",
         model: "gpt-5.3-codex-spark",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
       }],
     }), {
       cwd: TEST_PROJECT_ROOT,
@@ -2177,7 +2173,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       kind: "harness",
       provider: "codex",
       model: "gpt-5.3-codex-spark",
-      profiles: ["foundation-readonly-plan"],
+      accessLevels: ["read-only"],
       available: false,
       reason: "Provider 'codex' is unavailable.",
     }]);
@@ -2188,7 +2184,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       targetFixtures: [{
         id: "openai-readonly",
         kind: "direct",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
       }],
     }), {
       cwd: TEST_PROJECT_ROOT,
@@ -2214,7 +2210,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       targetFixtures: [{
         id: "openai-readonly",
         kind: "direct",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
       }],
     }), {
       cwd: TEST_PROJECT_ROOT,
@@ -2229,8 +2225,8 @@ describe("resolveManagedInvocationToolOptions", () => {
       routeSource: "explicit-managed-route",
       kind: "direct",
       provider: "openai",
-      model: "gpt-5.4-mini",
-      profiles: ["foundation-readonly-plan"],
+       model: "gpt-5.4-mini",
+       accessLevels: ["read-only"],
       available: true,
     }]);
     expect(result.managedInvocation?.routes[0]?.createCommittedAdapter).toBeInstanceOf(Function);
@@ -2243,7 +2239,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       targetFixtures: [{
         id: "codex-oauth-auto-review-readonly",
         kind: "direct",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
       }],
     }), {
       cwd: TEST_PROJECT_ROOT,
@@ -2260,8 +2256,8 @@ describe("resolveManagedInvocationToolOptions", () => {
       routeSource: "explicit-managed-route",
       kind: "direct",
       provider: "codex-oauth",
-      model: "codex-auto-review",
-      profiles: ["foundation-readonly-plan"],
+       model: "codex-auto-review",
+       accessLevels: ["read-only"],
       available: true,
     }]);
     expect(result.managedInvocation?.routes[0]).toMatchObject({
@@ -2279,7 +2275,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         kind: "harness",
         provider: "codex",
         model: "gpt-5.4-mini",
-        profiles: ["foundation-apply-approved-writes"],
+        profiles: ["approved-write"],
         tools: {
           allowed: ["read", "grep", "write"],
           writes: true,
@@ -2307,11 +2303,11 @@ describe("resolveManagedInvocationToolOptions", () => {
         kind: "harness",
         provider: "claude",
         model: "default",
-        profiles: ["foundation-apply-approved-writes"],
+        profiles: ["approved-write"],
         tools: { allowed: ["read", "write"], writes: true },
         writeAuthority: {
           workspace: { mode: "apply-approved", allowedPaths: ["packages"] },
-          memory: { mode: "none", operations: [] },
+          memory: { operations: [] },
           artifacts: { mode: "none", resourceUris: [], retention: "session" },
           tools: { allowed: ["read", "write"], denied: [] },
           approval: { mode: "required-before-apply" },
@@ -2349,7 +2345,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         kind: "harness",
         provider: "claude",
         model: "default",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
         tools: { allowed: ["read"], writes: false },
       }],
     }), {
@@ -2375,7 +2371,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         kind: "harness",
         provider: "claude",
         model: "claude-fable-5[1m]",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
         tools: { allowed: ["read"], writes: false },
       }],
     }), {
@@ -2405,7 +2401,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         kind: "harness",
         provider: "opencode",
         model: "opencode/minimax-m2.5-free",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
         tools: { allowed: ["read"], writes: false },
       }],
     }), {
@@ -2432,7 +2428,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         kind: "harness",
         provider: "claude",
         model: "claude-fable-5[1m]",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
         tools: { allowed: ["read"], writes: false },
       }],
     }), {
@@ -2470,7 +2466,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     });
 
     const route = result.managedInvocation?.routes[0];
-    const profile = profileByAdmission(route, "foundation-readonly-plan");
+    const profile = profileByAccess(route, "read-only");
     expect(route).toBeDefined();
     expect(profile).toBeDefined();
     const claudeDeliberationAdapter = await route!.createAdapter!();
@@ -2478,10 +2474,10 @@ describe("resolveManagedInvocationToolOptions", () => {
     await (result.managedInvocation?.invocationService ?? new RuntimeManagedAgentInvocationService()).invoke(
       defineManagedAgentInvocationRequest({
         invocationId: "claude-deliberation-route-1",
-        agentId: "claude-readonly:foundation-readonly-plan",
+        agentId: "claude-readonly:read-only",
         parentSessionId: "claude-parent-session",
         parentTurnId: "claude-parent-session:turn:1",
-        profile: "foundation-readonly-plan",
+        access: "read-only",
         requestedBy: "assistant",
         requestSource: "test",
         providerRoute: {
@@ -2494,7 +2490,6 @@ describe("resolveManagedInvocationToolOptions", () => {
         executionMode: "cli-harness",
         authority: {
           authorityProfileId: profile!.authorityProfileId,
-          permissionProfile: profile!.permissionProfile,
           toolAuthority: {
             allowedToolNames: profile!.allowedToolNames,
             writeAllowed: false,
@@ -2532,7 +2527,7 @@ describe("resolveManagedInvocationToolOptions", () => {
           kind: "harness",
           provider: "claude",
           model: "claude-fable-5[1m]",
-          profiles: ["foundation-readonly-plan"],
+          profiles: ["read-only"],
           tools: { allowed: ["read"], writes: false },
         }],
       }),
@@ -2558,7 +2553,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         kind: "harness",
         provider: "opencode",
         model: "opencode/gpt-5.4",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
         tools: { allowed: ["read"], writes: false },
       }],
     }), {
@@ -2596,7 +2591,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     });
 
     const route = result.managedInvocation?.routes[0];
-    const profile = profileByAdmission(route, "foundation-readonly-plan");
+    const profile = profileByAccess(route, "read-only");
     expect(route).toBeDefined();
     expect(profile).toBeDefined();
     const opencodeDeliberationAdapter = await route!.createAdapter!();
@@ -2604,10 +2599,10 @@ describe("resolveManagedInvocationToolOptions", () => {
     await (result.managedInvocation?.invocationService ?? new RuntimeManagedAgentInvocationService()).invoke(
       defineManagedAgentInvocationRequest({
         invocationId: "opencode-deliberation-route-1",
-        agentId: "opencode-readonly:foundation-readonly-plan",
+        agentId: "opencode-readonly:read-only",
         parentSessionId: "opencode-parent-session",
         parentTurnId: "opencode-parent-session:turn:1",
-        profile: "foundation-readonly-plan",
+        access: "read-only",
         requestedBy: "assistant",
         requestSource: "test",
         providerRoute: {
@@ -2620,7 +2615,6 @@ describe("resolveManagedInvocationToolOptions", () => {
         executionMode: "cli-harness",
         authority: {
           authorityProfileId: profile!.authorityProfileId,
-          permissionProfile: profile!.permissionProfile,
           toolAuthority: {
             allowedToolNames: profile!.allowedToolNames,
             writeAllowed: false,
@@ -2661,7 +2655,7 @@ describe("resolveManagedInvocationToolOptions", () => {
           kind: "harness",
           provider: "opencode",
           model: "opencode/gpt-5.4",
-          profiles: ["foundation-readonly-plan"],
+          profiles: ["read-only"],
           tools: { allowed: ["read"], writes: false },
         }],
       }),
@@ -2682,7 +2676,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         kind: "harness",
         provider: "claude",
         model: "claude-sonnet-5",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
         tools: { allowed: ["read"], writes: false },
       }],
     }), {
@@ -2719,7 +2713,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         "tier: reasoning",
         "mode: managed-child",
         "targetId: codex-readonly",
-        "authorityProfileId: authority:foundation-readonly-plan",
+        "authorityProfileId: authority:read-only",
         "---",
         "Remain within the native harness route.",
       ].join("\n"));
@@ -2730,7 +2724,7 @@ describe("resolveManagedInvocationToolOptions", () => {
           kind: "harness",
           provider: "codex",
           model: "gpt-5.3-codex-spark",
-          profiles: ["foundation-readonly-plan"],
+          profiles: ["read-only"],
         }],
       }), {
         cwd: root,
@@ -2761,7 +2755,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         kind: "harness",
         provider: "claude",
         model,
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
         tools: { allowed: ["read"], writes: false },
       }],
     }), {
@@ -2784,7 +2778,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       kind: "harness",
       provider: "claude",
       model,
-      profiles: ["foundation-readonly-plan"],
+      accessLevels: ["read-only"],
       available: true,
     }]);
     expect(result.managedInvocation?.routes[0]).toMatchObject({
@@ -2804,7 +2798,7 @@ describe("resolveManagedInvocationToolOptions", () => {
           kind: "harness",
           provider: "claude",
           model,
-          profiles: ["foundation-readonly-plan"],
+          profiles: ["read-only"],
           tools: { allowed: ["read"], writes: false },
         }],
       }), {
@@ -2835,7 +2829,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         kind: "harness",
         provider: "codex",
         model: "gpt-5.3-codex-spark",
-        profiles: ["foundation-apply-approved-writes"],
+        profiles: ["approved-write"],
         tools: {
           allowed: ["read", "grep", "apply-patch"],
           writes: true,
@@ -2847,7 +2841,6 @@ describe("resolveManagedInvocationToolOptions", () => {
             allowedPaths: ["packages/cli/src/config"],
           },
           memory: {
-            mode: "propose",
             operations: ["create", "update"],
           },
           artifacts: {
@@ -2877,16 +2870,15 @@ describe("resolveManagedInvocationToolOptions", () => {
       kind: "harness",
       provider: "codex",
       model: "gpt-5.3-codex-spark",
-      profiles: ["foundation-apply-approved-writes"],
+       accessLevels: ["approved-write"],
       available: true,
     }]);
-    expect(result.managedInvocation?.routes[0]?.capability.proof.provenProfiles).toEqual([
-      "foundation-apply-approved-writes",
+    expect(result.managedInvocation?.routes[0]?.capability.proof.provenAccess).toEqual([
+      "approved-write",
     ]);
     expect(result.managedInvocation?.routes[0]?.capability.supportsWrite).toBe(true);
-    expect(profileByAdmission(result.managedInvocation?.routes[0], "foundation-apply-approved-writes")).toMatchObject({
-      authorityProfileId: "authority:foundation-apply-approved-writes",
-      permissionProfile: "apply-approved-writes",
+    expect(profileByAccess(result.managedInvocation?.routes[0], "approved-write")).toMatchObject({
+      authorityProfileId: "authority:approved-write",
       writeAllowed: true,
       workingDirectory: {
         path: TEST_PROJECT_ROOT,
@@ -2896,7 +2888,6 @@ describe("resolveManagedInvocationToolOptions", () => {
         access: "write-proposals",
       },
       writeAuthority: {
-        profile: "foundation-apply-approved-writes",
         scope: {
           workspace: {
             mode: "apply-approved",
@@ -2904,7 +2895,6 @@ describe("resolveManagedInvocationToolOptions", () => {
             deniedPaths: TEST_PROJECT_DENIED_PATHS,
           },
           memory: {
-            mode: "propose",
             operations: ["create", "update"],
           },
           artifacts: {
@@ -2925,13 +2915,98 @@ describe("resolveManagedInvocationToolOptions", () => {
     });
   });
 
+  it("uses explicit write scopes to distinguish workspace proposals from memory proposals", async () => {
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      targetFixtures: [{
+        id: "codex-workspace-proposal",
+        kind: "harness",
+        provider: "codex",
+        model: "gpt-5.3-codex-spark",
+        profiles: ["propose"],
+        tools: {
+          allowed: ["read", "grep"],
+          writes: false,
+        },
+        memory: { access: "read-only" },
+        writeAuthority: {
+          workspace: {
+            mode: "propose",
+            allowedPaths: ["packages/cli/src/config"],
+          },
+          memory: {
+            operations: [],
+          },
+          approval: {
+            mode: "required-before-apply",
+          },
+        },
+      }],
+    }), {
+      cwd: TEST_PROJECT_ROOT,
+      registry: createRegistry("codex"),
+      surface: "gui",
+      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+    });
+
+    expect(result.routeHealth[0]).toMatchObject({ available: true });
+    expect(profileByAccess(result.managedInvocation?.routes[0], "propose")).toMatchObject({
+      access: "propose",
+      memoryScope: { access: "read-only" },
+      writeAuthority: {
+        scope: {
+          workspace: {
+            mode: "propose",
+            allowedPaths: [TEST_PROJECT_CONFIG_PATH],
+          },
+          memory: {
+            operations: [],
+          },
+        },
+      },
+    });
+  });
+
+  it("keeps propose access memory-only when no workspace proposal scope is configured", async () => {
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      targetFixtures: [{
+        id: "codex-memory-proposal",
+        kind: "harness",
+        provider: "codex",
+        model: "gpt-5.3-codex-spark",
+        profiles: ["propose"],
+        tools: { allowed: ["read"], writes: false },
+        memory: { access: "write-proposals" },
+        writeAuthority: {
+          memory: { operations: ["create"] },
+          approval: { mode: "required-before-apply" },
+        },
+      }],
+    }), {
+      cwd: TEST_PROJECT_ROOT,
+      registry: createRegistry("codex"),
+      surface: "gui",
+      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+    });
+
+    expect(result.routeHealth[0]).toMatchObject({ available: true });
+    expect(profileByAccess(result.managedInvocation?.routes[0], "propose")).toMatchObject({
+      memoryScope: { access: "write-proposals" },
+      writeAuthority: {
+        scope: {
+          workspace: { mode: "none", allowedPaths: [], deniedPaths: [] },
+          memory: { operations: ["create"] },
+        },
+      },
+    });
+  });
+
   it("resolves explicit live-proven direct provider routes for approved workspace writes", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
       intents: managedAgentIntentCovering(["codex-oauth-approved-write"]),
       targetFixtures: [{
         id: "codex-oauth-approved-write",
         kind: "direct",
-        profiles: ["foundation-apply-approved-writes"],
+        profiles: ["approved-write"],
         tools: {
           allowed: ["read", "write"],
           writes: true,
@@ -2959,13 +3034,12 @@ describe("resolveManagedInvocationToolOptions", () => {
       routeSource: "explicit-managed-route",
       kind: "direct",
       provider: "codex-oauth",
-      model: "gpt-5.4-mini",
-      profiles: ["foundation-apply-approved-writes"],
+       model: "gpt-5.4-mini",
+       accessLevels: ["approved-write"],
       available: true,
     }]);
     expect(result.managedInvocation?.routes[0]?.createCommittedAdapter).toBeInstanceOf(Function);
-    expect(profileByAdmission(result.managedInvocation?.routes[0], "foundation-apply-approved-writes")).toMatchObject({
-      permissionProfile: "apply-approved-writes",
+    expect(profileByAccess(result.managedInvocation?.routes[0], "approved-write")).toMatchObject({
       writeAllowed: true,
       workingDirectory: {
         path: TEST_PROJECT_ROOT,
@@ -2988,7 +3062,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       targetFixtures: [{
         id: "opencode-go-frontend-approved-write",
         kind: "direct",
-        profiles: ["foundation-apply-approved-writes"],
+        profiles: ["approved-write"],
         tools: {
           allowed: ["read", "web_search", "browser_observe", "write"],
           network: true,
@@ -3019,9 +3093,9 @@ describe("resolveManagedInvocationToolOptions", () => {
       routeSource: "explicit-managed-route",
       accountPolicyId: "policy:opencode-go-frontend-approved-write",
       providerId: "opencode-go",
-      model: "kimi-k2.6",
-      profiles: ["foundation-apply-approved-writes"],
-      reason: "foundation-apply-approved-writes routes cannot enable tools.network. Use a separate foundation-readonly-plan route for web, browser, computer-use, or visual-reference research phases.",
+       model: "kimi-k2.6",
+       accessLevels: ["approved-write"],
+      reason: "approved-write routes cannot enable tools.network. Use a separate read-only route for web, browser, computer-use, or visual-reference research phases.",
     }]);
   });
 
@@ -3033,7 +3107,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       targetFixtures: [{
         id: "openai-uncovered",
         kind: "direct",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
       }],
     }), {
       cwd: TEST_PROJECT_ROOT,
@@ -3049,8 +3123,8 @@ describe("resolveManagedInvocationToolOptions", () => {
       routeSource: "explicit-managed-route",
       kind: "direct",
       provider: "openai",
-      model: "gpt-5.4-mini",
-      profiles: ["foundation-readonly-plan"],
+       model: "gpt-5.4-mini",
+       accessLevels: ["read-only"],
       available: false,
       reason: "Direct managed invocation route 'openai-uncovered' has no covering economic policy; managed invocation requires a durable economic commitment before adapter construction.",
     }]);
@@ -3065,11 +3139,11 @@ describe("resolveManagedInvocationToolOptions", () => {
       targetFixtures: [{
         id: "openai-covered",
         kind: "direct",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
       }, {
         id: "openai-uncovered",
         kind: "direct",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
       }],
     }), {
       cwd: TEST_PROJECT_ROOT,
@@ -3103,7 +3177,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       targetFixtures: [{
         id: "openai-uncovered",
         kind: "direct",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
       }],
     }), {
       cwd: TEST_PROJECT_ROOT,
@@ -3124,7 +3198,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       targetFixtures: [{
         id: canonicalTargetId,
         kind: "direct",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
       }],
     });
     const resolve = vi.fn(async () => []);
@@ -3148,7 +3222,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         candidateSet: {
           economicPolicyId: policy!.id,
           economicPolicyRevision: policy!.revision,
-          admissionProfileId: "foundation-readonly-plan",
+          access: "read-only",
           constraints: {},
           candidates: [{
             routeId: canonicalTargetId,
@@ -3179,7 +3253,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         kind: "harness",
         provider: "codex",
         model: "gpt-5.3-codex-spark",
-        profiles: ["foundation-readonly-plan"],
+        profiles: ["read-only"],
       }],
     })))).toThrow(/targetId must reference a direct target/u);
   });

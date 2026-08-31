@@ -61,7 +61,8 @@ export interface OperatorWorkspaceWorkItemSummary {
   readonly resourceUri: string;
   readonly updatedAt: string;
   readonly workflowProfile?: string;
-  readonly authorityProfile?: string;
+  readonly authority?: string;
+  readonly access?: string;
   readonly assignedAgentProfile?: string;
   readonly pendingPauseCount: number;
   readonly missingEvidenceCount: number;
@@ -672,7 +673,8 @@ function toWorkspaceWorkItemSummary(
     resourceUri: workItem.resourceUri,
     updatedAt: workItem.updatedAt,
     ...(workItem.workflowProfile ? { workflowProfile: workItem.workflowProfile } : {}),
-    ...(workItem.authorityProfile ? { authorityProfile: workItem.authorityProfile } : {}),
+    ...(workItem.authority ? { authority: workItem.authority } : {}),
+    ...(workItem.access ? { access: workItem.access } : {}),
     ...(workItem.assignedAgentProfile ? { assignedAgentProfile: workItem.assignedAgentProfile } : {}),
     pendingPauseCount: workItem.pendingPauseRequirementCount,
     missingEvidenceCount: workItem.missingEvidence.length

@@ -65,7 +65,6 @@ function directTarget(id: string): Extract<ResolvedManagedTargetConfig, { readon
   return {
     id,
     kind: "direct",
-    profiles: ["foundation-readonly-plan"],
     authorityProfiles: [],
   };
 }

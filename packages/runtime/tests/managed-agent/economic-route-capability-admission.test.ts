@@ -33,8 +33,7 @@ const TEST_DESTRUCTIVE_PARENT_AUTHORITY = {
 
 const readonlyProfile = {
   authorityProfileId: "readonly",
-  admissionProfile: "foundation-readonly-plan" as const,
-  permissionProfile: "read-only",
+  access: "read-only" as const,
   allowedToolNames: ["read"],
   writeAllowed: false,
   networkAllowed: false,
@@ -76,7 +75,7 @@ function route(input: {
         freshness: "fresh",
         observedAt: "2026-01-01T00:00:00.000Z",
         expiresAt: "2099-01-01T00:00:00.000Z",
-        provenProfiles: ["foundation-readonly-plan"],
+        provenAccess: ["read-only"],
       },
       capacity: { kind: "accountless" },
       settlement: { kind: "not-required" },
@@ -101,7 +100,7 @@ const command = {
   economicPolicyRevision: "revision-001",
   configuredAgentProfileId: "scout",
   authorityProfileId: "readonly",
-  admissionProfileId: "foundation-readonly-plan" as const,
+  access: "read-only" as const,
 };
 
 function paidApprovalCommitment(): never {
@@ -144,7 +143,7 @@ function approvalProducerAttachment(prepare: EconomicDispatchPrepare): ManagedIn
           goal: "Inspect bounded work.",
           tier: "reasoning",
           authorityProfileId: "readonly",
-          admissionProfile: "foundation-readonly-plan",
+          access: "read-only",
           economicPolicyId: "economy-policy",
           economicPolicyRevision: "revision-001",
           economicPolicyCandidateRouteIds: ["codex-primary"],
@@ -175,7 +174,7 @@ async function runApprovalProducer(
   if (!executor) throw new Error("managed_agent.invoke was not registered");
   return (await executor(
     {
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       agentProfile: "scout",
       task: "Inspect the paid-usage approval boundary.",
     },
@@ -194,7 +193,7 @@ async function runApprovalProducer(
 
 describe("managed economic candidate admission", () => {
   it("makes providerRoute optional at the public policy-owned command boundary", () => {
-    expect(MANAGED_AGENT_INVOKE_TOOL.inputSchema.required).toEqual(["profile", "task"]);
+    expect(MANAGED_AGENT_INVOKE_TOOL.inputSchema.required).toEqual(["access", "task"]);
   });
 
   it("collects every admitted cross-provider candidate without selecting one", () => {
@@ -334,7 +333,7 @@ describe("managed economic candidate admission", () => {
           economicCapability: { status: "unverified" },
           routeSource: "explicit-managed-route",
           providerId: "codex-oauth",
-          profiles: ["foundation-readonly-plan"],
+          accessLevels: ["read-only"],
           reason: "Route health proof is stale.",
         },
       ],
@@ -395,7 +394,7 @@ describe("managed economic candidate admission", () => {
             goal: "Inspect bounded work.",
             tier: "reasoning",
             authorityProfileId: "readonly",
-            admissionProfile: "foundation-readonly-plan",
+            access: "read-only",
             economicPolicyId: "economy-policy",
             economicPolicyRevision: "revision-001",
             economicPolicyCandidateRouteIds: ["codex-primary"],
@@ -425,7 +424,7 @@ describe("managed economic candidate admission", () => {
 
     const result = (await executor(
       {
-        profile: "foundation-readonly-plan",
+        access: "read-only",
         agentProfile: "scout",
         task: "Inspect the deliberation boundary.",
       },
@@ -470,7 +469,7 @@ describe("managed economic candidate admission", () => {
             goal: "Inspect bounded work.",
             tier: "reasoning",
             authorityProfileId: "readonly",
-            admissionProfile: "foundation-readonly-plan",
+            access: "read-only",
             economicPolicyId: "economy-policy",
             economicPolicyRevision: "revision-001",
             economicPolicyCandidateRouteIds: ["codex-primary"],
@@ -490,7 +489,7 @@ describe("managed economic candidate admission", () => {
 
     const result = (await executor(
       {
-        profile: "foundation-readonly-plan",
+        access: "read-only",
         agentProfile: "scout",
         task: "Inspect the policy boundary.",
       },
@@ -586,7 +585,7 @@ describe("managed economic candidate admission", () => {
             goal: "Inspect bounded work.",
             tier: "reasoning",
             authorityProfileId: "readonly",
-            admissionProfile: "foundation-readonly-plan",
+            access: "read-only",
             economicPolicyId: "economy-policy",
             economicPolicyRevision: "revision-001",
             economicPolicyCandidateRouteIds: ["codex-primary"],
@@ -674,7 +673,7 @@ describe("managed economic candidate admission", () => {
     session.addUserMessage([{ type: "text", text: "synthetic test turn" }]);
     const result = (await executor(
       {
-        profile: "foundation-readonly-plan",
+        access: "read-only",
         agentProfile: "scout",
         task: "Inspect the policy boundary.",
       },
@@ -722,7 +721,7 @@ describe("managed economic candidate admission", () => {
             goal: "Inspect bounded work.",
             tier: "reasoning",
             authorityProfileId: "readonly",
-            admissionProfile: "foundation-readonly-plan",
+            access: "read-only",
             economicPolicyId: "economy-policy",
             economicPolicyRevision: "revision-001",
             economicPolicyCandidateRouteIds: ["codex-primary"],
@@ -742,7 +741,7 @@ describe("managed economic candidate admission", () => {
 
     const result = (await executor(
       {
-        profile: "foundation-readonly-plan",
+        access: "read-only",
         agentProfile: "scout",
         skills: ["forbidden-skill"],
         task: "Inspect the policy boundary.",
@@ -773,7 +772,7 @@ describe("managed economic candidate admission", () => {
             goal: "Apply bounded work.",
             tier: "reasoning",
             authorityProfileId: "approved-write",
-            admissionProfile: "foundation-apply-approved-writes",
+            access: "approved-write",
             economicPolicyId: "economy-policy",
             economicPolicyRevision: "revision-001",
             economicPolicyCandidateRouteIds: [],
@@ -794,7 +793,7 @@ describe("managed economic candidate admission", () => {
 
     const result = (await executor(
       {
-        profile: "foundation-apply-approved-writes",
+        access: "approved-write",
         agentProfile: "writer",
         requestedAuthority: "destructive",
         task: "Apply the policy boundary.",

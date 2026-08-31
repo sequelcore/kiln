@@ -127,7 +127,7 @@ function makeManagedInvocationOptions(): ManagedInvocationToolOptions & { readon
       adapterDescriptorId: "adapter:opencode:harness",
       providerId: "opencode",
       adapterKind: "harness",
-      supportedProfiles: ["foundation-readonly-plan"],
+      supportedAccess: ["read-only"],
       supportedExecutionModes: ["cli-harness"],
       lifecycle: {
         exposesStart: true,
@@ -169,7 +169,7 @@ function makeManagedInvocationOptions(): ManagedInvocationToolOptions & { readon
         agentId: request.agentId,
         parentSessionId: request.parentSessionId,
         parentTurnId: request.parentTurnId,
-        profile: request.profile,
+        access: request.access,
         lifecycleState: "completed",
         providerRoute: request.providerRoute,
         adapterKind: request.adapterKind,
@@ -216,15 +216,14 @@ function makeManagedInvocationOptions(): ManagedInvocationToolOptions & { readon
         supportsRecursion: true,
         supportsAttachments: false,
         supportsWrite: false,
-        proof: { status: "configured", source: "test-fixture", provenProfiles: ["foundation-readonly-plan"] },
+        proof: { status: "configured", source: "test-fixture", provenAccess: ["read-only"] },
         capacity: { kind: "accountless" },
         settlement: { kind: "not-required" },
       },
       createAdapter: async () => adapter,
       profiles: [{
-          authorityProfileId: "authority:opencode-readonly:foundation-readonly-plan",
-          admissionProfile: "foundation-readonly-plan",
-          permissionProfile: "read-only",
+          authorityProfileId: "authority:opencode-readonly:read-only",
+          access: "read-only",
           allowedToolNames: ["read", "grep", "glob"],
           writeAllowed: false,
           networkAllowed: false,
@@ -284,7 +283,7 @@ function makeManagedWriteConflictFixture(): {
   readonly managedInvocation: ManagedInvocationToolOptions;
   readonly releaseActive: { resolve?: () => void };
   readonly startInput: {
-    readonly profile: "foundation-apply-approved-writes";
+    readonly access: "approved-write";
     readonly routeId: "opencode-approved-write";
     readonly providerRoute: {
       readonly providerId: "opencode";
@@ -306,7 +305,7 @@ function makeManagedWriteConflictFixture(): {
       adapterDescriptorId: "adapter:opencode:approved-write",
       providerId: "opencode",
       adapterKind: "harness",
-      supportedProfiles: ["foundation-apply-approved-writes"],
+      supportedAccess: ["approved-write"],
       supportedExecutionModes: ["cli-harness"],
       lifecycle: {
         exposesStart: true,
@@ -354,7 +353,7 @@ function makeManagedWriteConflictFixture(): {
         agentId: request.agentId,
         parentSessionId: request.parentSessionId,
         parentTurnId: request.parentTurnId,
-        profile: request.profile,
+        access: request.access,
         lifecycleState: "completed",
         providerRoute: request.providerRoute,
         adapterKind: request.adapterKind,
@@ -388,15 +387,14 @@ function makeManagedWriteConflictFixture(): {
         supportsRecursion: true,
         supportsAttachments: false,
         supportsWrite: true,
-        proof: { status: "configured", source: "test-fixture", provenProfiles: ["foundation-apply-approved-writes"] },
+        proof: { status: "configured", source: "test-fixture", provenAccess: ["approved-write"] },
         capacity: { kind: "accountless" },
         settlement: { kind: "not-required" },
       },
       createAdapter: async () => writeAdapter,
       profiles: [{
           authorityProfileId: "authority:opencode:approved-write",
-          admissionProfile: "foundation-apply-approved-writes",
-          permissionProfile: "apply-approved-writes",
+          access: "approved-write",
           allowedToolNames: ["read", "grep", "apply-patch"],
           writeAllowed: true,
           networkAllowed: false,
@@ -413,7 +411,6 @@ function makeManagedWriteConflictFixture(): {
             access: "read-only",
           },
           writeAuthority: defineManagedAgentWriteAuthority({
-            profile: "foundation-apply-approved-writes",
             scope: {
               workspace: {
                 mode: "apply-approved",
@@ -421,7 +418,6 @@ function makeManagedWriteConflictFixture(): {
                 deniedPaths: ["C:/workspace/kiln/.git"],
               },
               memory: {
-                mode: "none",
                 operations: [],
               },
               artifacts: {
@@ -445,7 +441,7 @@ function makeManagedWriteConflictFixture(): {
     requestSource: "gui",
   } satisfies ManagedInvocationToolOptions;
   const startInput = {
-    profile: "foundation-apply-approved-writes",
+    access: "approved-write" as const,
     routeId: "opencode-approved-write",
     providerRoute: {
       providerId: "opencode",
@@ -468,7 +464,7 @@ function makeManagedDirtyWorktreeReviewFixture(): {
   readonly managedInvocation: ManagedInvocationToolOptions;
   readonly completeChild: { resolve?: () => void };
   readonly startInput: {
-    readonly profile: "foundation-apply-approved-writes";
+    readonly access: "approved-write";
     readonly routeId: "opencode-isolated-write";
     readonly providerRoute: {
       readonly providerId: "opencode";
@@ -504,7 +500,7 @@ function makeManagedDirtyWorktreeReviewFixture(): {
       adapterDescriptorId: "adapter:opencode:isolated-write",
       providerId: "opencode",
       adapterKind: "harness",
-      supportedProfiles: ["foundation-apply-approved-writes"],
+      supportedAccess: ["approved-write"],
       supportedExecutionModes: ["cli-harness"],
       lifecycle: {
         exposesStart: true,
@@ -552,7 +548,7 @@ function makeManagedDirtyWorktreeReviewFixture(): {
         agentId: request.agentId,
         parentSessionId: request.parentSessionId,
         parentTurnId: request.parentTurnId,
-        profile: request.profile,
+        access: request.access,
         lifecycleState: "completed",
         providerRoute: request.providerRoute,
         adapterKind: request.adapterKind,
@@ -593,15 +589,14 @@ function makeManagedDirtyWorktreeReviewFixture(): {
         supportsRecursion: true,
         supportsAttachments: false,
         supportsWrite: true,
-        proof: { status: "configured", source: "test-fixture", provenProfiles: ["foundation-apply-approved-writes"] },
+        proof: { status: "configured", source: "test-fixture", provenAccess: ["approved-write"] },
         capacity: { kind: "accountless" },
         settlement: { kind: "not-required" },
       },
       createAdapter: async () => adapter,
       profiles: [{
           authorityProfileId: "authority:opencode:isolated-write",
-          admissionProfile: "foundation-apply-approved-writes",
-          permissionProfile: "apply-approved-writes",
+          access: "approved-write",
           allowedToolNames: ["read", "grep", "apply-patch"],
           writeAllowed: true,
           networkAllowed: false,
@@ -623,7 +618,6 @@ function makeManagedDirtyWorktreeReviewFixture(): {
             access: "read-only",
           },
           writeAuthority: defineManagedAgentWriteAuthority({
-            profile: "foundation-apply-approved-writes",
             scope: {
               workspace: {
                 mode: "apply-approved",
@@ -631,7 +625,6 @@ function makeManagedDirtyWorktreeReviewFixture(): {
                 deniedPaths: ["C:/workspace/kiln/.git"],
               },
               memory: {
-                mode: "none",
                 operations: [],
               },
               artifacts: {
@@ -655,7 +648,7 @@ function makeManagedDirtyWorktreeReviewFixture(): {
     requestSource: "gui",
   } satisfies ManagedInvocationToolOptions;
   const startInput = {
-    profile: "foundation-apply-approved-writes",
+    access: "approved-write" as const,
     routeId: "opencode-isolated-write",
     providerRoute: {
       providerId: "opencode",
@@ -724,7 +717,7 @@ describe("GUI gateway managed control", () => {
       });
 
       const toolResult = await managedInvoke({
-        profile: "foundation-readonly-plan",
+        access: "read-only",
         routeId: "opencode-readonly",
         providerRoute: {
           providerId: "opencode",
@@ -849,7 +842,7 @@ describe("GUI gateway managed control", () => {
     );
     const unavailableReason = "Direct provider route 'openrouter-readonly' requires a tool-call-capable model.";
     const toolInput = {
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       routeId: "openrouter-readonly",
       providerRoute: {
         providerId: "openrouter",
@@ -866,7 +859,7 @@ describe("GUI gateway managed control", () => {
         routeSource: "explicit-managed-route",
         providerId: "openrouter",
         model: "openrouter/free",
-        profiles: ["foundation-readonly-plan" as const],
+        accessLevels: ["read-only" as const],
         reason: unavailableReason,
       }],
     } satisfies ManagedInvocationToolOptions;
@@ -907,7 +900,7 @@ describe("GUI gateway managed control", () => {
       toolName: "managed_agent.start",
       kind: "managed-invocation",
       routeId: "openrouter-readonly",
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       providerRoute: {
         providerId: "openrouter",
         model: "openrouter/free",
@@ -921,7 +914,7 @@ describe("GUI gateway managed control", () => {
           routeId: "openrouter-readonly",
           provider: "openrouter",
           model: "openrouter/free",
-          profile: "foundation-readonly-plan",
+          access: "read-only",
           status: "unavailable",
           substantiveEvidence: false,
           failureReason: unavailableReason,
@@ -1020,7 +1013,7 @@ describe("GUI gateway managed control", () => {
       label: "missing required tools",
       createManagedInvocation: () => makeManagedInvocationOptions(),
       toolInput: {
-        profile: "foundation-readonly-plan",
+        access: "read-only",
         routeId: "opencode-readonly",
         providerRoute: {
           providerId: "opencode",
@@ -1064,7 +1057,7 @@ describe("GUI gateway managed control", () => {
         } satisfies ManagedInvocationToolOptions;
       },
       toolInput: {
-        profile: "foundation-readonly-plan",
+        access: "read-only",
         routeId: "opencode-readonly-visual-without-network",
         providerRoute: {
           providerId: "opencode",
@@ -1135,7 +1128,7 @@ describe("GUI gateway managed control", () => {
     expect(runtimeMetadata).toMatchObject({
       toolName: "managed_agent.start",
       kind: "managed-invocation",
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       ...(canonicalAdmissionDenied
         ? {
             status: "denied",
@@ -1588,7 +1581,7 @@ describe("GUI gateway managed control", () => {
         throw new Error("managed_agent.start was not attached to the GUI turn surface");
       }
       const toolResult = await startManagedAgent({
-        profile: "foundation-readonly-plan",
+        access: "read-only",
         routeId: baseRoute.routeId,
         providerRoute: {
           providerId: baseRoute.providerId,
@@ -1795,7 +1788,7 @@ describe("GUI gateway managed control", () => {
           agentId: adapterRequest.agentId,
           parentSessionId: adapterRequest.parentSessionId,
           parentTurnId: adapterRequest.parentTurnId,
-          profile: adapterRequest.profile,
+          access: adapterRequest.access,
           lifecycleState: "completed",
           providerRoute: adapterRequest.providerRoute,
           adapterKind: adapterRequest.adapterKind,
@@ -1825,7 +1818,7 @@ describe("GUI gateway managed control", () => {
         throw new Error("managed_agent.start was not attached to the GUI turn surface");
       }
       const toolResult = await startManagedAgent({
-        profile: "foundation-readonly-plan",
+        access: "read-only",
         routeId: baseRoute.routeId,
         providerRoute: {
           providerId: baseRoute.providerId,
@@ -2021,7 +2014,7 @@ describe("GUI gateway managed control", () => {
           agentId: adapterRequest.agentId,
           parentSessionId: adapterRequest.parentSessionId,
           parentTurnId: adapterRequest.parentTurnId,
-          profile: adapterRequest.profile,
+          access: adapterRequest.access,
           lifecycleState: "completed",
           providerRoute: adapterRequest.providerRoute,
           adapterKind: adapterRequest.adapterKind,
@@ -2051,7 +2044,7 @@ describe("GUI gateway managed control", () => {
         throw new Error("managed_agent.start was not attached to the GUI turn surface");
       }
       const toolResult = await startManagedAgent({
-        profile: "foundation-readonly-plan",
+        access: "read-only",
         routeId: baseRoute.routeId,
         providerRoute: {
           providerId: baseRoute.providerId,
@@ -2524,7 +2517,7 @@ describe("GUI gateway managed control", () => {
           agentId: adapterRequest.agentId,
           parentSessionId: adapterRequest.parentSessionId,
           parentTurnId: adapterRequest.parentTurnId,
-          profile: adapterRequest.profile,
+          access: adapterRequest.access,
           lifecycleState: terminalCase.lifecycleState,
           providerRoute: adapterRequest.providerRoute,
           adapterKind: adapterRequest.adapterKind,
@@ -2570,7 +2563,7 @@ describe("GUI gateway managed control", () => {
         throw new Error("managed_agent.start was not attached to the GUI turn surface");
       }
       const toolResult = await startManagedAgent({
-        profile: "foundation-readonly-plan",
+        access: "read-only",
         routeId: baseRoute.routeId,
         providerRoute: {
           providerId: baseRoute.providerId,

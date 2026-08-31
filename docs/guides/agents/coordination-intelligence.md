@@ -10,7 +10,7 @@ the result requires independently attributable review.
    dependencies.
 3. Create the goal run that owns those work items.
 4. Call `managed_agent.orchestrate` with the same bounded work graph, one
-   admission profile, task risk, whether independent review is required, and
+   access level, task risk, whether independent review is required, and
    an admitted `agentProfile` or explicit `routeId` on each work item.
 5. Inspect the returned coordination decision and terminal orchestration
    evidence. Record accepted child handoffs on their governed work items.
@@ -30,7 +30,7 @@ This read-only frontend handoff assigns identity and routing per child:
 
 ```json
 {
-  "profile": "foundation-readonly-plan",
+  "access": "read-only",
   "taskRisk": "medium",
   "requiresIndependentReview": false,
   "workItems": [
@@ -52,7 +52,7 @@ This read-only frontend handoff assigns identity and routing per child:
 }
 ```
 
-The request has one authority profile and working-directory mode. If the
+The request has one access level and working-directory mode. If the
 analysis recommends implementation, create a separate governed write task;
 do not mix read-only advisory and mutation authority in one graph.
 
@@ -65,7 +65,7 @@ Each work item supplied to `managed_agent.orchestrate` has:
   more specific bounded role;
 - `task`: the child-local objective;
 - `agentProfile`: the configured specialist identity whose route hint and
-  authority profile are validated by Runtime;
+  managed access is validated by Runtime;
 - `routeId`: an explicit per-child route only when no configured specialist
   owns the task; it must agree with any selected agent profile;
 - `dependencies`: ids that must finish before this item.
@@ -75,7 +75,7 @@ all dependencies finish successfully and receives their bounded summaries and
 resource URIs as governed inputs. A failed dependency blocks its dependents.
 Independent items may use centralized bounded concurrency.
 
-Choose authority through the admission profile and configured route, not by
+Choose authority through the access level and configured route, not by
 describing permissions in the prompt. Non-mutating review and decomposition may
 run in `read-only` or policy-backed `sandbox` routes. Write-capable child work
 uses a leased `isolated-worktree`; shared `workspace-write` is denied.
@@ -91,7 +91,7 @@ verification and adoption.
 
 - Missing route, budget, workspace, or review capacity is a denied decision.
 - Invalid or cyclic graphs fail before any child starts.
-- Unknown profiles, profile/route contradictions, and ambiguous per-child route
+- Unknown access levels, access/route contradictions, and ambiguous per-child route
   selection fail before execution.
 - Independent review requires at least two distinct provider/model identities;
   aliases of one model are not independent evidence.

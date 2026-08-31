@@ -184,7 +184,7 @@ export function makeManagedAgentLiveHarnessWriteRequest(
     agentId: "agent-live-proof",
     parentSessionId: "session-parent",
     parentTurnId: "session-parent:turn:1",
-    profile: "foundation-apply-approved-writes",
+    access: "approved-write",
     requestedBy: "operator",
     requestSource: "manual",
     providerRoute: {
@@ -195,8 +195,7 @@ export function makeManagedAgentLiveHarnessWriteRequest(
     adapterKind: "harness",
     executionMode: "cli-harness",
     authority: {
-      authorityProfileId: "foundation-apply-approved",
-      permissionProfile: "apply-approved-writes",
+      authorityProfileId: "approved-write",
       toolAuthority: {
         allowedToolNames: ["read", "apply-patch"],
         writeAllowed: true,
@@ -216,7 +215,6 @@ export function makeManagedAgentLiveHarnessWriteRequest(
         access: "write-proposals",
       },
       writeAuthority: defineManagedAgentWriteAuthority({
-        profile: "foundation-apply-approved-writes",
         scope: defineManagedAgentWriteScope({
           workspace: {
             mode: "apply-approved",
@@ -224,8 +222,6 @@ export function makeManagedAgentLiveHarnessWriteRequest(
             deniedPaths: [join(options.workspaceRoot, ".git")],
           },
           memory: {
-            mode: "propose",
-            scope: { kind: "project", id: "kiln" },
             operations: ["create", "update"],
           },
           artifacts: {
@@ -263,7 +259,7 @@ export function makeManagedAgentLiveHarnessReadOnlyRequest(
     agentId: "agent-live-proof",
     parentSessionId: "session-parent",
     parentTurnId: "session-parent:turn:1",
-    profile: "foundation-readonly-plan",
+    access: "read-only",
     requestedBy: "operator",
     requestSource: "manual",
     providerRoute: {
@@ -275,8 +271,7 @@ export function makeManagedAgentLiveHarnessReadOnlyRequest(
     adapterKind: "harness",
     executionMode: "cli-harness",
     authority: {
-      authorityProfileId: "foundation-readonly",
-      permissionProfile: "read-only",
+      authorityProfileId: "read-only",
       toolAuthority: {
         allowedToolNames: ["read", "rg"],
         writeAllowed: false,

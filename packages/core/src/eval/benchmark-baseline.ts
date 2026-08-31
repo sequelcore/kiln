@@ -1,3 +1,5 @@
+import type { ManagedAgentAccess } from "../agents/managed-invocation/index.js";
+
 export type BenchmarkSurface =
   | "tool-calling"
   | "managed-child"
@@ -45,7 +47,7 @@ export interface BenchmarkProfile {
   readonly displayName: string;
   readonly surface: BenchmarkSurface;
   readonly purpose: string;
-  readonly authorityProfile: string;
+  readonly access: ManagedAgentAccess;
   readonly requiredScorers: readonly string[];
   readonly admissionScorers: readonly string[];
   readonly minimumDatasetItems: number;
@@ -121,7 +123,7 @@ export const KILN_BENCHMARK_PROFILES: readonly BenchmarkProfile[] = [
     displayName: "Kiln Tool Agent",
     surface: "tool-calling",
     purpose: "Measures structured tool/function-call correctness under Kiln authority.",
-    authorityProfile: "foundation-readonly-plan",
+    access: "read-only",
     requiredScorers: ["tool-calling-accuracy", "tool-trajectory", "latency", "cost", "execution-integrity"],
     admissionScorers: ["tool-calling-accuracy", "execution-integrity"],
     minimumDatasetItems: 8,
@@ -145,7 +147,7 @@ export const KILN_BENCHMARK_PROFILES: readonly BenchmarkProfile[] = [
     displayName: "Kiln Managed Child Agent",
     surface: "managed-child",
     purpose: "Measures governed child invocation, route selection, handoff quality, and evidence preservation.",
-    authorityProfile: "foundation-readonly-plan",
+    access: "read-only",
     requiredScorers: ["routing-accuracy", "handoff-quality", "tool-trajectory", "latency", "cost", "execution-integrity"],
     admissionScorers: ["routing-accuracy", "handoff-quality", "execution-integrity"],
     minimumDatasetItems: 8,
@@ -169,7 +171,7 @@ export const KILN_BENCHMARK_PROFILES: readonly BenchmarkProfile[] = [
     displayName: "Kiln Managed Frontend Team",
     surface: "managed-team",
     purpose: "Measures governed specialist composition, dependency handoffs, route diversity, and terminal frontend-team outcomes against individual-agent baselines.",
-    authorityProfile: "foundation-readonly-plan",
+    access: "read-only",
     requiredScorers: ["routing-accuracy", "team-composition", "handoff-quality", "tool-trajectory", "latency", "cost", "execution-integrity"],
     admissionScorers: ["routing-accuracy", "team-composition", "handoff-quality", "execution-integrity"],
     minimumDatasetItems: 8,
@@ -193,7 +195,7 @@ export const KILN_BENCHMARK_PROFILES: readonly BenchmarkProfile[] = [
     displayName: "Kiln Managed Coding Agent",
     surface: "managed-coding",
     purpose: "Measures bounded coding work with approved authority, tests, rollback evidence, and replayable handoff.",
-    authorityProfile: "foundation-apply-approved-writes",
+    access: "approved-write",
     requiredScorers: ["milestone", "tool-trajectory", "handoff-quality", "latency", "cost", "execution-integrity"],
     admissionScorers: ["milestone", "handoff-quality", "execution-integrity"],
     minimumDatasetItems: 8,
@@ -217,7 +219,7 @@ export const KILN_BENCHMARK_PROFILES: readonly BenchmarkProfile[] = [
     displayName: "Kiln Safety Agent",
     surface: "safety",
     purpose: "Measures prompt-injection resistance, policy preservation, and utility under adversarial input.",
-    authorityProfile: "foundation-readonly-plan",
+    access: "read-only",
     requiredScorers: ["safety-preservation", "policy-adherence", "tool-trajectory", "execution-integrity"],
     admissionScorers: ["safety-preservation", "policy-adherence", "execution-integrity"],
     minimumDatasetItems: 8,
@@ -241,7 +243,7 @@ export const KILN_BENCHMARK_PROFILES: readonly BenchmarkProfile[] = [
     displayName: "Kiln Model Roster",
     surface: "model-roster",
     purpose: "Screens exact provider/model routes on grounded scout, backend, frontend, and research analysis over a synthetic repository fixture.",
-    authorityProfile: "foundation-readonly-plan",
+    access: "read-only",
     requiredScorers: [
       "evidence-coverage",
       "citation-grounding",
@@ -273,7 +275,7 @@ export const KILN_BENCHMARK_PROFILES: readonly BenchmarkProfile[] = [
     displayName: "Kiln Model Roster Backend Write",
     surface: "model-roster-backend-write",
     purpose: "Measures bounded backend implementation in a disposable workspace with an out-of-process hidden-test verifier.",
-    authorityProfile: "foundation-apply-approved-writes",
+    access: "approved-write",
     requiredScorers: [
       "test-verification",
       "diff-integrity",
@@ -306,7 +308,7 @@ export const KILN_BENCHMARK_PROFILES: readonly BenchmarkProfile[] = [
     displayName: "Kiln Model Roster Frontend Render",
     surface: "model-roster-frontend-render",
     purpose: "Measures bounded React implementation through real Chromium interaction, focus, screenshot, and automated accessibility evidence.",
-    authorityProfile: "foundation-apply-approved-writes",
+    access: "approved-write",
     requiredScorers: [
       "render-verification",
       "frontend-diff-integrity",
@@ -340,7 +342,7 @@ export const KILN_BENCHMARK_PROFILES: readonly BenchmarkProfile[] = [
     displayName: "Kiln Formal Verification Screening",
     surface: "model-roster-backend-write",
     purpose: "Screens whether a private paired C0/T LemmaScript experiment is mechanically valid before any effect study.",
-    authorityProfile: "foundation-apply-approved-writes",
+    access: "approved-write",
     requiredScorers: [
       "test-verification",
       "screening-diff-integrity",

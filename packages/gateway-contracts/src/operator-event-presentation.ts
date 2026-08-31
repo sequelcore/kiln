@@ -85,7 +85,8 @@ export interface ToolResultWorkItemPresentation {
   readonly workflowProfile?: string;
   readonly risk?: string;
   readonly surface?: string;
-  readonly authorityProfile?: string;
+  readonly authority?: string;
+  readonly access?: string;
   readonly evidence: readonly ToolResultTaskItemPresentation[];
   readonly nextTools: readonly string[];
   readonly pauseRequirements: readonly string[];
@@ -1460,13 +1461,15 @@ function projectWorkItemUpdateToolPresentation(
   const workflowProfile = readString(item.workflowProfile) ?? undefined;
   const risk = readString(item.risk) ?? undefined;
   const surface = readString(item.surface) ?? undefined;
-  const authorityProfile = readString(item.authorityProfile) ?? undefined;
+  const authority = readString(item.authority) ?? undefined;
+  const access = readString(item.access) ?? undefined;
   const fields = [
     field("Work item", id),
     field("Workflow", workflowProfile),
     field("Risk", risk),
     field("Surface", surface),
-    field("Authority", authorityProfile),
+    field("Authority", authority),
+    field("Access", access),
     field("Evidence", `${providedEvidence.size} / ${expectedEvidence.length}`),
   ].filter((item): item is OperatorEventDetailItem => item !== null);
   return {
@@ -1486,7 +1489,8 @@ function projectWorkItemUpdateToolPresentation(
       ...(workflowProfile ? { workflowProfile } : {}),
       ...(risk ? { risk } : {}),
       ...(surface ? { surface } : {}),
-      ...(authorityProfile ? { authorityProfile } : {}),
+      ...(authority ? { authority } : {}),
+      ...(access ? { access } : {}),
       evidence: expectedEvidence.map((label) => ({
         label,
         status: providedEvidence.has(label) ? "completed" : "pending",
@@ -2183,14 +2187,14 @@ function managedInvocationToolIdentity(payload: Record<string, unknown>): Record
   const input = asRecord(payload.input);
   const metadata = toolResultMetadata(payload);
   const providerRoute = asRecord(metadata?.providerRoute) ?? asRecord(input?.providerRoute);
-  const profile = readString(metadata?.profile) ?? readString(input?.profile);
-  if (!profile && !providerRoute) {
+  const access = readString(metadata?.access) ?? readString(input?.access);
+  if (!access && !providerRoute) {
     return null;
   }
   return {
     ...(input ?? {}),
     ...(metadata ?? {}),
-    ...(profile ? { profile } : {}),
+    ...(access ? { access } : {}),
     ...(providerRoute ? { providerRoute } : {}),
   };
 }
@@ -2239,7 +2243,7 @@ function addManagedInvocationToolDetails(
   options: { readonly includeRuntimeEvidence: boolean },
 ): void {
   const providerRoute = asRecord(identity.providerRoute);
-  addItem(details, "Profile", identity.profile);
+  addItem(details, "Access", identity.access);
   addItem(details, "Provider", providerRoute?.providerId);
   addItem(details, "Model", providerRoute?.model);
   addItem(details, "Surface", providerRoute?.surface);
@@ -2455,7 +2459,7 @@ function toolStartedPresentation(payload: Record<string, unknown>): OperatorEven
   if (managedInvocation) {
     addManagedInvocationToolDetails(details, managedInvocation, { includeRuntimeEvidence: false });
   }
-  addPrimitiveItems(details, input, 10, ["toolName", "toolCallId", "input", "profile", "providerRoute", "routeId", "routeSource", "parentTurnId", "task", "summary", "resourceUris", "agentProfile", "skills", "contextMode", "context", "capabilitySnapshot"]);
+  addPrimitiveItems(details, input, 10, ["toolName", "toolCallId", "input", "access", "profile", "providerRoute", "routeId", "routeSource", "parentTurnId", "task", "summary", "resourceUris", "agentProfile", "skills", "contextMode", "context", "capabilitySnapshot"]);
   return {
     title: presentToolActionTitle(toolName, "running"),
     summary: managedInvocationSummary ? `${managedInvocationSummary} · Execution in progress` : "Execution in progress",
@@ -2526,7 +2530,7 @@ function toolCompletedPresentation(payload: Record<string, unknown>): OperatorEv
   if (managedInvocation) {
     addManagedInvocationToolDetails(details, managedInvocation, { includeRuntimeEvidence: true });
   }
-  addPrimitiveItems(details, asRecord(payload.input), 16, ["toolName", "toolCallId", "input", "status", "result", "profile", "providerRoute", "routeId", "routeSource", "parentTurnId", "task", "summary", "resourceUris", "agentProfile", "skills", "contextMode", "context", "capabilitySnapshot"]);
+  addPrimitiveItems(details, asRecord(payload.input), 16, ["toolName", "toolCallId", "input", "status", "result", "access", "profile", "providerRoute", "routeId", "routeSource", "parentTurnId", "task", "summary", "resourceUris", "agentProfile", "skills", "contextMode", "context", "capabilitySnapshot"]);
   const taskState = workItemTaskEventState(taskStatus);
   return {
     title: taskState?.title
@@ -2928,12 +2932,12 @@ function providerRouteLabel(payload: Record<string, unknown>): string | null {
 }
 
 function invocationRouteSummary(payload: Record<string, unknown>): string {
-  const profile = readString(payload.profile);
+  const access = readString(payload.access);
   const route = providerRouteLabel(payload);
-  if (profile && route) {
-    return `${profile} via ${route}`;
+  if (access && route) {
+    return `${access} via ${route}`;
   }
-  return profile ?? route ?? invocationLabel(payload);
+  return access ?? route ?? invocationLabel(payload);
 }
 
 function agentPresentation(kind: OperatorSessionEventKind, payload: Record<string, unknown>): OperatorEventPresentation {
@@ -2967,7 +2971,7 @@ function agentPresentation(kind: OperatorSessionEventKind, payload: Record<strin
   addItem(details, "Previous delivery state", payload.previousDeliveryState);
   addItem(details, "Prompt", payload.inputSummary);
   addItem(details, "Wake requested", payload.wakeRequested);
-  addItem(details, "Profile", payload.profile);
+  addItem(details, "Access", payload.access);
   addItem(details, "Provider", asRecord(payload.providerRoute)?.providerId);
   addItem(details, "Model", asRecord(payload.providerRoute)?.model);
   addItem(details, "Surface", asRecord(payload.providerRoute)?.surface);
@@ -2997,7 +3001,7 @@ function agentPresentation(kind: OperatorSessionEventKind, payload: Record<strin
     details,
     payload,
     8,
-    ["agentName", "agentType", "agentId", "promptAdmissionId", "deliveryMode", "deliveryState", "previousDeliveryState", "admissionState", "inputSummary", "promptHash", "wakeRequested", "profile", "providerRoute", "invocationContext", "adapterKind", "executionMode", "authorityProfileId", "capabilitySnapshot", "managedInvocationEvidence", "invocationId", "parentTurnId", "routeId", "routeSource", "requestedBy", "requestSource", "source", "attempt", "durationMs", "resultSummary", "result", "errorMessage", "errorCode", "reason", "recoveryReason", "recoveredAt", "cancelledBy"],
+    ["agentName", "agentType", "agentId", "promptAdmissionId", "deliveryMode", "deliveryState", "previousDeliveryState", "admissionState", "inputSummary", "promptHash", "wakeRequested", "access", "providerRoute", "invocationContext", "adapterKind", "executionMode", "authorityProfileId", "capabilitySnapshot", "managedInvocationEvidence", "invocationId", "parentTurnId", "routeId", "routeSource", "requestedBy", "requestSource", "source", "attempt", "durationMs", "resultSummary", "result", "errorMessage", "errorCode", "reason", "recoveryReason", "recoveredAt", "cancelledBy"],
   );
   return {
     title: titles[kind] ?? "Agent invocation",
@@ -3347,7 +3351,8 @@ function workItemPresentation(payload: Record<string, unknown>): OperatorEventPr
   addItem(details, "Risk", item?.risk);
   addItem(details, "Surface", item?.surface);
   addItem(details, "Agent profile", item?.assignedAgentProfile);
-  addItem(details, "Authority", item?.authorityProfile);
+  addItem(details, "Authority", item?.authority);
+  addItem(details, "Access", item?.access);
   addItem(details, "Reference roots", readStringList(item?.referenceRoots).join(", "));
   addItem(details, "Expected evidence", Array.isArray(item?.expectedEvidence) ? item.expectedEvidence.join(", ") : undefined);
   addItem(details, "Provided evidence", Array.isArray(item?.providedEvidence) ? item.providedEvidence.join(", ") : undefined);
@@ -3400,7 +3405,8 @@ function workItemExecutionPresentation(
   addItem(details, "Status", status);
   addItem(details, "Execution mode", executionMode);
   addItem(details, "Managed invocation", attempt?.managedInvocationId);
-  addItem(details, "Authority", item?.authorityProfile);
+  addItem(details, "Authority", item?.authority);
+  addItem(details, "Access", item?.access);
   addItem(details, "Reference roots", readStringList(item?.referenceRoots).join(", "));
   addItem(details, "Started", attempt?.startedAt);
   addItem(details, "Completed", attempt?.completedAt);

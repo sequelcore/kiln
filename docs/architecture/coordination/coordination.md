@@ -55,7 +55,7 @@ runtime lifecycle.
 ids, missing fields, unknown dependencies, and cycles. Every child carries its
 own stable key, configured agent profile, resolved route, and dependency keys.
 Runtime validates profile/route agreement, filters each route by the requested
-admission profile and lifecycle capability, and executes dependency-ready
+access level and lifecycle capability, and executes dependency-ready
 waves. An `isolated-worktree` route must carry its lease; `read-only` and
 policy-backed `sandbox` routes need no worktree lease. Unisolated
 `workspace-write` is never admitted. Ambiguous per-child selection fails closed.

@@ -149,7 +149,7 @@ Global config is the active user-level contract. It includes:
   economic evidence is projected read-only
 - `identity`, atomic `ui.appearance`, and bundled `components`
 
-The current canonical global schema version is `"6"`. Kiln does not support
+The current canonical global schema version is `"7"`. Kiln does not support
 compatibility shims for obsolete or partial global config files. Invalid global
 config is an adoption error: commands that intentionally write a canonical
 replacement must back up the invalid file before writing.
@@ -542,7 +542,9 @@ genuine harness delta, but it must not copy private runtime state or invent
 project policy.
 
 The private workflow snapshot remains a generated projection under the bound
-private namespace, with a private manifest and content hash when enabled. It is
+private namespace, with a v2 private manifest and content hash when enabled. v1
+used the obsolete default admission-profile field and is not the current
+projection identity. It is
 for private consumers that need a static context view; it is not repository
 guidance, durable doctrine, or execution authority. It must never be exported
 by a repository-guidance operation or used to overwrite `AGENTS.md` or
@@ -981,13 +983,13 @@ candidate material, reservation, commitment, and settlement remain Runtime
 state and are never authored or defaulted by a surface.
 
 There is no synthesized or implicit agent roster. Ad hoc child execution may
-select an admission class only when exactly one concrete authority profile on
+select an access level only when exactly one concrete authority profile on
 the target matches it; ambiguity fails closed. Configured agents always select
-their exact `authorityProfileId`. Write-capable profiles require explicit
+their exact `authorityProfileId`. Write-capable access levels require explicit
 `writeAuthority` scope and approval config plus live-proven write evidence
 support. `tools.writes: true` does not grant authority by itself. A harness that
 can prove write evidence but cannot yet prove substantive read-only result
-handoff remains unavailable for `foundation-readonly-plan`. Synthesized route
+handoff remains unavailable for `read-only`. Synthesized route
 profiles use a five-minute timeout budget; explicit route `timeoutMs` values
 remain authoritative for deliberate shorter probes or longer bounded children.
 Projection preserves this as timeout source diagnostics (`default` versus
@@ -1020,7 +1022,7 @@ catalog for managed invocation.
 Remote harness routes are explicit managed-agent route overrides. Projection
 requires HTTPS invoke and cancel endpoints, a portable auth-token environment
 name when authentication is configured, `surface: remote-harness`,
-`executionMode: remote-harness`, and read-only profile authority. Endpoint
+`executionMode: remote-harness`, and read-only access authority. Endpoint
 configuration proves that a remote route is configured; it does not prove live
 tool behavior or write authority.
 
@@ -1049,7 +1051,7 @@ tool behavior or write authority.
 - Managed-agent target projection is governed config, not assistant preference.
 - The target catalog and authority-profile catalog remain separate; runtime and
   operator surfaces consume their exact references instead of inferring target
-  or authority from provider, model, persona, or admission class.
+  or authority from provider, model, persona, or access level.
 - Instruction profile, agent, and skill definitions are canonical only under
   global `~/.kiln` directories or the bound private project namespace, never in
   native harness folders or repository guidance.

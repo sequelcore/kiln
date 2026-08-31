@@ -59,7 +59,7 @@ describe("goal command", () => {
     expect(log.mock.calls[1]?.[0]).toContain("Authority: audited");
     expect(log.mock.calls[1]?.[0]).toContain("Work item work-1: pending - Implement CLI goal resume.");
     expect(log.mock.calls[1]?.[0]).toContain("Work item resource: kiln://session/work-items/work-1");
-    expect(log.mock.calls[1]?.[0]).toContain("Work item authority: foundation-propose-writes");
+    expect(log.mock.calls[1]?.[0]).toContain("Work item access: propose");
     expect(log.mock.calls[1]?.[0]).toContain("Work item missing evidence: tests, residual-risk");
   });
 
@@ -109,7 +109,7 @@ describe("goal command", () => {
     expect(log.mock.calls[0]?.[0]).toContain("Execution mode: managed_delegation");
     expect(log.mock.calls[0]?.[0]).toContain("Required evidence: tests, residual-risk");
     expect(log.mock.calls[0]?.[0]).toContain("Resource: kiln://session/work-items/work-1");
-    expect(log.mock.calls[0]?.[0]).toContain("Authority profile: foundation-propose-writes");
+    expect(log.mock.calls[0]?.[0]).toContain("Access: propose");
     expect(log.mock.calls[0]?.[0]).toContain("Missing evidence: tests, residual-risk");
   });
 
@@ -388,7 +388,7 @@ function makeWorkItem(input: { readonly id: string }): WorkItem {
     surface: "cli",
     assignedAgentProfile: "coder",
     routeId: "codex",
-    authorityProfile: "foundation-propose-writes",
+    access: "propose",
     expectedEvidence: ["tests", "residual-risk"],
     providedEvidence: [],
     verificationGates: ["bun run --filter @kilnai/cli test"],

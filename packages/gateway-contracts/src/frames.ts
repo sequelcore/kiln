@@ -695,7 +695,7 @@ export interface OperatorManagedAgentInvocationEventPayload extends Record<strin
   readonly routeId?: string;
   readonly routeSource?: string;
   readonly lifecycleState?: string;
-  readonly profile?: string;
+  readonly access?: "read-only" | "propose" | "approved-write";
   readonly providerRoute?: OperatorManagedAgentProviderRoute;
   readonly adapterKind?: "direct" | "harness";
   readonly executionMode?: "direct-provider" | "local-harness" | "cli-harness" | "remote-harness";

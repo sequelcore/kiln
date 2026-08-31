@@ -37,7 +37,7 @@ export interface NativeHarnessManagedAgentSummary {
   readonly role?: string;
   readonly availability: "admitted" | "unavailable" | "unresolved";
   readonly providerFamily?: string;
-  readonly admissionProfileId: string;
+  readonly access: string;
   readonly diagnostic?: "route_unavailable" | "eligibility_unresolved";
   readonly operatorAction?: string;
 }
@@ -267,7 +267,7 @@ export function createNativeHarnessInspectionService(
 
 function projectManagedAgents(agents: readonly NativeHarnessManagedAgentSummary[]): readonly NativeHarnessManagedAgentSummary[] {
   return agents.filter((agent) => isIdentifier(agent.configuredAgentProfileId)
-    && agent.admissionProfileId === "foundation-readonly-plan"
+    && agent.access === "read-only"
     && (agent.providerFamily === undefined || isIdentifier(agent.providerFamily))
     && (agent.availability === "admitted" || agent.availability === "unavailable" || agent.availability === "unresolved")
     && (agent.diagnostic === undefined || agent.diagnostic === "route_unavailable" || agent.diagnostic === "eligibility_unresolved"))
@@ -276,7 +276,7 @@ function projectManagedAgents(agents: readonly NativeHarnessManagedAgentSummary[
       ...(agent.displayName ? { displayName: agent.displayName } : {}),
       ...(agent.role ? { role: agent.role } : {}),
       availability: agent.availability,
-      admissionProfileId: agent.admissionProfileId,
+      access: agent.access,
       ...(agent.providerFamily ? { providerFamily: agent.providerFamily } : {}),
       ...(agent.diagnostic ? { diagnostic: agent.diagnostic } : {}),
       ...(agent.operatorAction ? { operatorAction: agent.operatorAction } : {}),

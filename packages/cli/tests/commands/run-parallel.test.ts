@@ -409,7 +409,7 @@ function createManagedInvocation(input: {
         proof: {
           status: "configured",
           source: "run-parallel-test",
-          provenProfiles: ["foundation-apply-approved-writes"],
+          provenAccess: ["approved-write"],
         },
         capacity: { kind: "accountless" },
         settlement: { kind: "not-required" },
@@ -419,9 +419,8 @@ function createManagedInvocation(input: {
         recoveredOrdinals: input.recoveredOrdinals ?? new Set(),
       }),
       profiles: [{
-          authorityProfileId: "authority:test-write:foundation-apply-approved-writes",
-          admissionProfile: "foundation-apply-approved-writes",
-          permissionProfile: "apply-approved-writes",
+          authorityProfileId: "authority:test-write:approved-write",
+          access: "approved-write",
           allowedToolNames: ["read", "grep", "apply-patch"],
           writeAllowed: true,
           networkAllowed: false,
@@ -441,7 +440,6 @@ function createManagedInvocation(input: {
             access: "none",
           },
           writeAuthority: {
-            profile: "foundation-apply-approved-writes",
             scope: {
               workspace: {
                 mode: "apply-approved",
@@ -449,7 +447,6 @@ function createManagedInvocation(input: {
                 deniedPaths: ["C:\\repo\\.git"],
               },
               memory: {
-                mode: "none",
                 operations: [],
               },
               artifacts: {
@@ -474,7 +471,7 @@ function createManagedInvocation(input: {
 
 function sessionTurnBudgetGlobalConfig() {
   return {
-    version: "6",
+    version: "7",
     engines: {
       codex: {
         enabled: true,
@@ -526,7 +523,7 @@ function createAdapter(input: {
       adapterDescriptorId: "adapter:codex:cli-harness",
       providerId: "codex",
       adapterKind: "harness",
-      supportedProfiles: ["foundation-apply-approved-writes"],
+      supportedAccess: ["approved-write"],
       supportedExecutionModes: ["cli-harness"],
       lifecycle: {
         exposesStart: true,
@@ -571,7 +568,7 @@ function createAdapter(input: {
         agentId: request.agentId,
         parentSessionId: request.parentSessionId,
         parentTurnId: request.parentTurnId,
-        profile: request.profile,
+        access: request.access,
         lifecycleState: input.recoveredOrdinals.has(ordinal) ? "recovered" : "completed",
         providerRoute: request.providerRoute,
         adapterKind: request.adapterKind,

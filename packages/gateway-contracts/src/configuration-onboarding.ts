@@ -4,7 +4,7 @@ import { z } from "zod";
  * Secret-free configuration onboarding wire contracts.
  *
  * Onboarding reports the current readiness of one project against the already
- * admitted global V4 target catalog. It does not carry credentials, evidence
+ * admitted global V7 target catalog. It does not carry credentials, evidence
  * payloads, machine paths, or a second provider policy vocabulary.
  */
 export const KILN_CONFIGURATION_ONBOARDING_STATUSES = ["ready", "blocked", "complete"] as const;

@@ -144,7 +144,7 @@ function eligibleVisionAgents(
     if (
       agent.structured !== true
       || !agent.modalities?.includes("image")
-      || agent.admissionProfile !== "foundation-readonly-plan"
+      || agent.access !== "read-only"
       || agent.economicPolicyId !== undefined
       || !agent.routeId
     ) return [];
@@ -155,11 +155,11 @@ function eligibleVisionAgents(
       || !hasExactAttachmentBinding(route)
       || !matchesProviderRouteHint(agent, route)
       || route.capability.proof.status === "unproven"
-      || !route.capability.proof.provenProfiles.includes(agent.admissionProfile)
+      || !route.capability.proof.provenAccess.includes(agent.access)
     ) return [];
     const profile = route.profiles.find((candidate) =>
       candidate.authorityProfileId === agent.authorityProfileId
-      && candidate.admissionProfile === agent.admissionProfile
+      && candidate.access === agent.access
       && candidate.writeAllowed !== true);
     return profile ? [{ agent, route }] : [];
   });
@@ -169,7 +169,7 @@ function configuredAgentIdentity(agent: ManagedInvocationAgentCatalogEntry): Rea
   return {
     name: agent.name,
     authorityProfileId: agent.authorityProfileId,
-    admissionProfile: agent.admissionProfile,
+    access: agent.access,
     modalities: [...(agent.modalities ?? [])].sort(),
     structured: agent.structured === true,
     routeId: agent.routeId,

@@ -309,7 +309,7 @@ export interface ManagedAgentRuntimeInvocationSnapshot {
   readonly agentId: string;
   readonly parentSessionId: string;
   readonly parentTurnId: string;
-  readonly profile: ManagedAgentInvocationRequest["profile"];
+  readonly access: ManagedAgentInvocationRequest["access"];
   readonly providerRoute: ManagedAgentInvocationRequest["providerRoute"];
   readonly adapterKind: ManagedAgentInvocationRequest["adapterKind"];
   readonly executionMode: ManagedAgentInvocationRequest["executionMode"];
@@ -1463,9 +1463,9 @@ function assertConsumedWriteApproval(
   const binding = approval.binding;
   if (
     !isInternalConsumedWriteApproval(approval) ||
-    request.profile !== "foundation-apply-approved-writes" ||
+    request.access !== "approved-write" ||
     request.authority.toolAuthority.writeAllowed !== true ||
-    writeAuthority?.profile !== request.profile ||
+    writeAuthority === undefined ||
     writeAuthority.scope.workspace.mode !== "apply-approved" ||
     writeAuthority.approval.mode !== "required-before-apply" ||
     writeAuthority.approval.evidenceRequired !== true ||
@@ -1475,7 +1475,7 @@ function assertConsumedWriteApproval(
     request.invocationId !== `agent-task:${binding.jobId}` ||
     binding.callerId !== request.requestedBy ||
     binding.configuredAgentProfileId !== request.agentId ||
-    binding.admissionProfileId !== request.profile ||
+    binding.access !== request.access ||
     binding.routeId !== routeId ||
     binding.providerId !== request.providerRoute?.providerId ||
     binding.model !== request.providerRoute?.model

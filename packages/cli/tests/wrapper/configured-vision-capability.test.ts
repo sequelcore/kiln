@@ -123,7 +123,7 @@ function visionAgent(name: string): ManagedInvocationAgentCatalogEntry {
     goal: "Analyze governed images",
     tier: "reasoning",
     authorityProfileId: "authority:vision-readonly",
-    admissionProfile: "foundation-readonly-plan",
+    access: "read-only",
     modalities: ["text", "image"],
     structured: true,
     routeId: "vision-route",
@@ -154,7 +154,7 @@ function visionRoute(): ManagedInvocationToolRoute {
       proof: {
         status: "configured",
         source: "configured-vision-test",
-        provenProfiles: ["foundation-readonly-plan"],
+        provenAccess: ["read-only"],
       },
       capacity: { kind: "accountless" },
       settlement: { kind: "not-required" },
@@ -167,8 +167,7 @@ function visionRoute(): ManagedInvocationToolRoute {
     },
     profiles: [{
       authorityProfileId: "authority:vision-readonly",
-      admissionProfile: "foundation-readonly-plan",
-      permissionProfile: "read-only",
+      access: "read-only",
       allowedToolNames: [],
       workingDirectory: { path: "C:/repo", mode: "read-only" },
       timeoutMs: 60_000,

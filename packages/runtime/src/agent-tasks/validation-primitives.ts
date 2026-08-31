@@ -1,6 +1,6 @@
 import type {
   DeliberationResolution,
-  ManagedAgentAdmissionProfile,
+  ManagedAgentAccess,
 } from "@kilnai/core";
 import type { ManagedEconomicCandidateSet } from "../agents/managed-invocation/runtime-tool/index.js";
 import {
@@ -43,17 +43,16 @@ export function isIso(value: unknown): value is string {
   return typeof value === "string" && !Number.isNaN(Date.parse(value));
 }
 
-export function isManagedAgentAdmissionProfile(value: unknown): value is ManagedAgentAdmissionProfile {
-  return value === "foundation-readonly-plan"
-    || value === "foundation-propose-writes"
-    || value === "foundation-apply-approved-writes"
-    || value === "foundation-memory-write-proposals";
+export function isManagedAgentAccess(value: unknown): value is ManagedAgentAccess {
+  return value === "read-only"
+    || value === "propose"
+    || value === "approved-write";
 }
 
-export function isApprovedWriteProfile(
-  value: ManagedAgentAdmissionProfile,
-): value is "foundation-apply-approved-writes" {
-  return value === "foundation-apply-approved-writes";
+export function isApprovedWriteAccess(
+  value: ManagedAgentAccess,
+): value is "approved-write" {
+  return value === "approved-write";
 }
 
 export function isNativeHarnessDispatchFenceId(value: unknown): value is string {
@@ -210,7 +209,7 @@ export function isFreshEvidence(
 export function isValidLifecycle(
   value: unknown,
   state: AgentTaskState,
-  admissionProfileId: ManagedAgentAdmissionProfile,
+  access: ManagedAgentAccess,
   createdAt: string,
   updatedAt: string,
 ): value is readonly AgentTaskLifecycleEntry[] {
@@ -234,7 +233,7 @@ export function isValidLifecycle(
   }
   const first = value[0] as unknown as AgentTaskLifecycleEntry;
   const last = value[value.length - 1] as unknown as AgentTaskLifecycleEntry;
-  return first.state === (isApprovedWriteProfile(admissionProfileId) ? "awaiting_approval" : "queued")
+  return first.state === (isApprovedWriteAccess(access) ? "awaiting_approval" : "queued")
     && Date.parse(first.observedAt) === Date.parse(createdAt)
     && last.state === state
     && Date.parse(last.observedAt) <= Date.parse(updatedAt);

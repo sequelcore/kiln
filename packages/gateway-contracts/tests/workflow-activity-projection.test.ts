@@ -29,7 +29,7 @@ function workItem(id: string, status: string, providedEvidence: readonly string[
     workflowProfile: "verification-heavy",
     risk: "low",
     surface: "gui",
-    authorityProfile: "read-only",
+    access: "read-only",
     expectedEvidence: ["surface-map", "tests"],
     providedEvidence,
     pauseRequirements: [],

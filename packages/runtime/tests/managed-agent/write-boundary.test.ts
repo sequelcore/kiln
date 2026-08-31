@@ -26,8 +26,6 @@ function makeWriteScope(mode: "propose" | "apply-approved" = "propose") {
       deniedPaths: ["C:/workspace/kiln/.git"],
     },
     memory: {
-      mode: "propose",
-      scope: { kind: "project", id: "kiln" },
       operations: ["create", "update"],
     },
     artifacts: {
@@ -42,14 +40,14 @@ function makeWriteScope(mode: "propose" | "apply-approved" = "propose") {
   });
 }
 
-function makeRequest(profile: "foundation-propose-writes" | "foundation-apply-approved-writes" = "foundation-propose-writes"): ManagedAgentInvocationRequest {
-  const applyApproved = profile === "foundation-apply-approved-writes";
+function makeRequest(access: "propose" | "approved-write" = "propose"): ManagedAgentInvocationRequest {
+  const applyApproved = access === "approved-write";
   return defineManagedAgentInvocationRequest({
     invocationId: "invocation-write-1",
     agentId: "agent-implementer",
     parentSessionId: "session-parent",
     parentTurnId: "turn-parent",
-    profile,
+    access,
     requestedBy: "operator",
     requestSource: "manual",
     providerRoute: {
@@ -60,8 +58,7 @@ function makeRequest(profile: "foundation-propose-writes" | "foundation-apply-ap
     adapterKind: "harness",
     executionMode: "cli-harness",
     authority: {
-      authorityProfileId: `authority:${profile}`,
-      permissionProfile: applyApproved ? "apply-approved-writes" : "propose-writes",
+      authorityProfileId: `authority:${access}`,
       toolAuthority: {
         allowedToolNames: applyApproved ? ["read", "rg", "apply-patch"] : ["read", "rg"],
         writeAllowed: applyApproved,
@@ -80,7 +77,6 @@ function makeRequest(profile: "foundation-propose-writes" | "foundation-apply-ap
         access: "write-proposals",
       },
       writeAuthority: defineManagedAgentWriteAuthority({
-        profile,
         scope: makeWriteScope(applyApproved ? "apply-approved" : "propose"),
         approval: {
           mode: "required-before-apply",
@@ -99,7 +95,7 @@ function snapshotInputFor(
 ): ManagedAgentCapabilitySnapshotInput {
   return {
     capturedAt: "2026-05-07T08:00:00.000Z",
-    routeId: `${request.providerRoute.providerId}:${request.profile}`,
+    routeId: `${request.providerRoute.providerId}:${request.access}`,
     routeSource: "explicit-managed-route",
   };
 }
@@ -109,7 +105,7 @@ function makeDescriptor(overrides: Partial<ManagedAgentAdapterDescriptor> = {}):
     adapterDescriptorId: "adapter:opencode:harness",
     providerId: "opencode",
     adapterKind: "harness",
-    supportedProfiles: ["foundation-readonly-plan", "foundation-propose-writes", "foundation-apply-approved-writes"],
+    supportedAccess: ["read-only", "propose", "approved-write"],
     supportedExecutionModes: ["cli-harness"],
     lifecycle: {
       exposesStart: true,
@@ -157,7 +153,7 @@ function admitted(request: ManagedAgentInvocationRequest): Extract<ManagedAgentA
   return {
     status: "admitted",
     invocationId: request.invocationId,
-    profile: request.profile,
+    access: request.access,
     adapterDescriptorId: "adapter:opencode:harness",
     authorityProfileId: request.authority.authorityProfileId,
     ...(request.authority.credentialRoute.mode === "runtime-selected"
@@ -179,7 +175,7 @@ function makeRecord(request: ManagedAgentInvocationRequest): ManagedAgentInvocat
     agentId: request.agentId,
     parentSessionId: request.parentSessionId,
     parentTurnId: request.parentTurnId,
-    profile: request.profile,
+    access: request.access,
     lifecycleState: "completed",
     providerRoute: request.providerRoute,
     adapterKind: request.adapterKind,
@@ -239,7 +235,7 @@ describe("managed agent runtime write boundary", () => {
   });
 
   it("rejects direct approved-write execution when the runtime adapter descriptor cannot apply approved writes", async () => {
-    const request = makeRequest("foundation-apply-approved-writes");
+    const request = makeRequest("approved-write");
     const invoke = vi.fn(async () => makeRecord(request));
     const adapter: ManagedAgentRuntimeAdapter = {
       descriptor: makeDescriptor({
@@ -266,7 +262,7 @@ describe("managed agent runtime write boundary", () => {
 
   it("rejects adapter records that broaden the admitted write authority after invocation", async () => {
     const request = makeRequest();
-    const broadenedRequest = makeRequest("foundation-apply-approved-writes");
+    const broadenedRequest = makeRequest("approved-write");
     const invoke = vi.fn(async () => makeRecord({
       ...request,
       authority: {
@@ -293,10 +289,9 @@ describe("managed agent runtime write boundary", () => {
   it("rejects adapter write evidence returned for a read-only admission", async () => {
     const readonlyRequest = defineManagedAgentInvocationRequest({
       ...makeRequest(),
-      profile: "foundation-readonly-plan",
+      access: "read-only",
       authority: {
         ...makeRequest().authority,
-        permissionProfile: "read-only",
         toolAuthority: {
           allowedToolNames: ["read", "rg"],
           writeAllowed: false,
@@ -330,7 +325,7 @@ describe("managed agent runtime write boundary", () => {
     const invoke = vi.fn(async () => record);
     const adapter: ManagedAgentRuntimeAdapter = {
       descriptor: makeDescriptor({
-        supportedProfiles: ["foundation-readonly-plan"],
+        supportedAccess: ["read-only"],
         writeAuthority: undefined,
       }),
       invoke,

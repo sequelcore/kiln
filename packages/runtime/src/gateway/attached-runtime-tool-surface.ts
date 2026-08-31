@@ -9,7 +9,7 @@ import type {
   DefaultBuiltinToolSurface,
   DefaultBuiltinToolRegistryOptions,
   DiscoveredDirectProviderModelCapabilities,
-  ManagedAgentAdmissionProfile,
+  ManagedAgentAccess,
   ManagedAgentCallerAttachmentIdentity,
   InvocationAdmission,
   ToolDefinition,
@@ -786,7 +786,7 @@ function createManagedInvocationGovernedScopeAdmission(
     if (
       goal.authorityEnvelope.maximumAuthority === "read_only"
       && (
-        input.profile !== "foundation-readonly-plan"
+        input.access !== "read-only"
         || (input.requestedAuthority !== "read_only" && input.requestedAuthority !== "auto")
       )
     ) {
@@ -1364,17 +1364,17 @@ function hydrateManagedInvocationRequest(
   const providerRoute = readRecord(request.providerRoute);
   const routeId = readTextFromUnknown(request.routeId);
   const forbiddenInputFields = readTextArray(request.forbiddenInputFields);
-  const requestedProfile = (readTextFromUnknown(request.profile) ?? "foundation-readonly-plan") as ManagedAgentAdmissionProfile;
+  const requestedAccess = (readTextFromUnknown(request.access) ?? "read-only") as ManagedAgentAccess;
   const requiredToolNames = requiredToolNamesFromManagedRequest(request);
   const exactRoute = routeId
     ? options.routes.find((route) => route.routeId === routeId)
     : undefined;
   const configuredAgent = resolveManagedInvocationAgentProfile(options, readTextFromUnknown(request.agentProfile));
-  if (exactRoute && resolveManagedInvocationRouteProfile(exactRoute, requestedProfile, configuredAgent) !== undefined) {
+  if (exactRoute && resolveManagedInvocationRouteProfile(exactRoute, requestedAccess, configuredAgent) !== undefined) {
     return {
       ...request,
       routeId: exactRoute.routeId,
-      profile: requestedProfile,
+      access: requestedAccess,
       providerRoute: {
         ...providerRouteInputProjection(providerRoute, forbiddenInputFields),
         providerId: exactRoute.providerId,
@@ -1382,11 +1382,11 @@ function hydrateManagedInvocationRequest(
       },
     };
   }
-  const profile = requestedProfile;
+  const access = requestedAccess;
   const matches = options.routes.filter((route) =>
     (!routeId || route.routeId === routeId)
-    && resolveManagedInvocationRouteProfile(route, profile, configuredAgent) !== undefined
-    && routeSupportsRequiredTools(route, profile, requiredToolNames, configuredAgent)
+    && resolveManagedInvocationRouteProfile(route, access, configuredAgent) !== undefined
+    && routeSupportsRequiredTools(route, access, requiredToolNames, configuredAgent)
   );
   const route = matches.length === 1 ? matches[0] : selectUniqueSuitableRoute(matches, request);
   if (!route) {
@@ -1415,14 +1415,14 @@ function repairManagedInvocationRouteForRequiredTools(
     return { request };
   }
   const route = options.routes.find((candidate) => candidate.routeId === routeId);
-  const profile = (readTextFromUnknown(request.profile) ?? "foundation-readonly-plan") as ManagedAgentAdmissionProfile;
+  const access = (readTextFromUnknown(request.access) ?? "read-only") as ManagedAgentAccess;
   const configuredAgent = resolveManagedInvocationAgentProfile(options, readTextFromUnknown(request.agentProfile));
-  if (!route || routeSupportsRequiredTools(route, profile, requiredToolNames, configuredAgent)) {
+  if (!route || routeSupportsRequiredTools(route, access, requiredToolNames, configuredAgent)) {
     return { request };
   }
   const compatibleRoutes = options.routes.filter((candidate) =>
     candidate.routeId !== routeId
-    && routeSupportsRequiredTools(candidate, profile, requiredToolNames, configuredAgent)
+    && routeSupportsRequiredTools(candidate, access, requiredToolNames, configuredAgent)
   );
   const replacement = compatibleRoutes.length === 1
     ? compatibleRoutes[0]
@@ -1447,7 +1447,7 @@ function repairManagedInvocationRouteForRequiredTools(
         toRouteId: replacement.routeId,
         reason: "required_tools_missing",
         missingRequiredTools: requiredToolNames.filter((toolName) =>
-          !routeSupportsRequiredTools(route, profile, [toolName], configuredAgent)
+          !routeSupportsRequiredTools(route, access, [toolName], configuredAgent)
         ),
       },
     },
@@ -1468,14 +1468,14 @@ function attachMatchingAgentProfile(
   if (!routeId) {
     return request;
   }
-  const profile = (readTextFromUnknown(request.profile) ?? "foundation-readonly-plan") as ManagedAgentAdmissionProfile;
+  const access = (readTextFromUnknown(request.access) ?? "read-only") as ManagedAgentAccess;
   const route = options.routes.find((candidate) => candidate.routeId === routeId);
-  if (!route || !resolveManagedInvocationRouteProfile(route, profile)) {
+  if (!route || !resolveManagedInvocationRouteProfile(route, access)) {
     return request;
   }
   const matches = (options.agentCatalog ?? []).filter((agent) =>
     agent.routeId === routeId
-    && resolveManagedInvocationRouteProfile(route, profile, agent) !== undefined
+    && resolveManagedInvocationRouteProfile(route, access, agent) !== undefined
   );
   if (matches.length !== 1) {
     return request;
@@ -1524,11 +1524,11 @@ function requiredToolNamesFromManagedRequest(request: Record<string, unknown>): 
 
 function routeSupportsRequiredTools(
   route: ManagedInvocationToolOptions["routes"][number],
-  profile: ManagedAgentAdmissionProfile,
+  access: ManagedAgentAccess,
   requiredToolNames: readonly string[],
   agent?: NonNullable<ManagedInvocationToolOptions["agentCatalog"]>[number],
 ): boolean {
-  const routeProfile = resolveManagedInvocationRouteProfile(route, profile, agent);
+  const routeProfile = resolveManagedInvocationRouteProfile(route, access, agent);
   if (!routeProfile) {
     return false;
   }

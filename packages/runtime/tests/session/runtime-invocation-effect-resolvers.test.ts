@@ -21,7 +21,7 @@ describe("runtime invocation effect resolvers", () => {
     "admits a %s read-only child as audited without interactive approval",
     (toolName) => {
       const effect = resolveInvocationEffect(toolName, {
-        profile: "foundation-readonly-plan",
+        access: "read-only",
         requestedAuthority: "read_only",
       }, MANAGED_INVOCATION_ENVELOPE, buildRuntimeInvocationEffectResolvers());
 
@@ -44,7 +44,7 @@ describe("runtime invocation effect resolvers", () => {
 
   it("preserves the conservative envelope for a write-capable child", () => {
     const effect = resolveInvocationEffect("managed_agent.invoke", {
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       requestedAuthority: "destructive",
     }, MANAGED_INVOCATION_ENVELOPE, buildRuntimeInvocationEffectResolvers());
 

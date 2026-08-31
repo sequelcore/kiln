@@ -5,7 +5,7 @@ import type {
   BoundedWorkEffect,
   CommunicationIntent,
   DeliberationIntent,
-  ManagedAgentAdmissionProfile,
+  ManagedAgentAccess,
   ManagedAgentAuthorityApproval,
   ManagedAgentInvocationContextMode,
   ManagedAgentInvocationContextSelection,
@@ -115,14 +115,13 @@ export function parseInput(
   input: Record<string, unknown>,
   toolName = MANAGED_AGENT_INVOKE_TOOL_NAME,
 ): { readonly ok: true; readonly input: ManagedInvocationToolInput } | { readonly ok: false; readonly error: string } {
-  const profile = input.profile === undefined ? "foundation-readonly-plan" : input.profile;
+  const access = input.access === undefined ? "read-only" : input.access;
   if (
-    profile !== "foundation-readonly-plan" &&
-    profile !== "foundation-propose-writes" &&
-    profile !== "foundation-apply-approved-writes" &&
-    profile !== "foundation-memory-write-proposals"
+    access !== "read-only" &&
+    access !== "propose" &&
+    access !== "approved-write"
   ) {
-    return { ok: false, error: `${toolName} profile is not supported.` };
+    return { ok: false, error: `${toolName} access is not supported.` };
   }
   const providerRoute = readRecord(input.providerRoute);
   const providerId = readText(providerRoute?.providerId) ?? "";
@@ -187,7 +186,7 @@ export function parseInput(
   return {
     ok: true,
     input: {
-      profile,
+      access,
       routeId: readText(input.routeId),
       providerRoute: {
         providerId,
@@ -457,22 +456,22 @@ function managedAuthorityRank(authority: ManagedAgentRequestedAuthority): number
 
 export function validateManagedInvocationRequestedAuthority(
   requestedAuthority: ManagedAgentRequestedAuthority,
-  profile: ManagedAgentAdmissionProfile,
+  access: ManagedAgentAccess,
   toolName = MANAGED_AGENT_INVOKE_TOOL_NAME,
 ): { readonly ok: true } | { readonly ok: false; readonly error: string } {
-  if (requestedAuthority === "read_only" && profile !== "foundation-readonly-plan") {
+  if (requestedAuthority === "read_only" && access !== "read-only") {
     return {
       ok: false,
-      error: `${toolName} read_only requested authority cannot select managed profile '${profile}'.`,
+      error: `${toolName} read_only requested authority cannot select managed access '${access}'.`,
     };
   }
   if (
-    profile === "foundation-readonly-plan" &&
+    access === "read-only" &&
     (requestedAuthority === "audited" || requestedAuthority === "destructive")
   ) {
     return {
       ok: false,
-      error: `${toolName} ${requestedAuthority} requested authority cannot select read-only managed profile '${profile}'.`,
+      error: `${toolName} ${requestedAuthority} requested authority cannot select read-only managed access '${access}'.`,
     };
   }
   return { ok: true };
@@ -483,7 +482,7 @@ export async function requestManagedInvocationAuthorityApproval(input: {
   readonly target:
     | { readonly kind: "route"; readonly routeId: string }
     | { readonly kind: "economic-policy"; readonly economicPolicyId: string };
-  readonly profile: ManagedAgentAdmissionProfile;
+  readonly access: ManagedAgentAccess;
   readonly context: RuntimeBuiltinToolExecutionContext;
   readonly toolName?: string;
 }): Promise<

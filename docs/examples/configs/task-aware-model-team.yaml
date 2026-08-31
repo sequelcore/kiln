@@ -1,6 +1,6 @@
-# Sanitized global V6 intent for an account-backed model team. Managed facts
+# Sanitized global V7 intent for an account-backed model team. Managed facts
 # are admitted separately and selected by the exact evidence revision below.
-version: "6"
+version: "7"
 
 identity: { name: Alex, timezone: America/Tijuana }
 

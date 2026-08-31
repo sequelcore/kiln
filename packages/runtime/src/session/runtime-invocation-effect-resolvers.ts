@@ -20,9 +20,9 @@ const MANAGED_READ_ONLY_INVOCATION_EFFECT: ActionEffectEnvelope = {
 };
 
 const managedInvocationResolver: InvocationEffectResolver = (_toolName, input, envelope) => {
-  const profile = input.profile;
+  const access = input.access;
   const requestedAuthority = input.requestedAuthority;
-  const isReadOnlyInvocation = profile === "foundation-readonly-plan"
+  const isReadOnlyInvocation = access === "read-only"
     && (requestedAuthority === undefined || requestedAuthority === "auto" || requestedAuthority === "read_only");
   return isReadOnlyInvocation ? MANAGED_READ_ONLY_INVOCATION_EFFECT : envelope;
 };

@@ -112,7 +112,7 @@ describe("managed attended trusted execution", () => {
     const result = await requestManagedInvocationAuthorityApproval({
       requestedAuthority: "destructive",
       target: { kind: "route", routeId: "codex-direct" },
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       context: {
         session: new RuntimeSession({
           sessionId: "operator-session-generic-approval",
@@ -145,7 +145,7 @@ describe("managed attended trusted execution", () => {
     const result = await requestManagedInvocationAuthorityApproval({
       requestedAuthority: "destructive",
       target,
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       context: {
         session: new RuntimeSession({
           sessionId: "operator-session-unsupported-approval",
@@ -190,7 +190,7 @@ describe("managed attended trusted execution", () => {
               proof: {
                 status: "configured",
                 source: "test",
-                provenProfiles: ["foundation-apply-approved-writes"],
+                provenAccess: ["approved-write"],
               },
               capacity: { kind: "accountless" },
               settlement: { kind: "not-required" },
@@ -199,8 +199,7 @@ describe("managed attended trusted execution", () => {
             profiles: [
               {
                 authorityProfileId: fixture.request.authority.authorityProfileId,
-                admissionProfile: "foundation-apply-approved-writes",
-                permissionProfile: "apply-approved-writes",
+                access: "approved-write",
                 allowedToolNames: fixture.request.authority.toolAuthority.allowedToolNames,
                 writeAllowed: true,
                 networkAllowed: false,
@@ -220,7 +219,7 @@ describe("managed attended trusted execution", () => {
     if (!executor) throw new Error("managed_agent.start was not created");
     const result = (await executor(
       {
-        profile: "foundation-apply-approved-writes",
+        access: "approved-write",
         routeId: "codex-direct",
         providerRoute: { providerId: "codex-oauth", model: "gpt-test" },
         requestedAuthority: "destructive",
@@ -410,7 +409,7 @@ describe("managed attended trusted execution", () => {
             proof: {
               status: "configured" as const,
               source: "test",
-              provenProfiles: ["foundation-apply-approved-writes" as const],
+              provenAccess: ["approved-write" as const],
             },
             capacity: { kind: "accountless" as const },
             settlement: { kind: "not-required" as const },
@@ -419,8 +418,7 @@ describe("managed attended trusted execution", () => {
           profiles: [
             {
               authorityProfileId: templateRequest.authority.authorityProfileId,
-              admissionProfile: "foundation-apply-approved-writes" as const,
-              permissionProfile: "apply-approved-writes" as const,
+              access: "approved-write" as const,
               allowedToolNames: templateRequest.authority.toolAuthority.allowedToolNames,
               writeAllowed: true,
               networkAllowed: false,
@@ -447,7 +445,7 @@ describe("managed attended trusted execution", () => {
 
     const result = (await executor(
       {
-        profile: "foundation-apply-approved-writes",
+        access: "approved-write",
         routeId: "codex-direct",
         providerRoute: { providerId: "codex-oauth", model: "gpt-test" },
         requestedAuthority: "destructive",

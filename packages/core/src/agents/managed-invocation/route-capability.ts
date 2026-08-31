@@ -1,6 +1,7 @@
 import { compareManagedAgentExternalRuntimeAttachment } from "./external-runtime-attachment.js";
 import type { ManagedAgentExternalRuntimeAttachmentIdentity } from "./external-runtime-attachment.js";
-import type { ManagedAgentAdmissionProfile, ManagedAgentRequestedAuthority } from "./index.js";
+import { MANAGED_AGENT_ACCESS_LEVELS } from "./index.js";
+import type { ManagedAgentAccess, ManagedAgentRequestedAuthority } from "./index.js";
 
 declare const capacityIdentityBrand: unique symbol;
 declare const credentialRevisionIdBrand: unique symbol;
@@ -67,8 +68,8 @@ export interface RouteCapability {
   readonly supportsWrite: boolean;
   readonly externalRuntimeAttachment?: ManagedAgentExternalRuntimeAttachmentIdentity;
   readonly proof:
-    | { readonly status: "configured" | "unproven"; readonly source: string; readonly provenProfiles: readonly ManagedAgentAdmissionProfile[] }
-    | { readonly status: "live-proven"; readonly source: string; readonly freshness: RouteEvidenceFreshness; readonly observedAt: string; readonly expiresAt: string; readonly provenProfiles: readonly ManagedAgentAdmissionProfile[] };
+    | { readonly status: "configured" | "unproven"; readonly source: string; readonly provenAccess: readonly ManagedAgentAccess[] }
+    | { readonly status: "live-proven"; readonly source: string; readonly freshness: RouteEvidenceFreshness; readonly observedAt: string; readonly expiresAt: string; readonly provenAccess: readonly ManagedAgentAccess[] };
   readonly capacity: RouteCapacityRequirement;
   readonly settlement: RouteSettlementContract;
 }
@@ -85,7 +86,7 @@ export interface CallerAuthorityProfile {
 export interface RequestedWorkContract {
   /** Injected time keeps proof and capacity admission replay-stable. */
   readonly evaluatedAt: string;
-  readonly profile: ManagedAgentAdmissionProfile;
+  readonly access: ManagedAgentAccess;
   readonly requestedAuthority: RouteAuthority;
   readonly requiredToolNames: readonly string[];
   readonly requiresRecursion: boolean;
@@ -102,14 +103,14 @@ export type RouteAdmissionRejectionCode =
   | "external-runtime-attachment-missing" | "external-runtime-attachment-mismatch" | "external-runtime-attachment-unsupported-route"
   | "write-not-allowed-by-caller" | "write-not-supported-by-route"
   | "proof-insufficient" | "proof-stale" | "proof-unknown"
-  | "profile-unproven"
+  | "access-unproven"
   | "capacity-policy-mismatch" | "capacity-exhausted" | "capacity-stale" | "capacity-unknown";
 
 export interface RouteAdmissionRejection {
   readonly code: RouteAdmissionRejectionCode;
   readonly requiredToolName?: string;
   readonly requiredProof?: Exclude<RouteProofStatus, "unproven">;
-  readonly profile?: ManagedAgentAdmissionProfile;
+  readonly access?: ManagedAgentAccess;
 }
 
 export type RouteAdmissionDecision =
@@ -163,7 +164,7 @@ function appendProofRejection(route: RouteCapability, work: RequestedWorkContrac
   if (route.proof.status === "unproven") reasons.push({ code: "proof-unknown" });
   else if (route.proof.status === "live-proven" && (route.proof.freshness === "stale" || parseTime(route.proof.expiresAt, "proof.expiresAt") <= evaluatedAt)) reasons.push({ code: "proof-stale" });
   else if (rankProof(route.proof.status) < rankProof(work.minimumProof)) reasons.push({ code: "proof-insufficient", requiredProof: work.minimumProof });
-  if (!route.proof.provenProfiles.includes(work.profile)) reasons.push({ code: "profile-unproven", profile: work.profile });
+  if (!route.proof.provenAccess.includes(work.access)) reasons.push({ code: "access-unproven", access: work.access });
 }
 
 function appendCapacityRejection(capacity: RouteCapacityRequirement, snapshot: CapacitySnapshot | undefined, evaluatedAt: number, reasons: RouteAdmissionRejection[]): void {
@@ -186,7 +187,7 @@ function validateRoute(route: RouteCapability): void {
   for (const value of [route.identity.routeId, route.identity.revision, route.target.providerId, route.target.modelId, route.adapter.capabilityId, route.adapter.capabilityVersion, route.proof.source]) requireText(value, "route value");
   requireAuthority(route.authorityCeiling, "route authority ceiling");
   if (!MANAGED_ROUTE_ADAPTER_KINDS.includes(route.adapter.kind)) throw new TypeError("Unknown managed route adapter kind.");
-  for (const profile of route.proof.provenProfiles) requireProfile(profile, "proof proven profile");
+  for (const access of route.proof.provenAccess) requireAccess(access, "proof proven access");
   if (route.proof.status === "live-proven") {
     const proofExpiresAt = parseTime(route.proof.expiresAt, "proof.expiresAt");
     if (proofExpiresAt < parseTime(route.proof.observedAt, "proof.observedAt")) throw new TypeError("proof.expiresAt must not precede proof.observedAt.");
@@ -202,12 +203,12 @@ function validateCapacitySnapshot(snapshot: CapacitySnapshot): void {
   if (expiresAt < parseTime(snapshot.observedAt, "capacity.observedAt")) throw new TypeError("capacity.expiresAt must not precede capacity.observedAt.");
 }
 
-function validateWork(work: RequestedWorkContract): void { requireAuthority(work.requestedAuthority, "requested authority"); requireProfile(work.profile, "work profile"); for (const name of work.requiredToolNames) requireText(name, "required tool name"); }
+function validateWork(work: RequestedWorkContract): void { requireAuthority(work.requestedAuthority, "requested authority"); requireAccess(work.access, "work access"); for (const name of work.requiredToolNames) requireText(name, "required tool name"); }
 function validateCaller(caller: CallerAuthorityProfile): void { requireAuthority(caller.authorityCeiling, "caller authority ceiling"); for (const name of caller.allowedToolNames) requireText(name, "allowed tool name"); }
 function rank(authority: RouteAuthority): number { return authority === "read_only" ? 0 : authority === "audited" ? 1 : 2; }
 function rankProof(status: RouteProofStatus): number { return status === "unproven" ? 0 : status === "configured" ? 1 : 2; }
 function parseTime(value: string, field: string): number { const timestamp = Date.parse(value); if (!Number.isFinite(timestamp)) throw new TypeError(`${field} must be an ISO-compatible timestamp.`); return timestamp; }
 function requireAuthority(value: RouteAuthority, field: string): void { if (value !== "read_only" && value !== "audited" && value !== "destructive") throw new TypeError(`${field} must be explicit.`); }
-function requireProfile(value: ManagedAgentAdmissionProfile, field: string): void { if (!["foundation-readonly-plan", "foundation-propose-writes", "foundation-apply-approved-writes", "foundation-memory-write-proposals", "diagnostic-only", "comparison-only", "rejected"].includes(value)) throw new TypeError(`${field} is invalid.`); }
+function requireAccess(value: ManagedAgentAccess, field: string): void { if (!MANAGED_AGENT_ACCESS_LEVELS.includes(value)) throw new TypeError(`${field} is invalid.`); }
 function requireText(value: string, field: string): void { if (typeof value !== "string" || value.trim().length === 0) throw new TypeError(`${field} must not be empty.`); }
 function unique(values: readonly string[]): readonly string[] { return [...new Set(values)]; }

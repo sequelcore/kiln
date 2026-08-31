@@ -1,7 +1,7 @@
 import { admitManagedRoute } from "@kilnai/core";
 import type {
   CallerAuthorityProfile,
-  ManagedAgentAdmissionProfile,
+  ManagedAgentAccess,
   RouteAdmissionDecision,
   RouteAdmissionRejection,
 } from "@kilnai/core";
@@ -88,9 +88,9 @@ function resolveManagedAgentRouteAdmission(
     );
     return unavailableRoute ? unavailable(agent) : unresolved(agent);
   }
-  const profile = resolveAdmissionProfile(agent, authorityProfiles);
-  if (!profile) return unresolved(agent);
-  const requestedAuthority = profile === "foundation-readonly-plan" ? "read_only" : "destructive";
+  const access = resolveAgentAccess(agent, authorityProfiles);
+  if (!access) return unresolved(agent);
+  const requestedAuthority = access === "read-only" ? "read_only" : "destructive";
   const toolNames = [...(agent.tools ?? [])];
   const caller: CallerAuthorityProfile = {
     authorityCeiling: requestedAuthority,
@@ -103,7 +103,7 @@ function resolveManagedAgentRouteAdmission(
     route: route.capability,
     work: {
       evaluatedAt: new Date().toISOString(),
-      profile,
+      access,
       requestedAuthority,
       requiredToolNames: toolNames,
       requiresRecursion: false,
@@ -115,12 +115,12 @@ function resolveManagedAgentRouteAdmission(
   });
 }
 
-function resolveAdmissionProfile(
+function resolveAgentAccess(
   agent: KilnAgentDefinition,
   authorityProfiles: readonly KilnAuthorityProfileConfig[] | undefined,
-): ManagedAgentAdmissionProfile | undefined {
+): ManagedAgentAccess | undefined {
   if (!agent.authorityProfileId) return undefined;
-  return authorityProfiles?.find((profile) => profile.id === agent.authorityProfileId)?.admissionProfile;
+  return authorityProfiles?.find((profile) => profile.id === agent.authorityProfileId)?.access;
 }
 
 function unresolved(agent: KilnAgentDefinition): RouteAdmissionDecision {

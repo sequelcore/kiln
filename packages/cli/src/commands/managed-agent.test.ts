@@ -1161,7 +1161,7 @@ async function appendManagedInvocationEvents(
     parentSessionId: sessionId,
     parentTurnId: "turn-1",
     routeSource: "explicit-managed-route",
-    profile: "foundation-apply-approved-writes",
+    access: "approved-write",
     providerRoute: {
       providerId: "codex",
       surface: "cli",
@@ -1243,7 +1243,7 @@ async function appendGuiManagedToolEvidenceEvents(
     routeId: "codex-oauth-readonly",
     routeSource: "explicit-managed-route",
     parentTurnId: `${sessionId}:turn:1`,
-    profile: "foundation-readonly-plan",
+    access: "read-only",
     providerRoute: {
       providerId: "codex-oauth",
       surface: "direct-provider",
@@ -1252,7 +1252,7 @@ async function appendGuiManagedToolEvidenceEvents(
     adapterKind: "direct",
     executionMode: "direct-provider",
     requestedAuthority: "read_only",
-    authorityProfileId: "authority:codex-oauth-readonly:foundation-readonly-plan",
+    authorityProfileId: "authority:codex-oauth-readonly:read-only",
   };
   const appendToolCompletion = async (
     event: PersistedTranscriptEventDraft,
@@ -1302,7 +1302,7 @@ async function appendGuiManagedToolEvidenceEvents(
         routeId: "codex-oauth-readonly",
         routeSource: "explicit-managed-route",
         parentTurnId: `${sessionId}:turn:1`,
-        profile: "foundation-readonly-plan",
+        access: "read-only",
       }),
       metadata: {
         ...baseMetadata,
@@ -1332,7 +1332,7 @@ async function appendGuiManagedToolEvidenceEvents(
         routeId: "codex-oauth-readonly",
         routeSource: "explicit-managed-route",
         parentTurnId: `${sessionId}:turn:1`,
-        profile: "foundation-readonly-plan",
+        access: "read-only",
       }),
       metadata: {
         ...baseMetadata,
@@ -1404,11 +1404,11 @@ async function appendGuiManagedToolEvidenceEvents(
         invocations: [
           {
             invocationId: "gui-child-1",
-            agentId: "codex-oauth-readonly:foundation-readonly-plan",
+            agentId: "codex-oauth-readonly:read-only",
             parentSessionId: sessionId,
             parentTurnId: `${sessionId}:turn:1`,
             routeSource: "explicit-managed-route",
-            profile: "foundation-readonly-plan",
+            access: "read-only",
             providerRoute: baseMetadata.providerRoute,
             adapterKind: "direct",
             executionMode: "direct-provider",
@@ -1421,11 +1421,11 @@ async function appendGuiManagedToolEvidenceEvents(
           },
           {
             invocationId: "gui-child-2",
-            agentId: "codex-oauth-readonly:foundation-readonly-plan",
+            agentId: "codex-oauth-readonly:read-only",
             parentSessionId: sessionId,
             parentTurnId: `${sessionId}:turn:1`,
             routeSource: "explicit-managed-route",
-            profile: "foundation-readonly-plan",
+            access: "read-only",
             providerRoute: baseMetadata.providerRoute,
             adapterKind: "direct",
             executionMode: "direct-provider",
@@ -1485,7 +1485,7 @@ async function appendManagedConflictEvent(
       agentId: "agent-reviewer",
       parentSessionId: sessionId,
       parentTurnId: "turn-1",
-      profile: "foundation-apply-approved-writes",
+      access: "approved-write",
       providerRoute: {
         providerId: "codex",
         surface: "cli",

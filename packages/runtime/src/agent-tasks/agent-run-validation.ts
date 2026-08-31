@@ -39,7 +39,7 @@ import {
   isEconomicAttemptId,
   isIdentifier,
   isIso,
-  isManagedAgentAdmissionProfile,
+  isManagedAgentAccess,
   isManagedAgentRouteSource,
   isManagedEconomicDispatchFenceId,
   isNativeHarnessDispatchFenceId,
@@ -104,7 +104,7 @@ export function isValidAgentTaskResult(
   if (
     !isRecord(value)
     || !hasOnly(value, [
-      "version", "jobId", "runtimeInvocationId", "configuredAgentProfileId", "admissionProfileId",
+      "version", "jobId", "runtimeInvocationId", "configuredAgentProfileId", "access",
       "routeId", "providerId", "terminalState", "completedAt", "provenance", "resultHandoff",
       "capabilityOutput", "writeEvidence", "dataPolicyProof",
     ])
@@ -112,7 +112,7 @@ export function isValidAgentTaskResult(
     || value.jobId !== job.id
     || !isIdentifier(value.runtimeInvocationId)
     || value.configuredAgentProfileId !== job.configuredAgentProfileId
-    || value.admissionProfileId !== job.admissionProfileId
+    || value.access !== job.access
     || value.terminalState !== "completed"
     || !isIso(value.completedAt)
     || Date.parse(value.completedAt) !== Date.parse(updatedAt)
@@ -368,7 +368,7 @@ export function isValidEconomicAgentTaskProfile(profile: AgentTaskEconomicProfil
     && (profile.supportedCapabilityIds === undefined || isValidSupportedCapabilityIds(profile.supportedCapabilityIds))
     && isIdentifier(profile.economicPolicyId)
     && isIdentifier(profile.economicPolicyRevision)
-    && isManagedAgentAdmissionProfile(profile.admissionProfileId)
+    && isManagedAgentAccess(profile.access)
     && isValidAgentTaskConstraints(profile.constraints ?? {});
 }
 
@@ -376,7 +376,7 @@ function isValidNativeHarnessAcknowledgement(value: unknown): value is AgentTask
   return isRecord(value)
     && hasOnly(value, [
       "version", "source", "credentialMode", "acknowledgedAt", "routeId", "routeRevision", "providerId", "model",
-      "admissionProfileId", "adapterCapabilityId", "adapterCapabilityVersion", "deliberationResolution",
+      "access", "adapterCapabilityId", "adapterCapabilityVersion", "deliberationResolution",
     ])
     && value.version === 1
     && value.source === "managed-route-admission"
@@ -386,7 +386,7 @@ function isValidNativeHarnessAcknowledgement(value: unknown): value is AgentTask
     && isIdentifier(value.routeRevision)
     && isIdentifier(value.providerId)
     && isBoundedOpaqueIdentity(value.model)
-    && isManagedAgentAdmissionProfile(value.admissionProfileId)
+    && isManagedAgentAccess(value.access)
     && isIdentifier(value.adapterCapabilityId)
     && isIdentifier(value.adapterCapabilityVersion)
     && (value.deliberationResolution === undefined || isValidNativeDeliberationResolution(value.deliberationResolution));
@@ -431,7 +431,7 @@ export function isValidNativeHarnessProfile(profile: AgentTaskNativeHarnessProfi
   return profile.kind === "native-harness"
     && isIdentifier(profile.id)
     && (profile.supportedCapabilityIds === undefined || isValidSupportedCapabilityIds(profile.supportedCapabilityIds))
-    && isManagedAgentAdmissionProfile(profile.admissionProfileId)
+    && isManagedAgentAccess(profile.access)
     && isIdentifier(profile.routeId)
     && isIdentifier(profile.routeRevision)
     && isIdentifier(profile.providerId)
@@ -444,7 +444,7 @@ export function isValidNativeHarnessProfile(profile: AgentTaskNativeHarnessProfi
     && profile.acknowledgement.routeRevision === profile.routeRevision
     && profile.acknowledgement.providerId === profile.providerId
     && profile.acknowledgement.model === profile.model
-    && profile.acknowledgement.admissionProfileId === profile.admissionProfileId
+    && profile.acknowledgement.access === profile.access
     && profile.acknowledgement.adapterCapabilityId === profile.adapterCapabilityId
     && profile.acknowledgement.adapterCapabilityVersion === profile.adapterCapabilityVersion
     && sameNativeDeliberationResolution(profile.deliberationResolution, profile.acknowledgement.deliberationResolution);
@@ -454,10 +454,10 @@ export function isValidNativeHarnessRoute(value: unknown): value is AgentTaskNat
   return isRecord(value)
     && value.kind === "native-harness"
     && hasOnly(value, [
-      "kind", "admissionProfileId", "routeId", "routeRevision", "providerId", "model",
+      "kind", "access", "routeId", "routeRevision", "providerId", "model",
       "adapterCapabilityId", "adapterCapabilityVersion", "acknowledgement", "deliberationResolution",
     ])
-    && isManagedAgentAdmissionProfile(value.admissionProfileId)
+    && isManagedAgentAccess(value.access)
     && isIdentifier(value.routeId)
     && isIdentifier(value.routeRevision)
     && isIdentifier(value.providerId)
@@ -470,7 +470,7 @@ export function isValidNativeHarnessRoute(value: unknown): value is AgentTaskNat
     && value.acknowledgement.routeRevision === value.routeRevision
     && value.acknowledgement.providerId === value.providerId
     && value.acknowledgement.model === value.model
-    && value.acknowledgement.admissionProfileId === value.admissionProfileId
+    && value.acknowledgement.access === value.access
     && value.acknowledgement.adapterCapabilityId === value.adapterCapabilityId
     && value.acknowledgement.adapterCapabilityVersion === value.adapterCapabilityVersion
     && sameNativeDeliberationResolution(value.deliberationResolution, value.acknowledgement.deliberationResolution);
@@ -480,7 +480,7 @@ export function sameNativeHarnessRoute(
   left: AgentTaskNativeHarnessProfile,
   right: AgentTaskNativeHarnessRoute,
 ): boolean {
-  return left.admissionProfileId === right.admissionProfileId
+  return left.access === right.access
     && left.routeId === right.routeId
     && left.routeRevision === right.routeRevision
     && left.providerId === right.providerId
@@ -503,7 +503,7 @@ function sameNativeHarnessAcknowledgement(
     && left.routeRevision === right.routeRevision
     && left.providerId === right.providerId
     && left.model === right.model
-    && left.admissionProfileId === right.admissionProfileId
+    && left.access === right.access
     && left.adapterCapabilityId === right.adapterCapabilityId
     && left.adapterCapabilityVersion === right.adapterCapabilityVersion
     && sameNativeDeliberationResolution(left.deliberationResolution, right.deliberationResolution);
@@ -517,7 +517,7 @@ export function sameNativeHarnessDispatchRoute(
     && dispatch.routeRevision === route.routeRevision
     && dispatch.providerId === route.providerId
     && dispatch.model === route.model
-    && dispatch.admissionProfileId === route.admissionProfileId
+    && dispatch.access === route.access
     && dispatch.adapterCapabilityId === route.adapterCapabilityId
     && dispatch.adapterCapabilityVersion === route.adapterCapabilityVersion
     && sameNativeHarnessAcknowledgement(dispatch.acknowledgement, route.acknowledgement)
@@ -533,7 +533,7 @@ function isValidNativeHarnessDispatch(
     && isIdentifier(value.routeRevision)
     && isIdentifier(value.providerId)
     && isBoundedOpaqueIdentity(value.model)
-    && isManagedAgentAdmissionProfile(value.admissionProfileId)
+    && isManagedAgentAccess(value.access)
     && isIdentifier(value.adapterCapabilityId)
     && isIdentifier(value.adapterCapabilityVersion)
     && isValidNativeHarnessAcknowledgement(value.acknowledgement)
@@ -545,7 +545,7 @@ function isValidNativeHarnessDispatch(
     && value.acknowledgement.routeRevision === value.routeRevision
     && value.acknowledgement.providerId === value.providerId
     && value.acknowledgement.model === value.model
-    && value.acknowledgement.admissionProfileId === value.admissionProfileId
+    && value.acknowledgement.access === value.access
     && value.acknowledgement.adapterCapabilityId === value.adapterCapabilityId
     && value.acknowledgement.adapterCapabilityVersion === value.adapterCapabilityVersion
     && sameNativeDeliberationResolution(value.deliberationResolution, value.acknowledgement.deliberationResolution);
@@ -557,7 +557,7 @@ function isValidSupportedCapabilityIds(value: unknown): value is readonly string
     && new Set(value).size === value.length;
 }
 
-/** Validates the concrete capability request persisted on a V15 task. */
+/** Validates the concrete capability request persisted on a V16 task. */
 export function isValidAgentTaskCapabilityRequest(value: unknown): value is AgentTaskCapabilityRequest {
   if (!isRecord(value)
     || !hasOnly(value, ["capabilityId", "contract", "input", "inputDigest"])
@@ -602,7 +602,7 @@ export function isValidAgentTaskDispatch(value: unknown): value is AgentTaskDisp
   if (!isRecord(value) || typeof value.kind !== "string") return false;
   if (value.kind === "native-harness") {
     return hasOnly(value, [
-      "kind", "routeId", "routeRevision", "providerId", "model", "admissionProfileId",
+      "kind", "routeId", "routeRevision", "providerId", "model", "access",
       "adapterCapabilityId", "adapterCapabilityVersion", "acknowledgement", "deliberationResolution", "dispatchFenceId", "actionClaim",
       "admissionBundle",
     ]) && isValidNativeHarnessDispatch(value);
@@ -627,7 +627,7 @@ export function sameManagedEconomicCandidateSet(
   if (
     left.economicPolicyId !== right.economicPolicyId
     || left.economicPolicyRevision !== right.economicPolicyRevision
-    || left.admissionProfileId !== right.admissionProfileId
+    || left.access !== right.access
     || !sameAgentTaskConstraints(left.constraints, right.constraints)
   ) return false;
   const canonicalCandidates = (value: ManagedEconomicCandidateSet): string => digestManagedEconomicValue(
@@ -641,7 +641,7 @@ export function isManagedEconomicCandidateSet(value: unknown): value is ManagedE
     !isRecord(value)
     || !isIdentifier(value.economicPolicyId)
     || !isIdentifier(value.economicPolicyRevision)
-    || !isManagedAgentAdmissionProfile(value.admissionProfileId)
+    || !isManagedAgentAccess(value.access)
     || !isValidAgentTaskConstraints(value.constraints)
     || !Array.isArray(value.candidates)
     || !Array.isArray(value.rejections)

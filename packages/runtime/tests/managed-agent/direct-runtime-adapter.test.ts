@@ -111,7 +111,7 @@ function directTestAdmission(
   request: ManagedAgentInvocationRequest,
   economicCommitmentId: string | undefined,
 ): EffectiveAuthorityAdmissionBundle {
-  const routeId = `${request.providerRoute.providerId}:${request.profile}`;
+  const routeId = `${request.providerRoute.providerId}:${request.access}`;
   const model = request.providerRoute.model ?? "test-model";
   const accountId = `direct-test-account:${request.invocationId}`;
   const credentialRevision = "direct-test-credential-revision";
@@ -366,10 +366,10 @@ async function flushMicrotasks(): Promise<void> {
 function request(overrides: Partial<Parameters<typeof defineManagedAgentInvocationRequest>[0]> = {}) {
   return defineManagedAgentInvocationRequest({
     invocationId: "inv-direct-1",
-    agentId: "direct-readonly:foundation-readonly-plan",
+    agentId: "direct-readonly:read-only",
     parentSessionId: "parent-session",
     parentTurnId: "parent-session:turn:1",
-    profile: "foundation-readonly-plan",
+    access: "read-only",
     requestedBy: "assistant",
     requestSource: "test",
     providerRoute: {
@@ -380,8 +380,7 @@ function request(overrides: Partial<Parameters<typeof defineManagedAgentInvocati
     adapterKind: "direct",
     executionMode: "direct-provider",
     authority: {
-      authorityProfileId: "authority:direct-readonly:foundation-readonly-plan",
-      permissionProfile: "read-only",
+      authorityProfileId: "authority:direct-readonly:read-only",
       toolAuthority: {
         allowedToolNames: ["read"],
         writeAllowed: false,
@@ -413,7 +412,7 @@ function snapshotInputFor(
 ): ManagedAgentCapabilitySnapshotInput {
   return {
     capturedAt: "2026-05-07T08:00:00.000Z",
-    routeId: `${childRequest.providerRoute.providerId}:${childRequest.profile}`,
+    routeId: `${childRequest.providerRoute.providerId}:${childRequest.access}`,
     routeSource: "explicit-managed-route",
   };
 }
@@ -421,24 +420,22 @@ function snapshotInputFor(
 function approvedWriteRequest() {
   const base = request({ invocationId: "agent-task:direct-write-1" });
   return request({
-    agentId: "direct-write:foundation-apply-approved-writes",
-    profile: "foundation-apply-approved-writes",
+    agentId: "direct-write:approved-write",
+    access: "approved-write",
     requestedAuthority: "destructive",
     authorityApproval: { approved: true },
     authority: {
       ...base.authority,
-      permissionProfile: "apply-approved-writes",
       toolAuthority: {
         allowedToolNames: ["write"],
         writeAllowed: true,
         networkAllowed: false,
       },
       workingDirectory: { path: "C:/repo", mode: "workspace-write" },
-      writeAuthority: {
-        profile: "foundation-apply-approved-writes",
+          writeAuthority: {
         scope: {
           workspace: { mode: "apply-approved", allowedPaths: ["C:/repo"], deniedPaths: [] },
-          memory: { mode: "none", operations: [] },
+          memory: { operations: [] },
           artifacts: { mode: "none", resourceUris: [], retention: "none" },
           tools: { allowedToolNames: ["write"], deniedToolNames: [] },
         },
@@ -458,7 +455,7 @@ function consumedWriteApprovalFor(childRequest: ManagedAgentInvocationRequest) {
       callerId: childRequest.requestedBy,
       workItemFingerprint: "a".repeat(64),
       configuredAgentProfileId: childRequest.agentId,
-      admissionProfileId: "foundation-apply-approved-writes",
+      access: "approved-write",
       routeId: snapshotInputFor(childRequest).routeId,
       providerId: childRequest.providerRoute.providerId,
       model: childRequest.providerRoute.model ?? "unknown",
@@ -544,7 +541,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       builtinTools: new Map(),
       economicIdentity: {
         route: {
-          routeId: `${childRequest.providerRoute.providerId}:${childRequest.profile}`,
+          routeId: `${childRequest.providerRoute.providerId}:${childRequest.access}`,
           providerId: "openai",
           modelId: "gpt-test",
           accountPolicyId: null,
@@ -578,7 +575,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
   it("reports committed actual identity and exact provider units for economic settlement", async () => {
     const provider = providerWithResponses([response("Economic work completed.")]);
     const childRequest = request();
-    const routeId = `${childRequest.providerRoute.providerId}:${childRequest.profile}`;
+    const routeId = `${childRequest.providerRoute.providerId}:${childRequest.access}`;
     const economicIdentity = {
       route: {
         routeId,
@@ -665,7 +662,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     const childRequest = request();
     const economicIdentity = {
       route: {
-        routeId: `${childRequest.providerRoute.providerId}:${childRequest.profile}`,
+        routeId: `${childRequest.providerRoute.providerId}:${childRequest.access}`,
         providerId: "openai",
         modelId: "gpt-test",
         accountPolicyId: null,
@@ -741,7 +738,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     });
     const economicIdentity = {
       route: {
-        routeId: "opencode-go:foundation-readonly-plan",
+        routeId: "opencode-go:read-only",
         providerId: "opencode-go",
         modelId: "kimi-k2.6",
         accountPolicyId: "opencode-go-subscription",
@@ -1108,8 +1105,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
 
     const result = await invokeManaged(service, request({
       authority: {
-        authorityProfileId: "authority:direct-readonly:foundation-readonly-plan",
-        permissionProfile: "read-only",
+        authorityProfileId: "authority:direct-readonly:read-only",
         toolAuthority: {
           allowedToolNames: ["read"],
           writeAllowed: false,
@@ -1519,19 +1515,18 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
 
     try {
       expect(adapter.descriptor).toMatchObject({
-        supportedProfiles: [
-          "foundation-readonly-plan",
-          "foundation-propose-writes",
-          "foundation-apply-approved-writes",
-          "foundation-memory-write-proposals",
+        supportedAccess: [
+          "read-only",
+          "propose",
+          "approved-write",
         ],
         writeAuthority: LIVE_PROVEN_DIRECT_WRITE_AUTHORITY,
       });
 
       const approvedRequest = request({
         invocationId: "agent-task:direct-write-live-1",
-        agentId: "direct-write:foundation-apply-approved-writes",
-        profile: "foundation-apply-approved-writes",
+        agentId: "direct-write:approved-write",
+        access: "approved-write",
         providerRoute: {
           providerId: "opencode-go",
           surface: "direct-provider",
@@ -1539,7 +1534,6 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
         },
         authority: {
           ...request().authority,
-          permissionProfile: "apply-approved-writes",
           toolAuthority: {
             allowedToolNames: ["write"],
             writeAllowed: true,
@@ -1550,7 +1544,6 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
             mode: "workspace-write",
           },
           writeAuthority: {
-            profile: "foundation-apply-approved-writes",
             scope: {
               workspace: {
                 mode: "apply-approved",
@@ -1558,7 +1551,6 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
                 deniedPaths: [],
               },
               memory: {
-                mode: "none",
                 operations: [],
               },
               artifacts: {
@@ -2062,15 +2054,14 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
             supportsRecursion: true,
             supportsAttachments: false,
             supportsWrite: false,
-            proof: { status: "configured", source: "test-fixture", provenProfiles: ["foundation-readonly-plan"] },
+            proof: { status: "configured", source: "test-fixture", provenAccess: ["read-only"] },
             capacity: { kind: "accountless" },
             settlement: { kind: "not-required" },
           },
           createAdapter: async () => adapter,
           profiles: [{
-              authorityProfileId: "authority:openai-direct-readonly:foundation-readonly-plan",
-              admissionProfile: "foundation-readonly-plan",
-              permissionProfile: "read-only",
+              authorityProfileId: "authority:openai-direct-readonly:read-only",
+              access: "read-only",
               allowedToolNames: ["read"],
               writeAllowed: false,
               networkAllowed: false,
@@ -2102,7 +2093,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
 
     try {
       const result = await parentSurface.callBuiltinTools.get("managed_agent.invoke")?.({
-        profile: "foundation-readonly-plan",
+        access: "read-only",
         routeId: "openai-direct-readonly",
         providerRoute: {
           providerId: "openai",

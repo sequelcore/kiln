@@ -974,7 +974,7 @@ describe("operator cockpit read-only projection", () => {
           agentId: "agent-reviewer",
           lifecycleState: "running",
           parentSessionId: "managed-tools:session:1",
-          profile: "foundation-readonly-plan",
+          access: "read-only",
           providerRoute: {
             providerId: "opencode",
             model: "sonic",

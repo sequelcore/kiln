@@ -122,7 +122,7 @@ describe("operator workspace home projection", () => {
       items: [{
         workItemId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.workItemId,
         status: "completed",
-        authorityProfile: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.authorityProfile.authorityProfileId,
+        access: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.authorityProfile.authorityProfileId,
         pendingPauseCount: 0,
         failedVerificationGateCount: 0,
       }],
@@ -221,7 +221,7 @@ describe("operator workspace home projection", () => {
           summary: "Do not lose an unknown blocker",
           status: "pending",
           workflowProfile: "verification-heavy",
-          authorityProfile: "authority:workspace-write",
+          access: "approved-write",
           pauseRequirements: [{
             id: "workspace-home-unknown-status:pause",
             kind: "capability",
@@ -345,7 +345,7 @@ describe("operator workspace home projection", () => {
           summary: "Promote workspace home work summary",
           status: "blocked",
           workflowProfile: "verification-heavy",
-          authorityProfile: "authority:read-only",
+          access: "read-only",
           assignedAgentProfile: "researcher",
           pauseRequirements: [
             { id: "pause-1", kind: "capability", summary: "Missing route", status: "pending" },
@@ -395,7 +395,7 @@ describe("operator workspace home projection", () => {
         instanceId: "workspace-home:instance:1",
         sessionId: "workspace-home:session:1",
         invocationId: "workspace-home:child:health",
-        agentId: "codex-oauth:foundation-readonly-plan",
+        agentId: "codex-oauth:read-only",
         capabilitySnapshot: {
           snapshotId: "workspace-home:child:health:capability",
           capturedAt: "2026-06-25T12:01:33.000Z",
@@ -430,7 +430,7 @@ describe("operator workspace home projection", () => {
         instanceId: "workspace-home:instance:1",
         sessionId: "workspace-home:session:1",
         invocationId: "workspace-home:child:health",
-        agentId: "codex-oauth:foundation-readonly-plan",
+        agentId: "codex-oauth:read-only",
         routeId: "codex-oauth-readonly",
         routeSource: "explicit-managed-route",
         lifecycleState: "failed",
@@ -664,7 +664,7 @@ describe("operator workspace home projection", () => {
           summary: "Work item with a superseded pause requirement only",
           status: "pending",
           workflowProfile: "verification-heavy",
-          authorityProfile: "authority:workspace-write",
+          access: "approved-write",
           pauseRequirements: [
             {
               id: "pause-1",

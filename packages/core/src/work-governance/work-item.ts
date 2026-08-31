@@ -1,5 +1,5 @@
 import { compareSessionEvents, type CanonicalSessionEvent } from "../events/session-event.js";
-import type { ManagedAgentResultHandoff } from "../agents/managed-invocation/index.js";
+import type { ManagedAgentAccess, ManagedAgentResultHandoff } from "../agents/managed-invocation/index.js";
 import type { VerificationUsageReport } from "../efficiency/output-verification-allocation.js";
 import {
   defineWorkClassification,
@@ -20,6 +20,7 @@ import {
   type BoundedWorkAssuranceEvaluation,
 } from "./bounded-work-assurance.js";
 import type { BoundedWorkCandidateIdentity } from "./bounded-work-candidate.js";
+import type { GoalRunAuthorityLevel } from "./goal-run.js";
 
 export type WorkItemStatus = "pending" | "in_progress" | "blocked" | "completed" | "cancelled";
 
@@ -289,7 +290,8 @@ export interface WorkItemUpsertInput {
   readonly routeId?: string;
   readonly phaseRoutes?: Readonly<Record<string, string>>;
   readonly referenceRoots?: readonly string[];
-  readonly authorityProfile?: string;
+  readonly authority?: GoalRunAuthorityLevel;
+  readonly access?: ManagedAgentAccess;
   readonly expectedEvidence: readonly string[];
   readonly providedEvidence?: readonly string[];
   readonly verificationGates: readonly string[];
@@ -478,7 +480,8 @@ export class WorkItemStore {
       routeId: input.routeId,
       phaseRoutes: normalizeTextRecord(input.phaseRoutes ?? existing?.phaseRoutes),
       referenceRoots: normalizeTextArray(input.referenceRoots ?? existing?.referenceRoots),
-      authorityProfile: input.authorityProfile,
+      authority: input.authority ?? existing?.authority,
+      access: input.access,
       expectedEvidence: normalizeWorkItemExpectedEvidence({
         expectedEvidence: input.expectedEvidence,
         managedOrchestration: input.managedOrchestration ?? existing?.managedOrchestration,

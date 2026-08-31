@@ -239,7 +239,7 @@ of its execution target:
 ```yaml
 authorityProfiles:
   - id: voiced-readonly-review
-    admissionProfile: foundation-readonly-plan
+    access: read-only
     voiceProfile: english-default
     workingDirectory: project
     tools:

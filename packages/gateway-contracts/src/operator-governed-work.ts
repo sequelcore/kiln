@@ -65,7 +65,8 @@ export interface OperatorGovernedWorkItemProjection {
   readonly workflowProfile: string;
   readonly risk?: string;
   readonly surface?: string;
-  readonly authorityProfile?: string;
+  readonly authority?: string;
+  readonly access?: string;
   readonly assignedAgentProfile?: string;
   readonly referenceRoots: readonly string[];
   readonly expectedEvidence: readonly string[];
@@ -145,7 +146,8 @@ export function projectOperatorGovernedWorkItemSnapshot(
   const resourceUri = readString(workItem.resourceUri)
     ?? input.previous?.resourceUri
     ?? `kiln://session/work-items/${encodeURIComponent(id)}`;
-  const authorityProfile = readString(workItem.authorityProfile) ?? input.previous?.authorityProfile;
+  const authority = readString(workItem.authority) ?? input.previous?.authority;
+  const access = readString(workItem.access) ?? input.previous?.access;
   const assignedAgentProfile = readString(workItem.assignedAgentProfile) ?? input.previous?.assignedAgentProfile;
   const risk = readString(workItem.risk) ?? input.previous?.risk;
   const surface = readString(workItem.surface) ?? input.previous?.surface;
@@ -163,7 +165,8 @@ export function projectOperatorGovernedWorkItemSnapshot(
     workflowProfile,
     ...(risk ? { risk } : {}),
     ...(surface ? { surface } : {}),
-    ...(authorityProfile ? { authorityProfile } : {}),
+    ...(authority ? { authority } : {}),
+    ...(access ? { access } : {}),
     ...(assignedAgentProfile ? { assignedAgentProfile } : {}),
     referenceRoots: readStringArrayField(workItem, "referenceRoots", input.previous?.referenceRoots),
     expectedEvidence,
@@ -231,8 +234,9 @@ export function isOperatorGovernedWorkItemBlocking(
     || item.status === "completed"
     || item.status === "cancelled";
   return !knownStatus
-    || !item.authorityProfile
-    || item.authorityProfile === "unknown"
+    || (!item.authority && !item.access)
+    || item.authority === "unknown"
+    || item.access === "unknown"
     || item.status === "blocked"
     || item.pendingPauseRequirementCount > 0
     || item.missingEvidence.length > 0

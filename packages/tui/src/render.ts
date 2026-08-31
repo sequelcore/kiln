@@ -266,8 +266,11 @@ function fmtWorkItem(item: WorkItem, index: number): string {
     ? ` pause:${item.pendingPauseRequirementCount}`
     : "";
   const lines = [`${prefix}${agent}${item.status} ${evidence}${attempt}${paused} ${summary}`];
-  if (item.authorityProfile) {
-    lines.push(`  auth:${item.authorityProfile}`);
+  if (item.authority) {
+    lines.push(`  authority:${item.authority}`);
+  }
+  if (item.access) {
+    lines.push(`  access:${item.access}`);
   }
   if (item.missingEvidence.length > 0) lines.push(`  missing:${item.missingEvidence.join(",")}`);
   if (item.missingGoalEvidence.length > 0) lines.push(`  missing-goal:${item.missingGoalEvidence.join(",")}`);

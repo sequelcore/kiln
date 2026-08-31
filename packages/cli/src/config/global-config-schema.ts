@@ -24,7 +24,7 @@ import { KilnYamlError } from "../kiln-yaml-types.js";
 
 export const GLOBAL_CONFIG_SCHEMA_REVISION = 2;
 export const GLOBAL_CONFIG_SCHEMA_ID = "https://kiln.dev/schemas/global-config-v2.json";
-export const CANONICAL_GLOBAL_CONFIG_VERSION = "6" as const;
+export const CANONICAL_GLOBAL_CONFIG_VERSION = "7" as const;
 
 export type GlobalConfigActivation = "hot" | "next-turn" | "next-session" | "reconcile" | "restart-required";
 export type GlobalConfigSensitivity = "public" | "secret-reference";

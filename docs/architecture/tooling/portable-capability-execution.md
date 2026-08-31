@@ -116,7 +116,7 @@ submission preserve the same typed capability request at their public boundary.
 
 `vision.analyze/v1` is the first agent-backed contract. Core contributes it
 only when configuration resolves one unambiguous specialist with explicit
-structured output, image modality, a read-only admission profile, an exact
+structured output, image modality, read-only access, an exact
 attachment-capable route, and current route proof. Accountless routes declare
 that capability invocation does not consume Kiln turn-budget authority;
 economic routes are not admitted by this first resolver. An external-runtime

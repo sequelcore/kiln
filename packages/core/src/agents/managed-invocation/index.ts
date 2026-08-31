@@ -18,7 +18,6 @@ import {
   defineManagedAgentAdapterWriteAuthorityDescriptor,
   defineManagedAgentWriteAuthority,
   defineManagedAgentWriteEvidence,
-  isManagedAgentWriteAuthorityProfile,
 } from "./write-authority.js";
 import type {
   ManagedAgentAdapterWriteAuthorityDescriptor,
@@ -54,17 +53,13 @@ export * from "./coordination-policy.js";
 export * from "./external-runtime-attachment.js";
 export * from "./route-capability.js";
 
-export const MANAGED_AGENT_ADMISSION_PROFILES = [
-  "foundation-readonly-plan",
-  "foundation-propose-writes",
-  "foundation-apply-approved-writes",
-  "foundation-memory-write-proposals",
-  "diagnostic-only",
-  "comparison-only",
-  "rejected",
+export const MANAGED_AGENT_ACCESS_LEVELS = [
+  "read-only",
+  "propose",
+  "approved-write",
 ] as const;
 
-export type ManagedAgentAdmissionProfile = typeof MANAGED_AGENT_ADMISSION_PROFILES[number];
+export type ManagedAgentAccess = typeof MANAGED_AGENT_ACCESS_LEVELS[number];
 
 export const MANAGED_AGENT_ADAPTER_KINDS = ["direct", "harness"] as const;
 
@@ -164,7 +159,6 @@ export type ManagedAgentTimeoutSource = "default" | "explicit-route";
 
 export interface ManagedAgentAuthorityProfile {
   readonly authorityProfileId: string;
-  readonly permissionProfile: string;
   readonly toolAuthority: ManagedAgentToolAuthority;
   readonly workingDirectory: ManagedAgentWorkingDirectory;
   readonly timeoutMs: number;
@@ -234,7 +228,7 @@ export interface ManagedAgentInvocationRequest {
   readonly agentId: string;
   readonly parentSessionId: string;
   readonly parentTurnId: string;
-  readonly profile: ManagedAgentAdmissionProfile;
+  readonly access: ManagedAgentAccess;
   readonly requestedBy: string;
   readonly requestSource: string;
   readonly executionIntent?: ManagedAgentExecutionIntent;
@@ -253,7 +247,7 @@ export interface ManagedAgentAdapterDescriptor {
   readonly adapterDescriptorId: string;
   readonly providerId: string;
   readonly adapterKind: ManagedAgentAdapterKind;
-  readonly supportedProfiles: readonly ManagedAgentAdmissionProfile[];
+  readonly supportedAccess: readonly ManagedAgentAccess[];
   readonly supportedExecutionModes: readonly ManagedAgentExecutionMode[];
   readonly lifecycle: {
     readonly exposesStart: boolean;
@@ -396,7 +390,7 @@ export interface ManagedAgentRequestedAuthorityEvidence {
 }
 
 export interface ManagedAgentProjectedAuthorityEvidence {
-  readonly permissionProfile: string;
+  readonly access: ManagedAgentAccess;
   readonly approval: ManagedAgentChildAuthorityApproval;
   readonly sandbox: ManagedAgentChildAuthoritySandbox;
   readonly source: "managed-authority-profile" | "cli-harness-session-factory" | "direct-provider-adapter" | "remote-harness-adapter";
@@ -966,7 +960,7 @@ export interface ManagedAgentLifecycleEvidence {
   readonly routeSource: ManagedAgentRouteSource;
   readonly providerId: string;
   readonly model?: string;
-  readonly profile: ManagedAgentAdmissionProfile;
+  readonly access: ManagedAgentAccess;
   readonly externalRuntimeAttachment?: ManagedAgentExternalRuntimeAttachmentIdentity;
   readonly contextMode: ManagedAgentInvocationContextMode;
   readonly authorityProfileId: string;
@@ -986,7 +980,7 @@ export interface ManagedAgentInvocationRecord {
   readonly agentId: string;
   readonly parentSessionId: string;
   readonly parentTurnId: string;
-  readonly profile: ManagedAgentAdmissionProfile;
+  readonly access: ManagedAgentAccess;
   readonly lifecycleState: ManagedAgentLifecycleState;
   /** Provider/runtime stop reason retained for bounded-work and terminal-cause projection. */
   readonly stopReason?: string;
@@ -1012,7 +1006,7 @@ export type ManagedAgentAdmissionDecision =
   | {
     readonly status: "admitted";
     readonly invocationId: string;
-    readonly profile: ManagedAgentAdmissionProfile;
+    readonly access: ManagedAgentAccess;
     readonly adapterDescriptorId: string;
     readonly authorityProfileId: string;
     readonly credentialRouteId?: string;
@@ -1023,7 +1017,7 @@ export type ManagedAgentAdmissionDecision =
   | {
     readonly status: "denied";
     readonly invocationId?: string;
-    readonly profile?: ManagedAgentAdmissionProfile;
+    readonly access?: ManagedAgentAccess;
     readonly routeId: string;
     readonly routeSource: ManagedAgentRouteSource;
     readonly reason: string;
@@ -1038,7 +1032,7 @@ export function defineManagedAgentInvocationRequest(input: ManagedAgentInvocatio
     agentId: requireText(input.agentId, "Managed invocation agent id is required"),
     parentSessionId: requireText(input.parentSessionId, "Managed invocation parent session id is required"),
     parentTurnId: requireText(input.parentTurnId, "Managed invocation parent turn id is required"),
-    profile: requireAdmissionProfile(input.profile),
+    access: requireManagedAgentAccess(input.access),
     requestedBy: requireText(input.requestedBy, "Managed invocation requester is required"),
     requestSource: requireText(input.requestSource, "Managed invocation request source is required"),
     executionIntent: requireExecutionIntent(input.executionIntent ?? {
@@ -1070,7 +1064,7 @@ export function defineManagedAgentAdapterDescriptor(input: ManagedAgentAdapterDe
     adapterDescriptorId: requireText(input.adapterDescriptorId, "Managed adapter descriptor id is required"),
     providerId: requireText(input.providerId, "Managed adapter provider id is required"),
     adapterKind: requireAdapterKind(input.adapterKind),
-    supportedProfiles: input.supportedProfiles.map(requireAdmissionProfile),
+    supportedAccess: input.supportedAccess.map(requireManagedAgentAccess),
     supportedExecutionModes: input.supportedExecutionModes.map(requireExecutionMode),
     lifecycle: {
       exposesStart: input.lifecycle.exposesStart === true,
@@ -1267,7 +1261,7 @@ export function buildManagedAgentAuthorityEvidence(input: {
       proof: "proven",
     },
     projected: {
-      permissionProfile: input.request.authority.permissionProfile,
+      access: input.request.access,
       approval: approvalEvidenceFromAuthority(input.request.authority),
       sandbox: sandboxEvidenceFromAuthority(input.request.authority),
       source: input.projectedSource,
@@ -1340,7 +1334,7 @@ function requireAuthorityEvidence(input: ManagedAgentAuthorityEvidence): Managed
         : {}),
     },
     projected: {
-      permissionProfile: requireText(input.projected.permissionProfile, "Managed projected authority permission profile is required"),
+      access: requireManagedAgentAccess(input.projected.access),
       approval: requireAuthorityEvidenceApproval(input.projected.approval),
       sandbox: requireAuthorityEvidenceSandbox(input.projected.sandbox),
       source: requireProjectedAuthorityEvidenceSource(input.projected.source),
@@ -1381,11 +1375,8 @@ function sandboxEvidenceFromAuthority(authority: ManagedAgentAuthorityProfile): 
     : "read-only";
 }
 
-function approvalEvidenceFromAuthority(authority: ManagedAgentAuthorityProfile): ManagedAgentChildAuthorityApproval {
-  const profile = authority.permissionProfile.toLowerCase();
-  return profile.includes("trusted") || profile.includes("full-access") || profile.includes("danger-full-access")
-    ? "never"
-    : "on-request";
+function approvalEvidenceFromAuthority(_authority: ManagedAgentAuthorityProfile): ManagedAgentChildAuthorityApproval {
+  return "on-request";
 }
 
 function collectAuthorityEvidenceGaps(
@@ -1516,7 +1507,7 @@ export function defineManagedAgentInvocationRecord(input: ManagedAgentInvocation
     agentId: requireText(input.agentId, "Managed invocation record agent id is required"),
     parentSessionId: requireText(input.parentSessionId, "Managed invocation record parent session id is required"),
     parentTurnId: requireText(input.parentTurnId, "Managed invocation record parent turn id is required"),
-    profile: requireAdmissionProfile(input.profile),
+    access: requireManagedAgentAccess(input.access),
     lifecycleState: requireLifecycleState(input.lifecycleState),
     ...(input.stopReason !== undefined ? { stopReason: requireText(input.stopReason, "Managed invocation stop reason is required") } : {}),
     providerRoute: requireInvocationRecordProviderRoute(input.providerRoute, capabilitySnapshot.providerRoute),
@@ -1553,17 +1544,15 @@ export function evaluateManagedAgentAdmission(
   collectAuthorityEvidenceGaps(request, snapshotInput.authorityEvidence, missingCapabilities, options.evaluatedAt);
   collectExternalRuntimeAttachmentGaps(request, snapshotInput, missingCapabilities);
 
-  const profile = request.profile;
-  if (profile === "foundation-readonly-plan") {
+  const access = request.access;
+  if (access === "read-only") {
     collectReadonlyAuthorityGaps(request, missingCapabilities);
-  } else if (isManagedAgentWriteAuthorityProfile(profile)) {
-    collectWriteAuthorityGaps(request, descriptor, missingCapabilities);
   } else {
-    missingCapabilities.push("profile.foundation-managed-invocation");
+    collectWriteAuthorityGaps(request, descriptor, missingCapabilities);
   }
 
-  if (!descriptor.supportedProfiles?.includes(profile)) {
-    missingCapabilities.push(`descriptor.supportedProfiles.${profile}`);
+  if (!descriptor.supportedAccess?.includes(access)) {
+    missingCapabilities.push(`descriptor.supportedAccess.${access}`);
   }
   if (request.executionMode && !descriptor.supportedExecutionModes?.includes(request.executionMode)) {
     missingCapabilities.push("descriptor.supportedExecutionModes");
@@ -1581,10 +1570,10 @@ export function evaluateManagedAgentAdmission(
     return {
       status: "denied",
       invocationId: request.invocationId,
-      profile: request.profile,
+      access: request.access,
       routeId,
       routeSource,
-      reason: `foundation-readonly-plan denied: ${missingCapabilities.join(", ")}`,
+      reason: `${access} denied: ${missingCapabilities.join(", ")}`,
       missingCapabilities,
     };
   }
@@ -1592,7 +1581,7 @@ export function evaluateManagedAgentAdmission(
   return {
     status: "admitted",
     invocationId: request.invocationId,
-    profile,
+    access,
     adapterDescriptorId: descriptor.adapterDescriptorId,
     authorityProfileId: request.authority.authorityProfileId,
     ...(request.authority.credentialRoute.mode !== "credentialless"
@@ -1691,16 +1680,15 @@ function collectRequestGaps(request: ManagedAgentInvocationRequest, missingCapab
     missingCapabilities.push("request.authority");
     return;
   }
-  if (!hasText(request.authority.permissionProfile)) missingCapabilities.push("request.authority.permissionProfile");
   if (!request.authority.toolAuthority) {
     missingCapabilities.push("request.authority.toolAuthority");
   } else {
-    if (request.profile === "foundation-apply-approved-writes") {
+    if (request.access === "approved-write") {
       if (request.authority.toolAuthority.writeAllowed !== true) missingCapabilities.push("request.authority.toolAuthority.writeAllowed.true");
     } else if (request.authority.toolAuthority.writeAllowed !== false) {
       missingCapabilities.push("request.authority.toolAuthority.writeAllowed.false");
     }
-    if (request.profile !== "foundation-readonly-plan" && request.authority.toolAuthority.networkAllowed !== false) {
+    if (request.access !== "read-only" && request.authority.toolAuthority.networkAllowed !== false) {
       missingCapabilities.push("request.authority.toolAuthority.networkAllowed.false");
     }
   }
@@ -1735,9 +1723,12 @@ function collectRequestedAuthorityGaps(request: ManagedAgentInvocationRequest, m
     if (request.authorityApproval?.approved !== true) {
       missingCapabilities.push("request.requestedAuthority.destructiveApprovalFlow");
     }
+    if (request.access === "read-only") {
+      missingCapabilities.push("request.requestedAuthority.accessMismatch");
+    }
   }
-  if (request.requestedAuthority === "read_only" && request.profile !== "foundation-readonly-plan") {
-    missingCapabilities.push("request.requestedAuthority.readOnlyProfile");
+  if (request.requestedAuthority === "read_only" && request.access !== "read-only") {
+    missingCapabilities.push("request.requestedAuthority.accessMismatch");
   }
 }
 
@@ -1763,9 +1754,6 @@ function collectWriteAuthorityGaps(
     return;
   }
 
-  if (writeAuthority.profile !== request.profile) {
-    missingCapabilities.push("request.authority.writeAuthority.profile");
-  }
   if (!descriptorWriteAuthority.proposalSupported) {
     missingCapabilities.push("writeAuthority.proposalSupported");
   }
@@ -1774,14 +1762,12 @@ function collectWriteAuthorityGaps(
   }
 
   const requiresMemoryProposal =
-    request.profile === "foundation-memory-write-proposals" ||
-    writeAuthority.scope.memory.mode !== "none" ||
     request.authority.memoryScope.access === "write-proposals";
   if (requiresMemoryProposal && !descriptorWriteAuthority.memoryProposalSupported) {
     missingCapabilities.push("writeAuthority.memoryProposalSupported");
   }
 
-  if (request.profile === "foundation-propose-writes") {
+  if (request.access === "propose") {
     if (writeAuthority.scope.workspace.mode === "apply-approved") {
       missingCapabilities.push("request.authority.writeAuthority.workspace.proposeOnly");
     }
@@ -1790,13 +1776,7 @@ function collectWriteAuthorityGaps(
     }
   }
 
-  if (request.profile === "foundation-memory-write-proposals") {
-    if (writeAuthority.scope.memory.mode !== "propose") {
-      missingCapabilities.push("request.authority.writeAuthority.memory.propose");
-    }
-  }
-
-  if (request.profile === "foundation-apply-approved-writes") {
+  if (request.access === "approved-write") {
     if (!descriptorWriteAuthority.approvedApplySupported) {
       missingCapabilities.push("writeAuthority.approvedApplySupported");
     }
@@ -1863,7 +1843,7 @@ export function buildManagedAgentLifecycleEvidence(
     routeSource: record.capabilitySnapshot.routeSource,
     providerId: record.providerRoute.providerId,
     ...(record.providerRoute.model !== undefined ? { model: record.providerRoute.model } : {}),
-    profile: record.profile,
+    access: record.access,
     ...(record.capabilitySnapshot.externalRuntimeAttachment !== undefined
       ? { externalRuntimeAttachment: record.capabilitySnapshot.externalRuntimeAttachment }
       : {}),
@@ -1902,7 +1882,6 @@ function requireAuthority(input: ManagedAgentAuthorityProfile): ManagedAgentAuth
 
   return {
     authorityProfileId: requireText(input.authorityProfileId, "Managed invocation authority profile id is required"),
-    permissionProfile: requireText(input.permissionProfile, "Managed invocation permission profile is required"),
     toolAuthority: {
       allowedToolNames: input.toolAuthority.allowedToolNames.map((name) => requireText(name, "Managed invocation tool name is required")),
       writeAllowed: input.toolAuthority.writeAllowed === true,
@@ -2546,9 +2525,9 @@ function requireWorktreeConflict(input: ManagedAgentWorktreeConflictEvidence): M
   };
 }
 
-function requireAdmissionProfile(value: ManagedAgentAdmissionProfile): ManagedAgentAdmissionProfile {
-  if (!MANAGED_AGENT_ADMISSION_PROFILES.includes(value)) {
-    throw new Error(`Unsupported managed invocation profile: ${value as string}`);
+function requireManagedAgentAccess(value: ManagedAgentAccess): ManagedAgentAccess {
+  if (!MANAGED_AGENT_ACCESS_LEVELS.includes(value)) {
+    throw new Error(`Unsupported managed invocation access: ${value as string}`);
   }
   return value;
 }

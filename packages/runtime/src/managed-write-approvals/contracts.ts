@@ -1,4 +1,4 @@
-import type { ManagedAgentAdmissionProfile } from "@kilnai/core";
+import type { ManagedAgentAccess } from "@kilnai/core";
 
 /** Stable, storage-neutral authority binding for an approved write. */
 export interface ManagedWriteApprovalBinding {
@@ -7,7 +7,7 @@ export interface ManagedWriteApprovalBinding {
   readonly callerId: string;
   readonly workItemFingerprint: string;
   readonly configuredAgentProfileId: string;
-  readonly admissionProfileId: Extract<ManagedAgentAdmissionProfile, "foundation-apply-approved-writes">;
+  readonly access: Extract<ManagedAgentAccess, "approved-write">;
   readonly routeId: string;
   readonly providerId: string;
   readonly model: string;

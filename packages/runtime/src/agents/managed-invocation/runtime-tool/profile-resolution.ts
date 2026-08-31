@@ -1,9 +1,9 @@
-import type { ManagedAgentAdmissionProfile } from "@kilnai/core";
+import type { ManagedAgentAccess } from "@kilnai/core";
 import type { ManagedInvocationAgentCatalogEntry, ManagedInvocationRouteProfile, ManagedInvocationToolRoute } from "./types.js";
 
 interface ManagedInvocationAuthorityBinding {
   readonly authorityProfileId: string;
-  readonly admissionProfile: ManagedAgentAdmissionProfile;
+  readonly access: ManagedAgentAccess;
 }
 
 /**
@@ -13,16 +13,16 @@ interface ManagedInvocationAuthorityBinding {
 export function resolveConfiguredManagedInvocationRouteProfile(
   route: ManagedInvocationToolRoute,
   agent: ManagedInvocationAuthorityBinding,
-  requestedAdmissionProfile: ManagedAgentAdmissionProfile,
+  requestedAccess: ManagedAgentAccess,
 ): ManagedInvocationRouteProfile | undefined {
-  if (agent.admissionProfile !== requestedAdmissionProfile) {
+  if (agent.access !== requestedAccess) {
     return undefined;
   }
   const resolved = resolveUniqueManagedInvocationRouteProfile(
     route.profiles,
     (profile) => profile.authorityProfileId === agent.authorityProfileId,
   );
-  return resolved?.admissionProfile === requestedAdmissionProfile ? resolved : undefined;
+  return resolved?.access === requestedAccess ? resolved : undefined;
 }
 
 /**
@@ -31,22 +31,22 @@ export function resolveConfiguredManagedInvocationRouteProfile(
  */
 export function resolveAdHocManagedInvocationRouteProfile(
   route: ManagedInvocationToolRoute,
-  admissionProfile: ManagedAgentAdmissionProfile,
+  access: ManagedAgentAccess,
 ): ManagedInvocationRouteProfile | undefined {
   return resolveUniqueManagedInvocationRouteProfile(
     route.profiles,
-    (profile) => profile.admissionProfile === admissionProfile,
+    (profile) => profile.access === access,
   );
 }
 
 export function resolveManagedInvocationRouteProfile(
   route: ManagedInvocationToolRoute,
-  admissionProfile: ManagedAgentAdmissionProfile,
+  access: ManagedAgentAccess,
   agent?: ManagedInvocationAgentCatalogEntry,
 ): ManagedInvocationRouteProfile | undefined {
   return agent
-    ? resolveConfiguredManagedInvocationRouteProfile(route, agent, admissionProfile)
-    : resolveAdHocManagedInvocationRouteProfile(route, admissionProfile);
+    ? resolveConfiguredManagedInvocationRouteProfile(route, agent, access)
+    : resolveAdHocManagedInvocationRouteProfile(route, access);
 }
 
 function resolveUniqueManagedInvocationRouteProfile(

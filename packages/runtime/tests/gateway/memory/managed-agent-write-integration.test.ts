@@ -22,8 +22,6 @@ function makeWriteScope() {
       deniedPaths: ["C:/workspace/kiln/.git"],
     },
     memory: {
-      mode: "propose",
-      scope: { kind: "project", id: "kiln" },
       operations: ["create", "update"],
     },
     artifacts: {
@@ -40,7 +38,6 @@ function makeWriteScope() {
 
 function makeRequest(overrides: Partial<ManagedAgentInvocationRequest["authority"]> = {}): ManagedAgentInvocationRequest {
   const writeAuthority = defineManagedAgentWriteAuthority({
-    profile: "foundation-propose-writes",
     scope: makeWriteScope(),
     approval: {
       mode: "required-before-apply",
@@ -48,11 +45,11 @@ function makeRequest(overrides: Partial<ManagedAgentInvocationRequest["authority
     },
   });
   return defineManagedAgentInvocationRequest({
+    access: "propose",
     invocationId: "invocation-write-1",
     agentId: "agent-implementer",
     parentSessionId: "session-parent",
     parentTurnId: "turn-parent",
-    profile: "foundation-propose-writes",
     requestedBy: "operator",
     requestSource: "manual",
     providerRoute: {
@@ -63,8 +60,7 @@ function makeRequest(overrides: Partial<ManagedAgentInvocationRequest["authority
     adapterKind: "harness",
     executionMode: "cli-harness",
     authority: {
-      authorityProfileId: "authority:foundation-propose-writes",
-      permissionProfile: "propose-writes",
+      authorityProfileId: "authority:propose",
       toolAuthority: {
         allowedToolNames: ["read", "rg"],
         writeAllowed: false,
@@ -181,11 +177,9 @@ describe("managed agent governed write integration", () => {
   it("denies memory and artifact proposals outside admitted write scope", () => {
     const request = makeRequest({
       writeAuthority: defineManagedAgentWriteAuthority({
-        profile: "foundation-propose-writes",
         scope: defineManagedAgentWriteScope({
           ...makeWriteScope(),
           memory: {
-            mode: "none",
             operations: [],
           },
           artifacts: {
@@ -199,6 +193,10 @@ describe("managed agent governed write integration", () => {
           evidenceRequired: true,
         },
       }),
+      memoryScope: {
+        scope: { kind: "project", id: "kiln" },
+        access: "read-only",
+      },
     });
 
     expect(() => createManagedAgentMemoryWriteProposal({

@@ -120,10 +120,10 @@ function request(
 ): ManagedAgentInvocationRequest {
   return defineManagedAgentInvocationRequest({
     invocationId: "inv-remote-1",
-    agentId: "codex-cloud:foundation-readonly-plan",
+    agentId: "codex-cloud:read-only",
     parentSessionId: "parent-session",
     parentTurnId: "parent-session:turn:1",
-    profile: "foundation-readonly-plan",
+    access: "read-only",
     requestedBy: "assistant",
     requestSource: "test",
     providerRoute: {
@@ -134,8 +134,7 @@ function request(
     adapterKind: "harness",
     executionMode: "remote-harness",
     authority: {
-      authorityProfileId: "authority:codex-cloud-remote:foundation-readonly-plan",
-      permissionProfile: "read-only",
+      authorityProfileId: "authority:codex-cloud-remote:read-only",
       toolAuthority: {
         allowedToolNames: ["read", "grep"],
         writeAllowed: false,
@@ -190,7 +189,7 @@ function completedRecord(
     agentId: childRequest.agentId,
     parentSessionId: childRequest.parentSessionId,
     parentTurnId: childRequest.parentTurnId,
-    profile: childRequest.profile,
+    access: childRequest.access,
     lifecycleState: "completed",
     providerRoute: childRequest.providerRoute,
     adapterKind: childRequest.adapterKind,

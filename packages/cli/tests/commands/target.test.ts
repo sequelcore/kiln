@@ -4,7 +4,7 @@ import type { ExecutionTargetWizardRequest, ExecutionTargetWizardResult } from "
 
 const globalConfigMocks = vi.hoisted(() => ({
   config: {
-    version: "6",
+    version: "7",
     targetCatalog: {
       accounts: [],
       accountPolicies: [],
@@ -25,7 +25,7 @@ const mutationMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../src/config/global-config.js", () => ({
-  defaultGlobalConfig: () => ({ version: "6" }),
+  defaultGlobalConfig: () => ({ version: "7" }),
   readGlobalConfig: () => globalConfigMocks.config,
 }));
 

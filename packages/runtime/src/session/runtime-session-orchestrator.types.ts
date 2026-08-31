@@ -18,7 +18,7 @@ import type {
   ExecutionSessionBindingEvidence,
   KilnMcpClient,
   InvocationAdmission,
-  ManagedAgentAdmissionProfile,
+  ManagedAgentAccess,
   ManagedAgentAuthorityProfile,
   ManagedAgentInvocationContextMode,
   ManagedAgentObservedRuntimeAuthorityEvidence,
@@ -168,7 +168,7 @@ export interface OrchestratorDeps {
 export interface RuntimeMultimodalDelegationRoute {
   readonly route: AuxiliaryModalityRoute;
   readonly adapter: ManagedAgentRuntimeAdapter;
-  readonly profile: ManagedAgentAdmissionProfile;
+  readonly access: ManagedAgentAccess;
   readonly requestedAuthority?: ManagedAgentRequestedAuthority;
   readonly providerRoute: ManagedAgentProviderRoute;
   readonly observedRuntimeAuthority?: ManagedAgentObservedRuntimeAuthorityEvidence;

@@ -1,14 +1,6 @@
 import { defineMemoryScope } from "../../memory/domain/scope.js";
 import type { MemoryScope } from "../../memory/domain/scope.js";
 
-export const MANAGED_AGENT_WRITE_AUTHORITY_PROFILES = [
-  "foundation-propose-writes",
-  "foundation-apply-approved-writes",
-  "foundation-memory-write-proposals",
-] as const;
-
-export type ManagedAgentWriteAuthorityProfile = typeof MANAGED_AGENT_WRITE_AUTHORITY_PROFILES[number];
-
 export type ManagedAgentWriteMode = "none" | "propose" | "apply-approved";
 
 export type ManagedAgentArtifactWriteRetention = "none" | "session" | "durable" | "external";
@@ -65,8 +57,6 @@ export interface ManagedAgentWorkspaceWriteScope {
 }
 
 export interface ManagedAgentMemoryWriteScope {
-  readonly mode: ManagedAgentWriteMode;
-  readonly scope?: MemoryScope;
   readonly operations: readonly ManagedAgentMemoryWriteOperation[];
 }
 
@@ -96,7 +86,6 @@ export interface ManagedAgentWriteApproval {
 }
 
 export interface ManagedAgentWriteAuthority {
-  readonly profile: ManagedAgentWriteAuthorityProfile;
   readonly scope: ManagedAgentWriteScope;
   readonly approval: ManagedAgentWriteApproval;
 }
@@ -187,10 +176,6 @@ export interface ManagedAgentWriteEvidence {
   readonly recordedAt: string;
 }
 
-export function isManagedAgentWriteAuthorityProfile(value: string | undefined): value is ManagedAgentWriteAuthorityProfile {
-  return MANAGED_AGENT_WRITE_AUTHORITY_PROFILES.includes(value as ManagedAgentWriteAuthorityProfile);
-}
-
 export function defineManagedAgentWriteScope(input: ManagedAgentWriteScope): ManagedAgentWriteScope {
   return {
     workspace: {
@@ -199,8 +184,6 @@ export function defineManagedAgentWriteScope(input: ManagedAgentWriteScope): Man
       deniedPaths: input.workspace.deniedPaths.map((path) => requireText(path, "Managed denied workspace path is required")),
     },
     memory: {
-      mode: requireWriteMode(input.memory.mode),
-      ...(input.memory.scope !== undefined ? { scope: defineMemoryScope(input.memory.scope) } : {}),
       operations: input.memory.operations.map(requireMemoryOperation),
     },
     artifacts: {
@@ -217,7 +200,6 @@ export function defineManagedAgentWriteScope(input: ManagedAgentWriteScope): Man
 
 export function defineManagedAgentWriteAuthority(input: ManagedAgentWriteAuthority): ManagedAgentWriteAuthority {
   return {
-    profile: requireWriteAuthorityProfile(input.profile),
     scope: defineManagedAgentWriteScope(input.scope),
     approval: {
       mode: requireApprovalMode(input.approval.mode),
@@ -322,13 +304,6 @@ function requireWriteTarget(input: ManagedAgentWriteTarget): ManagedAgentWriteTa
     default:
       throw new Error(`Unsupported managed write target kind: ${(input as { readonly kind?: string }).kind ?? ""}`);
   }
-}
-
-function requireWriteAuthorityProfile(value: ManagedAgentWriteAuthorityProfile): ManagedAgentWriteAuthorityProfile {
-  if (!isManagedAgentWriteAuthorityProfile(value)) {
-    throw new Error(`Unsupported managed write authority profile: ${value as string}`);
-  }
-  return value;
 }
 
 function requireWriteMode(value: ManagedAgentWriteMode): ManagedAgentWriteMode {

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Database } from "bun:sqlite";
 import {
   ManagedWriteApprovalError,
   SqliteManagedWriteApprovalAuthority,
@@ -27,7 +28,7 @@ function binding(overrides: Partial<ManagedWriteApprovalBinding> = {}): ManagedW
     callerId: "trusted-operator",
     workItemFingerprint: `sha256:${"1".repeat(64)}`,
     configuredAgentProfileId: "opencode-write-worker",
-    admissionProfileId: "foundation-apply-approved-writes",
+    access: "approved-write",
     routeId: "opencode-go-write",
     providerId: "opencode-go",
     model: "kimi-k2.6",
@@ -51,6 +52,24 @@ function expectErrorCode(action: () => unknown, code: ManagedWriteApprovalError[
 }
 
 describe("SqliteManagedWriteApprovalAuthority", () => {
+  it("rejects the legacy v1 binding store without mutating it", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-managed-write-approval-v1-"));
+    roots.push(root);
+    const path = join(root, "approvals.sqlite");
+    const legacy = new Database(path, { create: true, strict: true });
+    legacy.exec("CREATE TABLE legacy_marker(value TEXT NOT NULL); INSERT INTO legacy_marker VALUES ('preserved'); PRAGMA user_version=1;");
+    legacy.close();
+
+    expect(() => new SqliteManagedWriteApprovalAuthority({ path })).toThrow(
+      "Managed write approval schema version 1 is unsupported.",
+    );
+
+    const observed = new Database(path, { strict: true });
+    expect(observed.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(1);
+    expect(observed.query<{ value: string }, []>("SELECT value FROM legacy_marker").get()?.value).toBe("preserved");
+    observed.close();
+  });
+
   it("issues and atomically consumes one exact approval, with idempotent same-consumer reads", () => {
     const approvals = authority();
     const issued = approvals.issue({ binding: binding(), approverId: "operator-1", expiresAt: "2026-08-09T20:05:00.000Z" });

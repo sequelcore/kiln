@@ -7,7 +7,6 @@ import type {
 import {
   defineManagedAgentWriteEvidence,
   defineManagedAgentWriteProposal,
-  isManagedAgentWriteAuthorityProfile,
 } from "./write-authority.js";
 import type {
   ManagedAgentMemoryWriteOperation,
@@ -62,16 +61,15 @@ export interface ManagedAgentArtifactWriteProposalResult {
 export function createManagedAgentMemoryWriteProposal(
   input: ManagedAgentMemoryWriteProposalInput,
 ): ManagedAgentWriteProposal {
-  assertManagedWriteProfile(input.request);
+  assertManagedWriteAccess(input.request);
   const writeAuthority = input.request.authority.writeAuthority;
   if (
     !writeAuthority ||
-    writeAuthority.scope.memory.mode === "none" ||
     input.request.authority.memoryScope.access !== "write-proposals"
   ) {
     throw new Error("Managed agent memory write proposals require admitted memory proposal authority");
   }
-  if (!writeAuthority.scope.memory.scope || !sameScope(writeAuthority.scope.memory.scope, input.scope)) {
+  if (!sameScope(input.request.authority.memoryScope.scope, input.scope)) {
     throw new Error("Managed agent memory write proposal scope is outside admitted memory scope");
   }
   if (!writeAuthority.scope.memory.operations.includes(input.operation)) {
@@ -100,7 +98,7 @@ export function createManagedAgentMemoryWriteProposal(
 export function storeManagedAgentArtifactWriteProposal(
   input: ManagedAgentArtifactWriteProposalInput,
 ): ManagedAgentArtifactWriteProposalResult {
-  assertManagedWriteProfile(input.request);
+  assertManagedWriteAccess(input.request);
   const writeAuthority = input.request.authority.writeAuthority;
   if (!writeAuthority || writeAuthority.scope.artifacts.mode === "none") {
     throw new Error("Managed agent artifact write proposals require admitted artifact proposal authority");
@@ -157,9 +155,9 @@ export function storeManagedAgentArtifactWriteProposal(
   };
 }
 
-function assertManagedWriteProfile(request: ManagedAgentInvocationRequest): void {
-  if (!isManagedAgentWriteAuthorityProfile(request.profile)) {
-    throw new Error("Managed agent write integration requires a managed write authority profile");
+function assertManagedWriteAccess(request: ManagedAgentInvocationRequest): void {
+  if (request.access === "read-only") {
+    throw new Error("Managed agent write integration requires propose or approved-write access");
   }
 }
 

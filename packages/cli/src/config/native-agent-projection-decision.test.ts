@@ -13,7 +13,7 @@ const admitted: RouteAdmissionDecision = {
     identity: { routeId: "codex", revision: "v1" }, target: { providerId: "codex-oauth", modelId: "gpt-5.5" },
     adapter: { kind: "direct-provider", capabilityId: "test", capabilityVersion: "v1" }, authorityCeiling: "read_only",
     toolNames: [], supportsRecursion: false, supportsAttachments: false, supportsWrite: false,
-    proof: { status: "configured", source: "test", provenProfiles: ["foundation-readonly-plan"] }, capacity: { kind: "accountless" }, settlement: { kind: "not-required" },
+    proof: { status: "configured", source: "test", provenAccess: ["read-only"] }, capacity: { kind: "accountless" }, settlement: { kind: "not-required" },
   }, effectiveAuthority: "read_only", allowedToolNames: [],
 };
 
@@ -24,7 +24,7 @@ describe("decideNativeAgentProjection", () => {
   });
 
   it("propagates canonical route rejection instead of provider denial", () => {
-    const unavailable: RouteAdmissionDecision = { status: "unavailable", routeId: "claude", reasons: [{ code: "profile-unproven", profile: "foundation-readonly-plan" }] };
+    const unavailable: RouteAdmissionDecision = { status: "unavailable", routeId: "claude", reasons: [{ code: "access-unproven", access: "read-only" }] };
     expect(decideNativeAgentProjection({ agent: agent("claude"), harness: "codex", admission: unavailable })).toEqual({ kind: "unavailable", harness: "codex", admission: unavailable, reason: { kind: "route-admission", reasons: unavailable.reasons } });
   });
 

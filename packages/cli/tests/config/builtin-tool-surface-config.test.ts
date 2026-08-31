@@ -84,7 +84,7 @@ describe("builtin tool surface config", () => {
     const projectPath = mkdtempSync(join(tmpdir(), "kiln-formal-surface-"));
     try {
       const globalConfig: KilnGlobalConfig = {
-        version: "6",
+        version: "7",
         verification: {
           formal: {
             dafny: {
@@ -119,7 +119,7 @@ describe("builtin tool surface config", () => {
     try {
       const options = await loadConfiguredBuiltinToolSurfaceOptions(appConfig(), projectPath, {
         globalConfig: {
-          version: "6",
+          version: "7",
           verification: {
             formal: {
               dafny: {
@@ -173,7 +173,7 @@ describe("builtin tool surface config", () => {
       writeFileSync(executablePath, executableBytes);
       const options = await loadConfiguredBuiltinToolSurfaceOptions(appConfig(), projectPath, {
         globalConfig: {
-          version: "6",
+          version: "7",
           verification: {
             formal: {
               dafny: {
@@ -240,7 +240,7 @@ describe("builtin tool surface config", () => {
     const projectPath = mkdtempSync(join(tmpdir(), "kiln-static-surface-"));
     try {
       const globalConfig: KilnGlobalConfig = {
-        version: "6",
+        version: "7",
         verification: {
           static: {
             oxlint: { enabled: true },
@@ -285,7 +285,7 @@ describe("builtin tool surface config", () => {
       writeFileSync(executable, bytes);
       const expectedExecutableDigest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
       const globalConfig: KilnGlobalConfig = {
-        version: "6",
+        version: "7",
         verification: {
           inferential: {
             gentleAi: {
@@ -318,7 +318,7 @@ describe("builtin tool surface config", () => {
     try {
       const options = await loadConfiguredBuiltinToolSurfaceOptions(appConfig(), projectPath, {
         globalConfig: {
-          version: "6",
+          version: "7",
           verification: {
             static: { quality: { typescript: ["test-integrity", "type-integrity", "complexity"] } },
           },

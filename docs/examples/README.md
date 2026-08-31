@@ -18,7 +18,7 @@ current repository state, and the project and package names are provisional.
 | [whatsapp-bot](whatsapp-bot/) | WhatsApp channel | Meta webhook, tenant resolution, governed memory, owner escalation |
 | [research-brief](research-brief/) | Evidence-backed research | Source-grounded MCP tools, citations, saved briefs, API channel |
 | [incident-triage](incident-triage/) | Internal operations triage | Runbooks, service status, incident mutations, API channel |
-| [configs](configs/) | Operator config | V4 target intent and managed evidence, routing, managed agents, authority profiles, skills, work governance, and voice policy |
+| [configs](configs/) | Operator config | V7 target intent and managed evidence, routing, managed agents, authority profiles, skills, work governance, and voice policy |
 | [operator-routing-profile](operator-routing-profile.md) | Sanitized Kiln development team | Explicit targets and agents, independent authority, strict project scope, native ingress aliases, and operational checks |
 
 ## Run From Source

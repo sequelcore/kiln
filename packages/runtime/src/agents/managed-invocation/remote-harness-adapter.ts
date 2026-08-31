@@ -101,7 +101,7 @@ export class ManagedRemoteHarnessAdapter implements ManagedAgentRuntimeAdapter {
       adapterDescriptorId: `adapter:${this.providerId}:remote-harness`,
       providerId: this.providerId,
       adapterKind: "harness",
-      supportedProfiles: ["foundation-readonly-plan"],
+      supportedAccess: ["read-only"],
       supportedExecutionModes: ["remote-harness"],
       lifecycle: {
         exposesStart: true,
@@ -510,7 +510,7 @@ function cancelledRecord(
     agentId: request.agentId,
     parentSessionId: request.parentSessionId,
     parentTurnId: request.parentTurnId,
-    profile: request.profile,
+    access: request.access,
     lifecycleState: "cancelled",
     providerRoute: request.providerRoute,
     adapterKind: request.adapterKind,

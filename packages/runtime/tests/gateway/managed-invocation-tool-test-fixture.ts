@@ -4,7 +4,7 @@ import {
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
   type ManagedAgentAdapterDescriptor,
-  type ManagedAgentAdmissionProfile,
+  type ManagedAgentAccess,
   type ManagedAgentCallerAttachmentIdentity,
   type ManagedAgentInvocationRequest,
   type RouteCapability,
@@ -154,7 +154,7 @@ export function makeDescriptor(overrides: Partial<ManagedAgentAdapterDescriptor>
     adapterDescriptorId: "adapter:opencode:harness",
     providerId: "opencode",
     adapterKind: "harness",
-    supportedProfiles: ["foundation-readonly-plan"],
+    supportedAccess: ["read-only"],
     supportedExecutionModes: ["cli-harness"],
     lifecycle: {
       exposesStart: true,
@@ -212,7 +212,7 @@ export function makeAdapterWithHandoff(
         agentId: request.agentId,
         parentSessionId: request.parentSessionId,
         parentTurnId: request.parentTurnId,
-        profile: request.profile,
+        access: request.access,
         lifecycleState: "completed",
         providerRoute: request.providerRoute,
         adapterKind: request.adapterKind,
@@ -295,7 +295,7 @@ export function makeAdapterWithProgressHandoff(summary: string): ManagedAgentRun
         agentId: request.agentId,
         parentSessionId: request.parentSessionId,
         parentTurnId: request.parentTurnId,
-        profile: request.profile,
+        access: request.access,
         lifecycleState: "completed",
         providerRoute: request.providerRoute,
         adapterKind: request.adapterKind,
@@ -336,7 +336,7 @@ export function makeTimedOutAdapter(): ManagedAgentRuntimeAdapter {
         agentId: request.agentId,
         parentSessionId: request.parentSessionId,
         parentTurnId: request.parentTurnId,
-        profile: request.profile,
+        access: request.access,
         lifecycleState: "timed_out",
         providerRoute: request.providerRoute,
         adapterKind: request.adapterKind,
@@ -512,13 +512,10 @@ export function makeAbortableDeferredAdapter(): {
 export function makeRuntimeAuthorityObserver() {
   return {
     observe: vi.fn(async ({ request }: { readonly request: ManagedAgentInvocationRequest }) => {
-      const permissionProfile = request.authority.permissionProfile.toLowerCase();
       const observedAt = new Date(Date.now()).toISOString();
       const validUntil = new Date(Date.now() + 60_000).toISOString();
       return {
-        approval: permissionProfile.includes("trusted") || permissionProfile.includes("full-access") || permissionProfile.includes("danger-full-access")
-          ? "never" as const
-          : "on-request" as const,
+        approval: "on-request" as const,
         sandbox: request.authority.toolAuthority.writeAllowed === true && request.authority.workingDirectory.mode !== "read-only"
           ? "workspace-write" as const
           : "read-only" as const,
@@ -590,13 +587,12 @@ export function makeSurfaceOptions(
         capability: {
           identity: { routeId: "opencode-readonly", revision: "test-v1" }, target: { providerId: "opencode", modelId: "opencode-default-model" },
           adapter: { kind: "cli-harness", capabilityId: "test:opencode", capabilityVersion: "v1" }, authorityCeiling: "audited", toolNames: ["read", "grep", "glob"], supportsRecursion: true, supportsAttachments: false, supportsWrite: false,
-          proof: { status: "configured", source: "test", provenProfiles: ["foundation-readonly-plan"] }, capacity: { kind: "accountless" }, settlement: { kind: "not-required" },
+          proof: { status: "configured", source: "test", provenAccess: ["read-only"] }, capacity: { kind: "accountless" }, settlement: { kind: "not-required" },
         },
         createAdapter: async () => adapter,
         profiles: [{
             authorityProfileId: "authority:opencode:readonly",
-            admissionProfile: "foundation-readonly-plan",
-            permissionProfile: "read-only",
+            access: "read-only",
             allowedToolNames: ["read", "grep", "glob"],
             workingDirectory: {
               path: "C:/workspace/kiln",
@@ -621,7 +617,7 @@ export function makeRouteCapability(input: {
   readonly routeId: string;
   readonly providerId: string;
   readonly model: string;
-  readonly profiles: readonly ManagedAgentAdmissionProfile[];
+  readonly profiles: readonly ManagedAgentAccess[];
   readonly toolNames?: readonly string[];
   readonly supportsWrite?: boolean;
   readonly adapterKind?: RouteCapability["adapter"]["kind"];
@@ -637,7 +633,7 @@ export function makeRouteCapability(input: {
     supportsAttachments: input.externalRuntimeAttachment !== undefined,
     supportsWrite: input.supportsWrite ?? false,
     ...(input.externalRuntimeAttachment ? { externalRuntimeAttachment: input.externalRuntimeAttachment } : {}),
-    proof: { status: "configured", source: "test", provenProfiles: input.profiles },
+    proof: { status: "configured", source: "test", provenAccess: input.profiles },
     capacity: { kind: "accountless" },
     settlement: { kind: "not-required" },
   };
@@ -654,7 +650,7 @@ export function makeManagedRoute(
     routeSource: "explicit-managed-route" as const,
     providerId,
     model,
-    capability: makeRouteCapability({ routeId, providerId, model, profiles: ["foundation-readonly-plan"] }),
+    capability: makeRouteCapability({ routeId, providerId, model, profiles: ["read-only"] }),
     createAdapter,
     surface: "cli-harness",
     taskSuitability: [
@@ -666,9 +662,8 @@ export function makeManagedRoute(
       },
     ],
     profiles: [{
-        authorityProfileId: `authority:${routeId}:foundation-readonly-plan`,
-        admissionProfile: "foundation-readonly-plan",
-        permissionProfile: "read-only",
+        authorityProfileId: `authority:${routeId}:read-only`,
+        access: "read-only",
         allowedToolNames: ["read", "grep", "glob"],
         workingDirectory: {
           path: "C:/workspace/kiln",

@@ -17,7 +17,7 @@ function makeRequest(): ManagedAgentInvocationRequest {
     agentId: "agent-reviewer",
     parentSessionId: "session-parent",
     parentTurnId: "turn-parent",
-    profile: "foundation-readonly-plan",
+    access: "read-only",
     requestedBy: "operator",
     requestSource: "manual",
     providerRoute: {
@@ -28,8 +28,7 @@ function makeRequest(): ManagedAgentInvocationRequest {
     adapterKind: "harness",
     executionMode: "cli-harness",
     authority: {
-      authorityProfileId: "foundation-readonly",
-      permissionProfile: "read-only",
+      authorityProfileId: "read-only",
       toolAuthority: {
         allowedToolNames: ["read", "rg"],
         writeAllowed: false,

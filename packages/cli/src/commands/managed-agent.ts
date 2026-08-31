@@ -680,7 +680,7 @@ function formatGovernedWorkItemLines(
       ...(item.missingResidualRisk ? ["missing:residual-risk"] : []),
     ];
     return [
-      `Work item: ${item.id} | ${item.status} | authority:${item.authorityProfile ?? "unknown"} | pauses:${item.pendingPauseRequirementCount}`,
+      `Work item: ${item.id} | ${item.status} | authority:${item.authority ?? "unknown"} | access:${item.access ?? "unassigned"} | pauses:${item.pendingPauseRequirementCount}`,
       ...evidence.map((entry) => `  ${entry}`),
     ];
   });

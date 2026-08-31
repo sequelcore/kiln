@@ -285,7 +285,7 @@ describe("interactive use config", () => {
 
   it("projects interactive-use authority only from global configuration", () => {
     const merged = deriveEffectiveKilnYaml({
-      version: "6",
+      version: "7",
       interactiveUse: {
         enabled: true,
         browserProvider: "playwright",

@@ -21,8 +21,6 @@ function makeWriteScope() {
       deniedPaths: ["C:/workspace/kiln/.git"],
     },
     memory: {
-      mode: "propose",
-      scope: { kind: "project", id: "kiln" },
       operations: ["create", "update"],
     },
     artifacts: {
@@ -40,7 +38,6 @@ function makeWriteScope() {
 describe("managed agent write authority contracts", () => {
   it("defines provider-neutral write scope and authority separate from read-only invocation authority", () => {
     const writeAuthority = defineManagedAgentWriteAuthority({
-      profile: "foundation-propose-writes",
       scope: makeWriteScope(),
       approval: {
         mode: "required-before-apply",
@@ -53,7 +50,7 @@ describe("managed agent write authority contracts", () => {
       agentId: "agent-implementer",
       parentSessionId: "session-parent",
       parentTurnId: "turn-parent",
-      profile: "foundation-propose-writes",
+      access: "propose",
       requestedBy: "operator",
       requestSource: "manual",
       providerRoute: {
@@ -65,7 +62,6 @@ describe("managed agent write authority contracts", () => {
       executionMode: "cli-harness",
       authority: {
         authorityProfileId: "authority:write-proposal",
-        permissionProfile: "propose-writes",
         toolAuthority: {
           allowedToolNames: ["read", "rg"],
           writeAllowed: false,
@@ -91,18 +87,15 @@ describe("managed agent write authority contracts", () => {
       },
     });
 
-    expect(request.profile).toBe("foundation-propose-writes");
+    expect(request.access).toBe("propose");
     expect(request.authority.toolAuthority.writeAllowed).toBe(false);
     expect(request.authority.writeAuthority).toMatchObject({
-      profile: "foundation-propose-writes",
       scope: {
         workspace: {
           mode: "propose",
           allowedPaths: ["C:/workspace/kiln/packages/core/src"],
         },
         memory: {
-          mode: "propose",
-          scope: { kind: "project", id: "kiln" },
           operations: ["create", "update"],
         },
       },
@@ -178,7 +171,7 @@ describe("managed agent write authority contracts", () => {
         allowedPaths: [" "],
         deniedPaths: [],
       },
-      memory: { mode: "none", operations: [] },
+      memory: { operations: [] },
       artifacts: { mode: "none", resourceUris: [], retention: "none" },
       tools: { allowedToolNames: [], deniedToolNames: [] },
     })).toThrow("Managed write workspace path is required");

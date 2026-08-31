@@ -144,9 +144,9 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       adapterDescriptorId: `adapter:${this.providerId}:cli-harness`,
       providerId: this.providerId,
       adapterKind: "harness",
-      supportedProfiles: writeAuthority !== undefined
-        ? ["foundation-readonly-plan", "foundation-propose-writes", "foundation-apply-approved-writes", "foundation-memory-write-proposals"]
-        : ["foundation-readonly-plan"],
+      supportedAccess: writeAuthority !== undefined
+        ? ["read-only", "propose", "approved-write"]
+        : ["read-only"],
       supportedExecutionModes: ["cli-harness"],
       lifecycle: {
         exposesStart: true,
@@ -593,7 +593,7 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       agentId: request.agentId,
       parentSessionId: request.parentSessionId,
       parentTurnId: request.parentTurnId,
-      profile: request.profile,
+      access: request.access,
       providerRoute: this.providerRoute(request.providerRoute),
       adapterKind: "harness",
       executionMode: "cli-harness",

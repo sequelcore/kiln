@@ -207,15 +207,14 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       adapterDescriptorId: `adapter:${this.providerId}:direct-provider`,
       providerId: this.providerId,
       adapterKind: "direct",
-      supportedProfiles:
+      supportedAccess:
         writeAuthority !== undefined
           ? [
-              "foundation-readonly-plan",
-              "foundation-propose-writes",
-              "foundation-apply-approved-writes",
-              "foundation-memory-write-proposals",
+              "read-only",
+              "propose",
+              "approved-write",
             ]
-          : ["foundation-readonly-plan"],
+          : ["read-only"],
       supportedExecutionModes: ["direct-provider"],
       lifecycle: {
         exposesStart: true,
@@ -547,7 +546,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         intentFingerprint: runtimeModelRoundEffectIdentity({
           workload: "managed-direct",
           invocationId: request.invocationId,
-          profile: request.profile,
+          access: request.access,
           authorityProfileId: request.authority.authorityProfileId,
           providerId: request.providerRoute.providerId,
           model: request.providerRoute.model ?? this.model,
@@ -655,7 +654,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
                 intentFingerprint: runtimeModelRoundEffectIdentity({
                   workload: "managed-direct-finalization",
                   invocationId: request.invocationId,
-                  profile: request.profile,
+                  access: request.access,
                   authorityProfileId: request.authority.authorityProfileId,
                   providerId: request.providerRoute.providerId,
                   model: request.providerRoute.model ?? this.model,
@@ -814,7 +813,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       agentId: request.agentId,
       parentSessionId: request.parentSessionId,
       parentTurnId: request.parentTurnId,
-      profile: request.profile,
+      access: request.access,
       providerRoute: this.providerRoute(request.providerRoute),
       adapterKind: request.adapterKind,
       executionMode: request.executionMode,

@@ -217,7 +217,7 @@ project memory files, or pretend a native subagent ran. It must choose one of
 these governed outcomes:
 
 - use an admitted Kiln managed invocation route that satisfies the required
-  profile, authority, tools, and evidence contract;
+  access, authority, tools, and evidence contract;
 - continue locally only when the work item can still satisfy the configured
   evidence gates through available local verification;
 - record an explicit pause requirement that names the missing capability,
@@ -243,7 +243,7 @@ surfaces:
   Returns a direct-versus-orchestrate recommendation, matched triggers, reasons,
   and the evidence expected before closeout.
 - `work_profile.list`
-  Lists canonical workflow profiles, recommended agents, default authority, and
+  Lists canonical workflow profiles, recommended agents, default access, and
   verification gates.
 - `work_item.update`
   Creates or updates a governed work item in the current session.
@@ -422,11 +422,11 @@ Every goal also records its authority envelope, route policy, required evidence,
 and linked work item ids. That binding makes the run reconstructable from session
 evidence instead of relying on assistant text or surface-local UI state.
 The goal authority envelope is a ceiling for every generated managed request.
-Work-item profiles and route repair may narrow that ceiling but never widen it.
+Work-item access and route repair may narrow that ceiling but never widen it.
 A read-only goal therefore remains read-only even when an exact configured
-route supports only write-capable profiles; that route is incompatible and
+route supports only write-capable access levels; that route is incompatible and
 runtime must select a uniquely compatible read-only route or fail closed.
-Governed-scope admission rechecks the effective managed profile and requested
+Governed-scope admission rechecks the effective managed access and requested
 authority for direct `managed_agent.invoke` calls, so bypassing the generated
 request cannot escape the same goal ceiling.
 
@@ -544,7 +544,7 @@ handoff contract fields:
 
 These fields are admitted as part of the managed invocation request and emitted
 in canonical session events and tool metadata. They are not authority by
-themselves; authority still comes from the managed invocation profile and route.
+themselves; authority still comes from the managed invocation access and route.
 They are also not identifiers by assertion: Runtime verifies `goalRunId`,
 `workItemId`, their ownership relationship, parent-session ownership, terminal
 state, and any supplied active attempt before a direct `managed_agent.invoke`
@@ -641,7 +641,7 @@ read-only route synthesized from generic routing without web/source tools is not
 a valid frontend-reference route. The
 implementation phase then returns to the work item's write route after
 `work_item.update` records the frontend-reference evidence. A UI work item assigned to
-`foundation-apply-approved-writes` fails fast if it still expects
+`approved-write` fails fast if it still expects
 `visual-reference-research` and omits `phaseRoutes.visual-reference-research`.
 The failure returns a structured `nextTool: work_item.update` recovery payload
 with the required `phaseRoutes.visual-reference-research` patch shape. The
@@ -658,8 +658,8 @@ records the structured evidence disposition and selects the next phase. For the
 final phase, runtime links the recorded invocation id to a new attempt and
 closes that attempt with the validated handoff. Each phase receives a distinct
 invocation id. The parent must not spawn a second child, copy invocation ids, or
-add a guessed profile. Runtime surfaces may attach a
-profile only when a single configured agent profile explicitly owns the same
+add a guessed access level. Runtime surfaces may attach an
+access level only when a single configured agent profile explicitly owns the same
 route id.
 Each generated phase carries `taskAffinity` in addition to required tools.
 Route selection uses configured `taskSuitability` only after capability
@@ -669,10 +669,10 @@ Canonical artifact content URIs recorded by earlier phase verification results
 are included in later phase resources. This reuses bounded evidence without
 copying whole transcripts or depending on provider-native conversation state.
 The generated managed invocation request treats the work item route and
-authority profile as governed state, not as model-owned hints. Caller-supplied
-`managedProfile` or `requestedAuthority` values may narrow a route only when
+managed access as governed state, not as model-owned hints. Caller-supplied
+`managedAccess` or `requestedAuthority` values may narrow a route only when
 they do not contradict the selected work item. A routed write work item keeps
-its configured write profile and is not downgraded to a read-only profile by a
+its configured write access and is not downgraded to read-only access by a
 turn-level hint, except for explicit intermediate read-only phase routes such
 as `visual-reference-research`.
 If browser/web/source tools are used while a governed work item still expects

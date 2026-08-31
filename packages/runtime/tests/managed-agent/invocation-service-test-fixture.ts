@@ -56,7 +56,7 @@ export function makeRequest(): ManagedAgentInvocationRequest {
     agentId: "agent-reviewer",
     parentSessionId: "session-parent",
     parentTurnId: "turn-parent",
-    profile: "foundation-readonly-plan",
+    access: "read-only",
     requestedBy: "operator",
     requestSource: "manual",
     providerRoute: {
@@ -67,8 +67,7 @@ export function makeRequest(): ManagedAgentInvocationRequest {
     adapterKind: "harness",
     executionMode: "cli-harness",
     authority: {
-      authorityProfileId: "foundation-readonly",
-      permissionProfile: "read-only",
+      authorityProfileId: "read-only",
       toolAuthority: {
         allowedToolNames: ["read", "rg"],
         writeAllowed: false,
@@ -98,7 +97,7 @@ export function makeDescriptor(overrides: Partial<ManagedAgentAdapterDescriptor>
     adapterDescriptorId: "adapter:opencode:harness",
     providerId: "opencode",
     adapterKind: "harness",
-    supportedProfiles: ["foundation-readonly-plan"],
+    supportedAccess: ["read-only"],
     supportedExecutionModes: ["cli-harness"],
     lifecycle: {
       exposesStart: true,
@@ -136,7 +135,7 @@ export function makeDescriptor(overrides: Partial<ManagedAgentAdapterDescriptor>
 
 export function makeWriteDescriptor(): ManagedAgentAdapterDescriptor {
   return makeDescriptor({
-    supportedProfiles: ["foundation-readonly-plan", "foundation-apply-approved-writes"],
+    supportedAccess: ["read-only", "approved-write"],
     writeAuthority: {
       proposalSupported: true,
       approvedApplySupported: true,
@@ -157,7 +156,7 @@ export function makeApprovedWriteRequest(
     agentId: "agent-implementer",
     parentSessionId: "session-parent",
     parentTurnId: "turn-parent",
-    profile: "foundation-apply-approved-writes",
+    access: "approved-write",
     requestedBy: "operator",
     requestSource: "manual",
     providerRoute: {
@@ -168,8 +167,7 @@ export function makeApprovedWriteRequest(
     adapterKind: "harness",
     executionMode: "cli-harness",
     authority: {
-      authorityProfileId: "foundation-apply-approved-writes",
-      permissionProfile: "apply-approved-writes",
+      authorityProfileId: "approved-write",
       toolAuthority: {
         allowedToolNames: ["read", "rg", "apply-patch"],
         writeAllowed: true,
@@ -188,7 +186,6 @@ export function makeApprovedWriteRequest(
         access: "read-only",
       },
       writeAuthority: defineManagedAgentWriteAuthority({
-        profile: "foundation-apply-approved-writes",
         scope: {
           workspace: {
             mode: "apply-approved",
@@ -196,7 +193,6 @@ export function makeApprovedWriteRequest(
             deniedPaths: ["C:/workspace/kiln/.git"],
           },
           memory: {
-            mode: "none",
             operations: [],
           },
           artifacts: {
@@ -254,7 +250,6 @@ export function makeIsolatedWorktreeRequestForPath(
         mode: "isolated-worktree",
       },
       writeAuthority: defineManagedAgentWriteAuthority({
-        profile: "foundation-apply-approved-writes",
         scope: {
           workspace: {
             mode: "apply-approved",
@@ -262,7 +257,6 @@ export function makeIsolatedWorktreeRequestForPath(
             deniedPaths: [join(worktreePath, ".git")],
           },
           memory: {
-            mode: "none",
             operations: [],
           },
           artifacts: {
@@ -356,7 +350,7 @@ export function makeRecord(
     agentId: request.agentId,
     parentSessionId: request.parentSessionId,
     parentTurnId: request.parentTurnId,
-    profile: request.profile,
+    access: request.access,
     lifecycleState: "completed",
     providerRoute: request.providerRoute,
     adapterKind: request.adapterKind,
@@ -389,7 +383,7 @@ export function makeReadonlyRecordForRequest(
   request: ManagedAgentInvocationRequest,
   capabilitySnapshot = buildManagedAgentCapabilitySnapshot(request, makeDescriptor(), {
     capturedAt: "2026-05-07T08:00:00.000Z",
-    routeId: `${request.providerRoute.providerId}:${request.profile}`,
+    routeId: `${request.providerRoute.providerId}:${request.access}`,
     routeSource: "explicit-managed-route",
   }),
 ): ManagedAgentInvocationRecord {
@@ -399,7 +393,7 @@ export function makeReadonlyRecordForRequest(
     agentId: request.agentId,
     parentSessionId: request.parentSessionId,
     parentTurnId: request.parentTurnId,
-    profile: request.profile,
+    access: request.access,
     providerRoute: request.providerRoute,
     adapterKind: request.adapterKind,
     executionMode: request.executionMode,
@@ -412,7 +406,7 @@ export function makeRecordForRequest(
   request: ManagedAgentInvocationRequest,
   capabilitySnapshot = buildManagedAgentCapabilitySnapshot(request, makeWriteDescriptor(), {
     capturedAt: "2026-05-07T08:00:00.000Z",
-    routeId: `${request.providerRoute.providerId}:${request.profile}`,
+    routeId: `${request.providerRoute.providerId}:${request.access}`,
     routeSource: "explicit-managed-route",
   }),
 ): ManagedAgentInvocationRecord {
@@ -421,7 +415,7 @@ export function makeRecordForRequest(
     agentId: request.agentId,
     parentSessionId: request.parentSessionId,
     parentTurnId: request.parentTurnId,
-    profile: request.profile,
+    access: request.access,
     lifecycleState: "completed",
     providerRoute: request.providerRoute,
     adapterKind: request.adapterKind,

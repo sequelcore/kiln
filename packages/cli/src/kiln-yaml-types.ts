@@ -1,5 +1,6 @@
 import type {
   KilnWorkGovernanceEvidence,
+  ManagedAgentAccess,
   ManagedEconomicAmount,
   McpServerConfiguration,
   MemoryLayerKind,
@@ -359,11 +360,7 @@ export interface KilnYamlInteractiveUseConfig {
 
 export type KilnManagedAgentRouteKind = "harness" | "direct";
 
-export type KilnManagedAgentProfile =
-  | "foundation-readonly-plan"
-  | "foundation-propose-writes"
-  | "foundation-apply-approved-writes"
-  | "foundation-memory-write-proposals";
+export type KilnManagedAgentAccess = ManagedAgentAccess;
 
 export interface KilnManagedAgentToolsConfig {
   readonly allowed?: readonly string[];
@@ -405,7 +402,6 @@ export interface KilnManagedAgentReadAuthorityConfig {
 }
 
 export interface KilnManagedAgentMemoryWriteConfig {
-  readonly mode?: KilnManagedAgentWriteMode;
   readonly operations?: readonly KilnManagedAgentMemoryWriteOperation[];
 }
 
@@ -451,7 +447,7 @@ export interface KilnManagedAgentRemoteHarnessConfig {
 /**
  * Roadmap 01 Slice 3.1 - declares which external-runtime instance this
  * route is physically attached to. A property of the target, not of any one
- * admission profile: every profile of this route addresses the same
+ * access level: every access level of this route addresses the same
  * instance. When declared, every dispatch against this route must request
  * the exact same attachment or be denied.
  */
@@ -468,7 +464,7 @@ export type KilnTargetCatalogIntentConfig = ExecutionTargetCatalogIntent;
 /** Reusable authority/environment policy, independent from physical target identity. */
 export interface KilnAuthorityProfileConfig {
   readonly id: string;
-  readonly admissionProfile: KilnManagedAgentProfile;
+  readonly access: KilnManagedAgentAccess;
   readonly voiceProfile?: string;
   readonly workingDirectory?: "project" | "isolated-worktree" | "sandbox";
   readonly timeoutMs?: number;

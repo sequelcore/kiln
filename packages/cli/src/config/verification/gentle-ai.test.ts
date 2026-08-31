@@ -84,7 +84,7 @@ describe("Gentle AI configuration", () => {
     const runVersion = vi.fn(() => "gentle-ai 2.5.0-rc.1");
     const resolution = resolveGentleAiConfiguration({
       globalConfig: {
-        version: "6",
+        version: "7",
         verification: {
           inferential: {
             gentleAi: {

@@ -41,16 +41,11 @@ export interface ManagedAgentRuntimeEconomicDispatchCheckpoint {
   readonly jobId: string;
   readonly economicAttemptId: string;
   readonly dispatchFenceId: string;
-  /**
-   * Optional even though newly written checkpoints always populate it: checkpoints persisted
-   * before this field existed must still validate on restart (checkpoints are transient
-   * in-flight recovery records under the same `version: 2`, not a durable history schema).
-   */
-  readonly reservation?: ManagedEconomicReservation;
+  readonly reservation: ManagedEconomicReservation;
 }
 
 export interface ManagedAgentRuntimeRecoveryCheckpoint {
-  readonly version: 2;
+  readonly version: 3;
   readonly lifecycleState: ManagedAgentLifecycleState;
   readonly request: ManagedAgentInvocationRequest;
   readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
@@ -208,7 +203,7 @@ export function validateManagedAgentRuntimeRecoveryCheckpoint(input: unknown): M
   if (!isRecord(input)) {
     throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery checkpoint must be an object");
   }
-  if (input.version !== 2) {
+  if (input.version !== 3) {
     throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery checkpoint version is not supported");
   }
   if (
@@ -236,7 +231,7 @@ export function validateManagedAgentRuntimeRecoveryCheckpoint(input: unknown): M
     ? undefined
     : validateChildAuthorityAdmission(input.childAuthorityAdmission, request);
   const checkpoint: ManagedAgentRuntimeRecoveryCheckpoint = {
-    version: 2,
+    version: 3,
     lifecycleState: input.lifecycleState,
     request,
     decision,
@@ -305,8 +300,8 @@ export function validateManagedAgentRuntimeRecoveryCheckpoint(input: unknown): M
   if (checkpoint.decision.invocationId !== checkpoint.request.invocationId) {
     throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery checkpoint decision invocation id does not match request");
   }
-  if (checkpoint.decision.profile !== checkpoint.request.profile) {
-    throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery checkpoint decision profile does not match request");
+  if (checkpoint.decision.access !== checkpoint.request.access) {
+    throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery checkpoint decision access does not match request");
   }
   if (checkpoint.decision.authorityProfileId !== checkpoint.request.authority.authorityProfileId) {
     throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery checkpoint decision authority profile does not match request");
@@ -400,15 +395,13 @@ function validateEconomicDispatchCheckpoint(input: unknown): ManagedAgentRuntime
   }
   const jobId = validateAuthorityReference(input.jobId, "job id");
   const economicAttemptId = validateAuthorityReference(input.economicAttemptId, "attempt id");
-  const reservation = input.reservation !== undefined
-    ? validateEconomicReservationCheckpoint(input.reservation, jobId, economicAttemptId)
-    : undefined;
+  const reservation = validateEconomicReservationCheckpoint(input.reservation, jobId, economicAttemptId);
   return {
     commitmentId: validateAuthorityReference(input.commitmentId, "commitment id"),
     jobId,
     economicAttemptId,
     dispatchFenceId: validateAuthorityReference(input.dispatchFenceId, "dispatch fence id"),
-    ...(reservation !== undefined ? { reservation } : {}),
+    reservation,
   };
 }
 

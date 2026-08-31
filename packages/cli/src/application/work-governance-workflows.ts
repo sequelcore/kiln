@@ -1,4 +1,5 @@
 import type {
+  ManagedAgentAccess,
   ModelTaskSuitabilityTask,
 } from "@kilnai/core";
 import type {
@@ -24,7 +25,7 @@ export interface WorkGovernanceWorkflowProfile {
   readonly triggers: readonly KilnWorkGovernanceTrigger[];
   readonly minimumRisk: KilnWorkGovernanceRisk;
   readonly recommendedTaskAffinities: readonly ModelTaskSuitabilityTask[];
-  readonly defaultAdmissionProfile: string;
+  readonly defaultAccess: ManagedAgentAccess;
   readonly requiredEvidence: readonly KilnWorkGovernanceEvidence[];
 }
 
@@ -99,7 +100,7 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
     triggers: [],
     minimumRisk: "low",
     recommendedTaskAffinities: ["mechanical-edit"],
-    defaultAdmissionProfile: "foundation-propose-writes",
+    defaultAccess: "propose",
     requiredEvidence: ["tests", "typecheck", "residual-risk"],
   },
   {
@@ -108,7 +109,7 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
     triggers: ["verification-heavy"],
     minimumRisk: "medium",
     recommendedTaskAffinities: ["research", "test-writing", "backend-coding"],
-    defaultAdmissionProfile: "foundation-propose-writes",
+    defaultAccess: "propose",
     requiredEvidence: ["surface-map", "risk-hypothesis", "tests", "typecheck", "residual-risk"],
   },
   {
@@ -117,7 +118,7 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
     triggers: ["architecture"],
     minimumRisk: "medium",
     recommendedTaskAffinities: ["architecture-review", "research"],
-    defaultAdmissionProfile: "foundation-readonly-plan",
+    defaultAccess: "read-only",
     requiredEvidence: ["surface-map", "risk-hypothesis", "residual-risk"],
   },
   {
@@ -126,7 +127,7 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
     triggers: ["architecture", "cross-surface"],
     minimumRisk: "high",
     recommendedTaskAffinities: ["architecture-review", "research", "test-writing"],
-    defaultAdmissionProfile: "foundation-readonly-plan",
+    defaultAccess: "read-only",
     requiredEvidence: ["surface-map", "risk-hypothesis", "plan", "tests", "typecheck", "residual-risk"],
   },
   {
@@ -135,7 +136,7 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
     triggers: ["ui", "cross-surface"],
     minimumRisk: "medium",
     recommendedTaskAffinities: ["frontend-design", "research", "test-writing"],
-    defaultAdmissionProfile: "foundation-propose-writes",
+    defaultAccess: "propose",
     requiredEvidence: [
       "surface-map",
       "risk-hypothesis",
@@ -152,7 +153,7 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
     triggers: ["managed-agents", "provider-routing", "runtime", "cross-surface"],
     minimumRisk: "high",
     recommendedTaskAffinities: ["architecture-review", "backend-coding", "test-writing"],
-    defaultAdmissionProfile: "foundation-readonly-plan",
+    defaultAccess: "read-only",
     requiredEvidence: ["surface-map", "risk-hypothesis", "plan", "managed-agent-review", "tests", "typecheck", "residual-risk"],
   },
   {
@@ -161,7 +162,7 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
     triggers: ["config", "cross-surface"],
     minimumRisk: "medium",
     recommendedTaskAffinities: ["architecture-review", "mechanical-edit", "test-writing"],
-    defaultAdmissionProfile: "foundation-propose-writes",
+    defaultAccess: "propose",
     requiredEvidence: ["surface-map", "risk-hypothesis", "tests", "typecheck", "residual-risk"],
   },
   {
@@ -170,7 +171,7 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
     triggers: ["verification-heavy"],
     minimumRisk: "medium",
     recommendedTaskAffinities: ["research", "test-writing", "architecture-review"],
-    defaultAdmissionProfile: "foundation-propose-writes",
+    defaultAccess: "propose",
     requiredEvidence: ["surface-map", "risk-hypothesis", "tests", "typecheck", "residual-risk"],
   },
   {
@@ -179,7 +180,7 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
     triggers: ["formal-proof-candidate", "verification-heavy"],
     minimumRisk: "high",
     recommendedTaskAffinities: ["architecture-review", "test-writing"],
-    defaultAdmissionProfile: "foundation-readonly-plan",
+    defaultAccess: "read-only",
     requiredEvidence: ["surface-map", "risk-hypothesis", "spec", "formal-proof", "tests", "residual-risk"],
   },
 ];

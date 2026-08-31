@@ -20,7 +20,7 @@ export function projectAgentTaskResult(
     availability,
     lifecycleState: task.state,
     configuredAgentProfileId: task.configuredAgentProfileId,
-    admissionProfileId: task.admissionProfileId,
+    access: task.access,
     ...(task.capability ? { capability: structuredClone(task.capability) } : {}),
     ...(result ? {
       routeId: result.routeId, providerId: result.providerId, completedAt: result.completedAt,
@@ -46,7 +46,7 @@ export function projectAgentTaskReplay(
     availability: "available",
     lifecycleState: task.state,
     configuredAgentProfileId: task.configuredAgentProfileId,
-    admissionProfileId: task.admissionProfileId,
+    access: task.access,
     ...(task.capability ? { capability: structuredClone(task.capability) } : {}),
     ...(task.result ? { routeId: task.result.routeId, providerId: task.result.providerId } : {}),
     lifecycle: task.lifecycle,
