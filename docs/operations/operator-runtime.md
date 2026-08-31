@@ -60,6 +60,12 @@ Then restart or reconnect the affected operator surface. Verify that status is
 status. Restarting only GUI or TUI is insufficient because those surfaces reuse
 the machine-global process.
 
+Lifecycle mutations publish complete owner metadata atomically. A lock owned by
+a live process remains fail-closed; a lock owned by a dead process is reclaimed
+automatically. Empty or malformed locks remain fail-closed for a 30-second
+recovery grace, then are reclaimed. Manual deletion should therefore be reserved
+for diagnosis of an older build, not normal recovery.
+
 ## Diagnose local GUI shutdown
 
 In GUI development mode, `[gui-dev] stopped` means the managed app window was

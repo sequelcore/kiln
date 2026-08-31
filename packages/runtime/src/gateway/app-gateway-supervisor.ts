@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { open, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import {
   AppGatewayRuntimeIdentitySchema,
@@ -16,6 +16,7 @@ import {
   assertPrivateStateTarget,
   ensurePrivateStateDirectory,
 } from "../utils/private-state-filesystem.js";
+import { runWithLifecycleFileLock } from "../utils/lifecycle-file-lock.js";
 
 export interface AppGatewayLaunchDescriptor {
   readonly schemaVersion: 1;
@@ -296,24 +297,12 @@ export class AppGatewaySupervisor {
 
   async #withLock<T>(action: () => Promise<T>): Promise<T> {
     await ensurePrivateStateDirectory(this.#privateStateRoot, this.#runtimeDir, true);
-    const lockPath = this.#lockPath();
-    await assertPrivateStateFileTarget(this.#privateStateRoot, lockPath);
-    let handle;
-    try {
-      handle = await open(lockPath, "wx", 0o600);
-    } catch (error) {
-      if (!isFsCode(error, "EEXIST")) throw error;
-      throw new Error("Another App Gateway lifecycle operation is in progress.");
-    }
-    try {
-      await assertPrivateStateFileTarget(this.#privateStateRoot, lockPath);
-      await handle.writeFile(String(process.pid), "utf8");
-      return await action();
-    } finally {
-      await handle.close();
-      await assertPrivateStateFileTarget(this.#privateStateRoot, lockPath);
-      await rm(lockPath, { force: true });
-    }
+    const result = await runWithLifecycleFileLock({
+      runtimeDir: this.#runtimeDir,
+      assertFileTarget: (path) => assertPrivateStateFileTarget(this.#privateStateRoot, path),
+    }, action);
+    if (result.state === "busy") throw new Error("Another App Gateway lifecycle operation is in progress.");
+    return result.value;
   }
 
   async #writeState(state: AppGatewayRuntimeState): Promise<void> {
@@ -348,7 +337,6 @@ export class AppGatewaySupervisor {
 
   #statePath(): string { return join(this.#runtimeDir, "state.json"); }
   #credentialsPath(): string { return join(this.#runtimeDir, "credentials.json"); }
-  #lockPath(): string { return join(this.#runtimeDir, "lifecycle.lock"); }
 }
 
 export async function readAppGatewayChildCredentials(

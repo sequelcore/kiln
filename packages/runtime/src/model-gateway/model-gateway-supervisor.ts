@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ModelGatewayConfig } from "@kilnai/core";
 import { createModelGatewayConfigDigest, type ModelGatewayListenerIdentity, type ModelGatewayListenerInspection, type ModelGatewayShutdownResult } from "./model-gateway-listener.js";
+import { runWithLifecycleFileLock } from "../utils/lifecycle-file-lock.js";
 
 export type ModelGatewayHostRuntimeKind = "bun";
 export type ModelGatewayHostSource = "bundled" | "repository";
@@ -248,21 +249,9 @@ export class ModelGatewaySupervisor {
   }
 
   async #withLock<T>(action: () => Promise<T>): Promise<T> {
-    await mkdir(this.#runtimeDir, { recursive: true });
-    let handle;
-    try {
-      handle = await open(this.#lockPath(), "wx", 0o600);
-    } catch (error) {
-      if (!isFsCode(error, "EEXIST")) throw error;
-      throw new Error("Another model gateway lifecycle operation is in progress.");
-    }
-    try {
-      await handle.writeFile(String(process.pid), "utf8");
-      return await action();
-    } finally {
-      await handle.close();
-      await rm(this.#lockPath(), { force: true });
-    }
+    const result = await runWithLifecycleFileLock({ runtimeDir: this.#runtimeDir }, action);
+    if (result.state === "busy") throw new Error("Another model gateway lifecycle operation is in progress.");
+    return result.value;
   }
 
   async #writeState(state: ModelGatewayRuntimeState): Promise<void> {
@@ -273,7 +262,6 @@ export class ModelGatewaySupervisor {
   }
   async #removeState(): Promise<void> { await rm(this.#statePath(), { force: true }); }
   #statePath(): string { return join(this.#runtimeDir, "state.json"); }
-  #lockPath(): string { return join(this.#runtimeDir, "lifecycle.lock"); }
 }
 
 export const nodeModelGatewayProcessAdapter: ModelGatewayProcessAdapter = {

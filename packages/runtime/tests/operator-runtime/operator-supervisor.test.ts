@@ -218,12 +218,12 @@ describe("OperatorRuntimeSupervisor", () => {
     expect(JSON.stringify(doctor)).not.toContain(controlToken);
   });
 
-  it("keeps lifecycle lock conflicts closed and always removes its own lock", async () => {
+  it("keeps live lifecycle lock conflicts closed, reclaims dead legacy locks, and removes its own lock", async () => {
     root = await tempRuntime();
-    await writeFile(join(root, "lifecycle.lock"), "999\n");
+    await writeFile(join(root, "lifecycle.lock"), `${process.pid}\n`);
     const supervisor = createSupervisor(root, async () => ({ state: "stopped" }), adapter(222));
     await expect(supervisor.ensure()).resolves.toEqual({ state: "foreign", reason: "lifecycle-operation-in-progress" });
-    await rm(join(root, "lifecycle.lock"));
+    await writeFile(join(root, "lifecycle.lock"), "99999999\n");
     await supervisor.ensure();
     await expect(stat(join(root, "lifecycle.lock"))).rejects.toMatchObject({ code: "ENOENT" });
   });

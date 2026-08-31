@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { chmod, mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   OPERATOR_RUNTIME_AUDIENCE,
@@ -9,10 +9,10 @@ import {
   type OperatorSupervisorIdentity,
 } from "@kilnai/gateway-contracts";
 import type { OperatorRuntimeListenerInspection } from "./operator-listener.js";
+import { runWithLifecycleFileLock } from "../utils/lifecycle-file-lock.js";
 
 const STATE_FILE = "state.json";
 const CREDENTIALS_FILE = "credentials.json";
-const LIFECYCLE_LOCK_FILE = "lifecycle.lock";
 const FILE_MODE = 0o600;
 const DIRECTORY_MODE = 0o700;
 const CREDENTIAL_BYTES = 32;
@@ -351,23 +351,10 @@ export class OperatorRuntimeSupervisor {
   async #withLock(action: () => Promise<OperatorRuntimeSupervisorStatus>): Promise<OperatorRuntimeSupervisorStatus> {
     try {
       await ensureRuntimeDirectory(this.#runtimeDir);
-      let handle;
-      try {
-        handle = await open(join(this.#runtimeDir, LIFECYCLE_LOCK_FILE), "wx", FILE_MODE);
-      } catch (error) {
-        return isFsCode(error, "EEXIST")
-          ? foreign("lifecycle-operation-in-progress")
-          : foreign("runtime-io-failed");
-      }
-      try {
-        await handle.writeFile(`${process.pid}\n`, "utf8");
-        return await action();
-      } catch {
-        return foreign("runtime-io-failed");
-      } finally {
-        await handle.close().catch(() => undefined);
-        await rm(join(this.#runtimeDir, LIFECYCLE_LOCK_FILE), { force: true }).catch(() => undefined);
-      }
+      const result = await runWithLifecycleFileLock({ runtimeDir: this.#runtimeDir }, action);
+      return result.state === "busy"
+        ? foreign("lifecycle-operation-in-progress")
+        : result.value;
     } catch {
       return foreign("runtime-io-failed");
     }
