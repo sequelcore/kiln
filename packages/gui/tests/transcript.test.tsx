@@ -329,8 +329,6 @@ describe("Transcript", () => {
     expect(document.querySelectorAll('[data-role="tool-event"]')).toHaveLength(0);
     expect(screen.getByRole("button", { name: /Inspect the GUI\. Blocked\. 1 of 1 work items completed\. Goal closeout is missing/u })).toBeVisible();
     expect(document.querySelector('[data-role="workflow-activity"] [class*="animate-spin"]')).not.toBeInTheDocument();
-    expect(screen.queryByText("Inspect transcript ownership")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Inspect the GUI\. Blocked\. 1 of 1 work items completed\. Goal closeout is missing/u }));
     expect(screen.getByText("Inspect transcript ownership")).toBeVisible();
     expect(screen.getByText("2 / 2")).toBeVisible();
     const scopedActions = screen.getByRole("button", { name: "Inspected repository. 1 action. Show details" });
@@ -457,10 +455,46 @@ describe("Transcript", () => {
 
     const trigger = screen.getByRole("button", { name: /Inspect transcript ownership\. Pending\./u });
     expect(trigger).toBeVisible();
+    expect(document.querySelector('[data-role="workflow-activity"][data-variant="stream"]')).toBeInTheDocument();
     expect(screen.getAllByText("Inspect transcript ownership")).toHaveLength(1);
-    expect(screen.queryByRole("progressbar", { name: "Evidence completion for work-1" })).not.toBeInTheDocument();
-    fireEvent.click(trigger);
     expect(screen.getByText("verification-heavy")).toBeVisible();
+    expect(screen.getByRole("progressbar", { name: "Evidence completion for work-1" })).toBeVisible();
+  });
+
+  it("collapses a progressive work stream when canonical status becomes completed", () => {
+    const workflowActivity = (status: "in_progress" | "completed"): WorkflowActivityProjection => ({
+      goals: [],
+      standaloneWorkItems: [{
+        item: {
+          id: "work-1",
+          summary: "Polish the GUI activity stream",
+          status,
+          evidence: [{ label: "visual-check", status: status === "completed" ? "completed" : "pending" }],
+          nextTools: [],
+          pauseRequirements: [],
+        },
+        attempts: [],
+        toolCalls: [],
+        firstSequence: 1,
+        lastSequence: 2,
+      }],
+      unscopedToolCalls: [],
+      consumedEventIds: [],
+    });
+    const { rerender } = render(
+      <Transcript activityPhase="tool_running" entries={[]} workflowActivity={workflowActivity("in_progress")} />,
+    );
+
+    expect(screen.getByRole("progressbar", { name: "Evidence completion for work-1" })).toBeVisible();
+    expect(document.querySelectorAll('[data-role="activity-orb"]')).toHaveLength(1);
+    expect(document.querySelector('[data-role="assistant-activity"]')).not.toBeInTheDocument();
+
+    rerender(<Transcript entries={[]} workflowActivity={workflowActivity("completed")} />);
+
+    const completedTrigger = screen.getByRole("button", { name: /Polish the GUI activity stream\. Completed\./u });
+    expect(completedTrigger).toBeVisible();
+    expect(screen.queryByRole("progressbar", { name: "Evidence completion for work-1" })).not.toBeInTheDocument();
+    fireEvent.click(completedTrigger);
     expect(screen.getByRole("progressbar", { name: "Evidence completion for work-1" })).toBeVisible();
   });
 

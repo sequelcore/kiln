@@ -1611,6 +1611,7 @@ function WorkflowWorkItemRow(props: {
 }
 
 function WorkflowActivityRow(props: { readonly item: TranscriptWorkflowItem }) {
+  const [operatorOpen, setOperatorOpen] = useState<boolean | null>(null);
   const goal = props.item.goal;
   const workItems = goal?.workItems ?? (props.item.workItem ? [props.item.workItem] : []);
   const title = goal?.goal.objective ?? props.item.workItem?.item.summary ?? "Governed work";
@@ -1619,15 +1620,17 @@ function WorkflowActivityRow(props: { readonly item: TranscriptWorkflowItem }) {
   const description = goal
     ? `${completed} of ${workItems.length} work items completed${goal.statusReason ? `. ${goal.statusReason}` : ""}`
     : props.item.workItem?.item.id;
+  const open = operatorOpen ?? (status !== "completed" && status !== "cancelled");
   return (
     <OperationalTranscriptSurface kind="workflow">
       <Task
         aria-label={goal ? `Goal ${goal.goal.id}` : `Work item ${props.item.workItem?.item.id ?? "unknown"}`}
         className="w-full min-w-0 overflow-hidden"
         data-role="workflow-activity"
-        defaultOpen={false}
+        onOpenChange={setOperatorOpen}
+        open={open}
         status={status}
-        variant="card"
+        variant="stream"
       >
         <TaskTrigger description={description} status={status} title={title} />
         <TaskContent className="transition-opacity duration-150 motion-reduce:transition-none">
@@ -1887,6 +1890,10 @@ export function Transcript(props: TranscriptProps) {
   const projectedItems = projectTranscriptItems(visibleEntries);
   const entriesById = new Map(visibleEntries.map((entry) => [entry.id, entry]));
   const hasLiveActivity = props.activityPhase === "thinking" || props.activityPhase === "tool_running";
+  const hasStructuredLiveActivity = Boolean(
+    props.workflowActivity?.goals.some((goal) => workflowStatus(goal.status) === "in_progress")
+    || props.workflowActivity?.standaloneWorkItems.some(({ item }) => workflowStatus(item.status) === "in_progress"),
+  );
   const liveToolEntries = hasLiveActivity ? projectedItems.flatMap((item): readonly TimelineEventEntry[] => {
     if (item.kind !== "event") return [];
     const entry = entriesById.get(item.entryId);
@@ -1896,7 +1903,7 @@ export function Transcript(props: TranscriptProps) {
   const historicalProjectedItems = projectedItems.filter((item) => (
     item.kind !== "event" || !liveToolEntryIds.has(item.entryId)
   ));
-  const liveActivityPhase = props.loadError === undefined && !hasStreamingAssistant
+  const liveActivityPhase = props.loadError === undefined && !hasStreamingAssistant && !hasStructuredLiveActivity
     ? liveToolEntries.length > 0 || props.activityPhase === "tool_running"
       ? "tool_running"
       : props.activityPhase === "thinking"

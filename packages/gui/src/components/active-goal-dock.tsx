@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight, LoaderCircle, Pause, Pencil, Play, Trash2 } from "lucide-react";
+import { ChevronRight, Pause, Pencil, Play, Trash2 } from "lucide-react";
 import type { WorkflowGoalActivity } from "@kilnai/gateway-contracts";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import { TaskItem } from "./ai-elements/task.js";
+import { AgentActivityOrb } from "./agent-activity-orb.js";
 
 export type ActiveGoalAction = "pause" | "resume" | "edit" | "cancel";
 
@@ -115,7 +116,9 @@ export function ActiveGoalDock(props: ActiveGoalDockProps) {
           {isPaused ? (
             <Pause aria-hidden="true" className="size-3.5 shrink-0 text-warning" />
           ) : (
-            <LoaderCircle aria-hidden="true" className="size-3.5 shrink-0 text-primary motion-safe:animate-spin" />
+            <span className="flex size-5 shrink-0 items-center justify-center">
+              <AgentActivityOrb state="working" />
+            </span>
           )}
           <span className="shrink-0 text-xs font-medium text-foreground">
             {isPaused ? "Goal paused" : "Goal in progress"}

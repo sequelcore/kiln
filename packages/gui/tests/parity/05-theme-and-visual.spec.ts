@@ -212,7 +212,7 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     const task = page.locator('[data-role="workflow-activity"]');
     await expect(task).toBeVisible();
     await expect(task).toHaveAttribute("data-status", "paused");
-    await task.getByRole("button", { name: /Work item execution\. Paused\. inspect-composer-activity-ownership/u }).click();
+    await expect(task).toHaveAttribute("data-variant", "stream");
     await expect(task.getByText("inspect-composer-activity-ownership", { exact: true })).toHaveCount(1);
     await expect(task).toContainText("managedInvocationId is required before starting managed-delegation execution.");
     await expect(task.getByRole("progressbar", { name: "Evidence completion for inspect-composer-activity-ownership" })).toBeVisible();
