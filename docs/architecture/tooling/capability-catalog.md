@@ -16,6 +16,48 @@ The developer-tool `ToolCatalogIndex` remains a separate lexical index over the
 builtin tool surface. It is not a capability catalog, eligibility authority, or
 portable execution contract.
 
+## Conceptual Model
+
+Capability Fabric is a shared catalog of **what** governed work may request. It
+is not a registry that copies each harness's private tools into every other
+harness. A caller asks for a stable, provider-neutral capability; Kiln resolves
+that request to one currently admitted implementation and returns a typed result
+with provenance.
+
+| Concept | Responsibility | Example |
+| --- | --- | --- |
+| Capability identity | Names the outcome the caller needs, independently of provider or transport. | `web.search`, `vision.analyze` |
+| Descriptor | Defines the schemas, effects, limits, compatibility, and evidence required to consider that capability. | `vision.analyze/v1` with a structured `VisionAnalysis` result |
+| Implementation | Identifies the concrete tool, service, local function, or specialist agent that can perform the work. | a native harness tool, MCP tool, official API, admitted CLI, or vision-capable agent |
+| Execution route | Reaches the selected implementation under its owning authority and lifecycle. | direct portable invocation or governed agent-backed delegation |
+| Result contract | Returns validated output, artifact identity, settlement, and executor provenance to the caller. | a typed search result or image analysis |
+
+Resolution happens per invocation:
+
+1. The caller searches for or requests a capability by its canonical identity.
+2. Core exposes only descriptors supported by current, bounded evidence.
+3. Runtime selects one exact implementation after authority, compatibility,
+   data, network, budget, freshness, and result-contract checks.
+4. Runtime invokes a portable implementation directly, or delegates to a
+   governed agent when the implementation is private to another model or
+   harness.
+5. The caller receives the validated result and provenance. It does not receive
+   the implementation's credentials, permissions, private schema, or lifecycle
+   ownership.
+
+For example, a Claude workflow may request `web.search`. If the admitted
+implementation is a Codex-native search tool, Kiln can send a bounded request to
+a governed Codex agent and return the agent's validated result to Claude. Claude
+does not acquire or execute the Codex tool itself. The same capability identity
+could instead resolve to MCP or an official API without changing the caller's
+contract.
+
+This model defines the architectural boundary, not blanket availability. Kiln
+advertises only implementations whose discovery, authority, execution, and
+settlement paths have been proven. The current verticals establish direct
+verification execution and the first agent-backed `vision.analyze` contract;
+other cross-harness capabilities remain incremental roadmap work.
+
 ## Canonical Descriptor
 
 A descriptor binds one lowercase namespaced capability ID and explicit revision

@@ -2,16 +2,16 @@
 
 Status: In progress capability-portability track
 Priority: High
-Execution: In progress - Slices 3 and 4 are complete as of 2026-08-30. Core
+Execution: In progress - Slices 3 through 5 are complete as of 2026-08-31. Core
 owns aggregate contributions, bounded provider-neutral search/describe, and
 exact executable schemas; Runtime owns immutable authority-linked generations,
 next-round materialization, portable invocation bindings, and terminal
-settlement. Canonical direct CLI verification is the first executable vertical,
-and the permanent `verification-evidence` builtin projects to supported native
-skill targets with an ordinary-command fallback. The
-2026-08-28 operator priority decision
-moves this track ahead of Roadmap 08; remote pairing remains Ready but is no
-longer the current operational priority.
+settlement. Canonical direct CLI verification is the first portable execution
+vertical, and `vision.analyze` is the first agent-backed vertical. The permanent
+`verification-evidence` builtin projects to supported native skill targets with
+an ordinary-command fallback. The 2026-08-28 operator priority decision moves
+this track ahead of Roadmap 08; remote pairing remains Ready but is no longer
+the current operational priority.
 Created: 2026-08-14
 Reprioritized: 2026-08-28
 
@@ -30,6 +30,32 @@ image again or reconstruct the prompt. The evidence must still identify which
 model, harness, service, and tool performed each effect. Capability composition
 must not become a claim that every model natively possesses every modality or
 tool.
+
+## Conceptual Model
+
+Capability Fabric is Kiln's shared catalog of **what** a governed workflow may
+request, not a mechanism for distributing raw private tools between harnesses.
+A caller requests a stable capability such as `web.search` or
+`vision.analyze`; Kiln selects one eligible implementation under current
+authority and execution evidence.
+
+Portable implementations such as MCP tools or admitted APIs can execute
+directly. When the selected implementation belongs to another harness or
+model, Kiln delegates the bounded request to a governed agent that owns that
+tool and returns a typed result with provenance. The caller receives the
+result, not the other harness's tool, credentials, permissions, or lifecycle.
+
+For example, a future admitted Claude workflow could request `web.search` and
+Kiln could resolve it to a Codex-native implementation. A Codex agent would run
+the native search under its own authority, then Kiln would validate and return
+the result to Claude. Claude would not acquire the Codex tool. The same
+capability identity could later resolve to MCP or an official API without
+changing the workflow contract.
+
+The canonical terms and resolution sequence live in the
+[capability catalog architecture](../architecture/tooling/capability-catalog.md#conceptual-model).
+This roadmap delivers that model incrementally; catalog presence never implies
+that an unproven cross-harness route is executable.
 
 ## Current Position
 
