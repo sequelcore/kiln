@@ -137,6 +137,37 @@ services. Native-harness permissions therefore do not apply to Kiln direct
 provider routes. Direct-provider authority remains in Kiln runtime even when a
 Codex App MCP adapter is the caller.
 
+### Claude Credential Ownership
+
+`claude-code` and `anthropic` are separate execution and credential contracts:
+
+- `claude-code` is a native-harness route implemented through Anthropic's
+  official Claude Agent SDK. The SDK and its Claude Code executable own login,
+  credential storage, OAuth refresh, and provider authentication. Kiln may
+  select an operator-owned harness home through `CLAUDE_CONFIG_DIR` and may
+  pass an operator-supplied `CLAUDE_CODE_OAUTH_TOKEN`, but it must not parse,
+  copy, exchange, or refresh Claude subscription credentials.
+- `anthropic` is a Kiln direct-provider route. Runtime selects an admitted
+  Anthropic API credential and owns the direct provider call. A Claude
+  subscription login is not an Anthropic API credential and must not be
+  admitted into this pool.
+
+Native Claude sessions remove inherited `ANTHROPIC_API_KEY` and
+`ANTHROPIC_AUTH_TOKEN` values before Agent SDK invocation so an ambient API
+credential cannot silently change the selected subscription identity. A
+credential included explicitly in the session environment is an intentional
+route input and remains authoritative. This precedence rule belongs to the
+`claude-code` adapter; it does not change direct-provider credential
+governance.
+
+The admitted product boundary is local, operator-owned execution. Kiln does
+not provide Claude.ai login or broker Claude subscription credentials for
+other users. Any hosted or multi-user expansion would be a new credential,
+economic-authority, privacy, and provider-terms contract and requires explicit
+architecture review before implementation. Provider documentation and terms
+are external evidence, not Kiln authority, and must be revalidated when that
+boundary changes.
+
 ### Native Harness MCP Bridge
 
 The admitted adapter is installed once per user under the reserved

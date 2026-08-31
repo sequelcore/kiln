@@ -225,6 +225,43 @@ Local endpoint providers still require model discovery before execution.
 Credential availability does not prove that a local daemon is reachable or that
 a model is loaded.
 
+### Claude Authentication Routes
+
+Kiln exposes two distinct Claude execution routes. Select the route according
+to the credential and billing relationship the operator intends:
+
+| Route | Execution owner | Default credential source | Billing |
+|---|---|---|---|
+| `claude-code` | Anthropic Claude Agent SDK and its Claude Code executable | The operator's Claude Code login, optionally selected through `CLAUDE_CONFIG_DIR`, or `CLAUDE_CODE_OAUTH_TOKEN` when the operator supplies one | The Claude subscription or other account selected by Claude Code |
+| `anthropic` | Kiln direct-provider adapter | `~/.kiln/auth/anthropic/*.json` or `ANTHROPIC_API_KEY` | Anthropic API account |
+
+The `claude-code` route uses Anthropic's official Agent SDK. Kiln does not
+implement Claude OAuth, extract a token from Claude's credential store, or
+refresh Claude credentials. The Agent SDK and its Claude Code executable own
+those operations. A selected harness-pool entry changes only
+`CLAUDE_CONFIG_DIR`, so the child process reads the corresponding Claude-owned
+login without copying it into Kiln's direct-provider pool.
+
+Before starting a native Claude session, Kiln removes ambient
+`ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` values inherited from its parent
+process. This prevents an unrelated API credential from silently replacing the
+operator's intended Claude subscription identity. An API credential passed
+explicitly in that session's environment remains authoritative, which supports
+an intentional API-backed Claude Code run. Use the `anthropic` route when Kiln,
+rather than Claude Code, should own direct API credential selection and
+provider execution.
+
+This design supports local, operator-owned use. Kiln must not offer Claude.ai
+login, collect Claude subscription OAuth credentials, or route subscription
+credentials on behalf of users as a hosted service. Anthropic currently
+documents subscription use of the Agent SDK for ordinary individual use and
+separately restricts third-party products from offering Claude.ai login or
+subscription rate limits. Treat those provider terms as external and
+changeable; review Anthropic's current
+[Agent SDK documentation](https://code.claude.com/docs/en/agent-sdk/overview)
+and [authentication and credential-use terms](https://code.claude.com/docs/en/legal-and-compliance)
+before expanding this route beyond local operator-owned execution.
+
 ## Harness Providers
 
 Harness provider entries select a harness home directory. This lets Kiln run
@@ -242,6 +279,10 @@ Harness pool provider IDs:
 The selected harness home belongs to the child process launched by Kiln. The
 harness adapter remains responsible for provider-native token refresh and
 provider-specific auth mechanics.
+
+For `claude-code`, the selected home and any operator-supplied
+`CLAUDE_CODE_OAUTH_TOKEN` remain inputs to Anthropic's Agent SDK and Claude Code
+credential machinery. They do not become Kiln-owned OAuth credentials.
 
 Harness credentials are not a substitute for subscription-provider routing.
 Use `codex` or `opencode` harness pools only when the operator intentionally
