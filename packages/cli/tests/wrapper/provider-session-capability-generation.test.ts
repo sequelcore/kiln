@@ -10,8 +10,15 @@ import { MODEL_FACING_DEFAULT_PERMISSION_POLICY } from "../../src/config/model-f
 import type { KilnAppConfig } from "../../src/config.js";
 import { ProviderSession } from "../../src/wrapper/provider-session.js";
 import { compileNormalizedCapabilityJsonSchema } from "@kilnai/core/capabilities";
-import { deriveAuthorityFromEffect, getBuiltinEffectEnvelope } from "@kilnai/core";
-import { RuntimeSession } from "@kilnai/runtime";
+import { deriveAuthorityFromEffect } from "@kilnai/core/engine";
+import { getBuiltinEffectEnvelope } from "@kilnai/core/tools";
+import {
+  RuntimeManagedAgentInvocationService,
+  RuntimeSession,
+  type AgentTaskVisionAnalysisCapabilityBinding,
+  type ManagedInvocationToolAttachment,
+  type ManagedInvocationToolRoute,
+} from "@kilnai/runtime";
 
 const roots: string[] = [];
 
@@ -104,7 +111,148 @@ describe("ProviderSession capability generation", () => {
       await Promise.all([unowned.dispose(), owned.dispose()]);
     }
   });
+
+  it("materializes one configured managed vision specialist as an agent-backed capability", async () => {
+    const projectPath = mkdtempSync(join(tmpdir(), "kiln-managed-vision-generation-"));
+    roots.push(projectPath);
+    const session = new ProviderSession({
+      provider: "openai",
+      model: "gpt-5",
+      task: "analyze an admitted image",
+      cwd: projectPath,
+      permissionPolicy: MODEL_FACING_DEFAULT_PERMISSION_POLICY,
+      builtinToolOptions: { capabilityEvaluatedAt: "2026-08-31T12:00:00.000Z" },
+      capabilityComposition: { appId: "cli-direct:openai", surfaceId: "cli-direct" },
+      managedInvocation: visionAttachment(),
+    });
+
+    try {
+      expect(session.authorityCapabilityGeneration).toMatchObject({
+        evaluatedAt: "2026-08-31T12:00:00.000Z",
+        authorityCandidates: [{
+          capabilityId: "vision.analyze",
+          toolName: "vision_analyze",
+          materializationStatus: "materializable",
+          kind: "agent-backed",
+        }],
+      });
+    } finally {
+      await session.dispose();
+    }
+  });
+
+  it("materializes local vision through the existing Agent Task owner", async () => {
+    const projectPath = mkdtempSync(join(tmpdir(), "kiln-local-vision-generation-"));
+    roots.push(projectPath);
+    const agentTaskCapability: AgentTaskVisionAnalysisCapabilityBinding = {
+      agentTaskService: {
+        dispatch: async () => { throw new Error("dispatch should not run during construction"); },
+        getResult: async () => { throw new Error("result should not run during construction"); },
+        cancel: async () => { throw new Error("cancel should not run during construction"); },
+      },
+      configuredAgentProfileId: "local-vision-worker",
+      callerId: "parent-session",
+      acceptAgentTask: async () => { throw new Error("accept should not run during construction"); },
+    };
+    const session = new ProviderSession({
+      provider: "openai",
+      model: "gpt-5",
+      task: "analyze an admitted image locally",
+      cwd: projectPath,
+      permissionPolicy: MODEL_FACING_DEFAULT_PERMISSION_POLICY,
+      builtinToolOptions: { capabilityEvaluatedAt: "2026-08-31T12:00:00.000Z" },
+      capabilityComposition: { appId: "cli-direct:openai", surfaceId: "cli-direct" },
+      agentTaskCapability,
+    });
+
+    try {
+      expect(session.authorityCapabilityGeneration).toMatchObject({
+        evaluatedAt: "2026-08-31T12:00:00.000Z",
+        authorityCandidates: [{
+          capabilityId: "vision.analyze",
+          toolName: "vision_analyze",
+          materializationStatus: "materializable",
+          kind: "agent-backed",
+        }],
+      });
+    } finally {
+      await session.dispose();
+    }
+  });
 });
+
+function visionAttachment(): ManagedInvocationToolAttachment {
+  return {
+    options: {
+      routes: [visionRoute()],
+      agentCatalog: [{
+        name: "vision-worker",
+        role: "Vision specialist",
+        goal: "Analyze governed images",
+        tier: "reasoning",
+        authorityProfileId: "authority:vision-readonly",
+        admissionProfile: "foundation-readonly-plan",
+        modalities: ["text", "image"],
+        structured: true,
+        routeId: "vision-route",
+        providerRoute: { providerId: "openai", model: "gpt-vision" },
+      }],
+      invocationService: new RuntimeManagedAgentInvocationService(),
+    },
+    callerIdentity: {
+      kind: "kiln-runtime",
+      surface: "test",
+      attachmentId: "attachment:provider-session-vision",
+    },
+  };
+}
+
+function visionRoute(): ManagedInvocationToolRoute {
+  return {
+    routeId: "vision-route",
+    routeSource: "explicit-managed-route",
+    providerId: "openai",
+    model: "gpt-vision",
+    capability: {
+      identity: { routeId: "vision-route", revision: "vision-route-v1" },
+      target: { providerId: "openai", modelId: "gpt-vision" },
+      adapter: { kind: "direct-provider", capabilityId: "direct-runtime", capabilityVersion: "v1" },
+      authorityCeiling: "read_only",
+      toolNames: [],
+      supportsRecursion: false,
+      supportsAttachments: true,
+      supportsWrite: false,
+      externalRuntimeAttachment: {
+        kind: "external-runtime",
+        runtimeId: "vision-runtime",
+        attachmentId: "vision-instance",
+      },
+      proof: {
+        status: "configured",
+        source: "provider-session-vision-test",
+        provenProfiles: ["foundation-readonly-plan"],
+      },
+      capacity: { kind: "accountless" },
+      settlement: { kind: "not-required" },
+    },
+    createAdapter: async () => undefined,
+    externalRuntimeAttachment: {
+      kind: "external-runtime",
+      runtimeId: "vision-runtime",
+      attachmentId: "vision-instance",
+    },
+    profiles: [{
+      authorityProfileId: "authority:vision-readonly",
+      admissionProfile: "foundation-readonly-plan",
+      permissionProfile: "read-only",
+      allowedToolNames: [],
+      workingDirectory: { path: "C:/repo", mode: "read-only" },
+      timeoutMs: 60_000,
+      credentialRoute: { mode: "credentialless" },
+      memoryScope: { scope: { kind: "project", id: "vision-test" }, access: "none" },
+    }],
+  };
+}
 
 function appConfig(): KilnAppConfig {
   return {

@@ -20,6 +20,7 @@ import {
 import { isValidAgentTaskResult } from "./agent-run-validation.js";
 import { validateStoredJob } from "./stored-agent-task-validation.js";
 import {
+  AGENT_TASK_SCHEMA_VERSION,
   type AgentTaskDiagnosticCode,
   type AgentTaskActionClaim,
   type AgentTaskEconomicFenceResult,
@@ -245,7 +246,7 @@ export class FilesystemAgentTaskStore implements AgentTaskStore {
     return this.withLock(async (lease) => { const memory = await this.loadMemory(); const job = await memory.completeSuccess(id, result, updatedAt); await this.saveMemory(memory, lease); return job; });
   }
   async listNonterminal(): Promise<readonly AgentTaskRecord[]> { return this.withLock(async () => (await this.loadMemory()).listNonterminal()); }
-  /** Inspection-only store projection; a task owns exactly one run in V14. */
+  /** Inspection-only store projection; a task owns exactly one run in V15. */
   async all(): Promise<readonly AgentTaskRecord[]> { return this.withLock(async () => (await this.loadMemory()).all()); }
   private async loadMemory(): Promise<InMemoryAgentTaskStore> {
     const target = resolve(this.root, "agent-tasks", "agent-tasks.json");
@@ -680,7 +681,7 @@ function rejectLegacyAgentTasks(records: readonly unknown[]): readonly unknown[]
   for (const record of records) {
     if (typeof record !== "object" || record === null || Array.isArray(record)) throw new Error("corrupt");
     const value = record as { version?: unknown };
-    if (value.version !== 14) throw new Error("legacy_schema");
+    if (value.version !== AGENT_TASK_SCHEMA_VERSION) throw new Error("legacy_schema");
   }
   return records;
 }

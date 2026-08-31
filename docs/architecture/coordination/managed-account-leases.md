@@ -33,7 +33,7 @@ set, price evidence, rate schedules, and complete snapshot. Reordered object
 keys cannot change a digest. A later config read or clock value cannot rewrite
 the adopted decision basis.
 
-The current persisted representation is Agent Task v14 with one Agent Run. Its
+The current persisted representation is Agent Task v15 with one Agent Run. Its
 `dispatch.kind` is either `economic` or `native-harness`. The economic branch
 durably creates a namespaced `economicAttemptId` and `adoptedDecisionAt` before
 adoption or commitment. The native-harness branch stores only its exact
@@ -41,7 +41,8 @@ credentialless route/provider/model, stable versioned route acknowledgement,
 and optional Runtime dispatch fence; it never creates an economic policy,
 account, quota, price, candidate, reservation, or settlement record. Obsolete
 Agent Task schemas are rejected without mutation; there is no migration reader
-or compatibility authority.
+or compatibility authority. In particular, V14 records are obsolete and are
+rejected without mutation.
 
 ## Atomic Commitment
 
@@ -179,7 +180,7 @@ credential-backed Runtime invocation owner recovers its persisted checkpoints,
 and only afterward recovers Agent Tasks. Economic recovery queries the exact
 `(jobId, economicAttemptId)`:
 
-- `absent` may be committed from the persisted v14 economic intent;
+- `absent` may be committed from the persisted v15 economic intent;
 - a dispatch-fenced, settlement-pending, release-failed, or leaked commitment
   projects `interrupted` with `result_pending` evidence and remains
   conservatively fenced from redispatch; and

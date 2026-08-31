@@ -15,6 +15,7 @@ import {
   type WorkClassification,
   type WorkClassificationInput,
   type CommunicationIntent,
+  validateModalities,
   resolveCommunicationIntent,
 } from "@kilnai/core";
 
@@ -89,6 +90,16 @@ function asStringArray(value: unknown): readonly string[] | undefined {
     .filter((entry) => entry.length > 0);
 
   return entries.length > 0 ? entries : undefined;
+}
+
+function asStrictStringArray(value: unknown): readonly string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  if (value.some((entry) => typeof entry !== "string" || entry.trim().length === 0)) {
+    return undefined;
+  }
+  return value.map((entry) => (entry as string).trim());
 }
 
 function asBoolean(value: unknown): boolean | undefined {
@@ -197,7 +208,11 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
   const structured = asBoolean(record.structured);
   const count = asPositiveInteger(record.count);
   const sandbox = asBoolean(record.sandbox);
-  const modalities = asStringArray(record.modalities);
+  const modalities = record.modalities === undefined
+    ? undefined
+    : asStrictStringArray(record.modalities);
+  if (record.modalities !== undefined && modalities === undefined) return undefined;
+  if (modalities && validateModalities(modalities).length > 0) return undefined;
   const authorityProfileId = asNonEmptyString(record.authorityProfileId);
   if (record.authorityProfileId !== undefined && !authorityProfileId) return undefined;
   const targetId = asNonEmptyString(record.targetId);
@@ -234,7 +249,7 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
     ...(structured !== undefined ? { structured } : {}),
     ...(count !== undefined ? { count } : {}),
     ...(sandbox !== undefined ? { sandbox } : {}),
-    ...(modalities ? { modalities } : {}),
+    ...(modalities && modalities.length > 0 ? { modalities } : {}),
     ...(authorityProfileId ? { authorityProfileId } : {}),
     ...(targetId ? { targetId } : {}),
     ...(workClassification ? { workClassification } : {}),

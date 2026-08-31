@@ -313,6 +313,69 @@ describe("agent-loader", () => {
     expect(definitions).toEqual([]);
   });
 
+  it("skips profiles that claim an unknown modality", async () => {
+    configureDirectories(["invalid-modality.md"], []);
+    configureFiles({
+      [join(GLOBAL_AGENTS_DIR, "invalid-modality.md")]: markdownWithFrontmatter(
+        [
+          "name: InvalidModality",
+          "role: Vision specialist",
+          "goal: Inspect governed images",
+          "tier: reasoning",
+          "modalities:",
+          "  - image",
+          "  - hologram",
+        ].join("\n"),
+      ),
+    });
+
+    const definitions = await loadAgentDefinitions(PROJECT_PATH, { projectAgentsDirectory: PROJECT_AGENTS_DIR });
+
+    expect(definitions).toEqual([]);
+  });
+
+  it.each([
+    ["a non-string entry", ["  - image", "  - 42"]],
+    ["a blank entry", ["  - image", "  - ''"]],
+  ])("skips profiles with %s instead of filtering the malformed modality array", async (_kind, modalities) => {
+    configureDirectories(["invalid-modalities.md"], []);
+    configureFiles({
+      [join(GLOBAL_AGENTS_DIR, "invalid-modalities.md")]: markdownWithFrontmatter(
+        [
+          "name: InvalidModalities",
+          "role: Vision specialist",
+          "goal: Inspect governed images",
+          "tier: reasoning",
+          "modalities:",
+          ...modalities,
+        ].join("\n"),
+      ),
+    });
+
+    const definitions = await loadAgentDefinitions(PROJECT_PATH, { projectAgentsDirectory: PROJECT_AGENTS_DIR });
+
+    expect(definitions).toEqual([]);
+  });
+
+  it("skips profiles whose modalities field is not an array", async () => {
+    configureDirectories(["invalid-modalities.md"], []);
+    configureFiles({
+      [join(GLOBAL_AGENTS_DIR, "invalid-modalities.md")]: markdownWithFrontmatter(
+        [
+          "name: InvalidModalities",
+          "role: Vision specialist",
+          "goal: Inspect governed images",
+          "tier: reasoning",
+          "modalities: image",
+        ].join("\n"),
+      ),
+    });
+
+    const definitions = await loadAgentDefinitions(PROJECT_PATH, { projectAgentsDirectory: PROJECT_AGENTS_DIR });
+
+    expect(definitions).toEqual([]);
+  });
+
   it("findAgent() returns correct definition case-insensitively", () => {
     const definitions: KilnAgentDefinition[] = [
       { name: "Planner", role: "Planning specialist", goal: "Plan work", tier: "reasoning", scope: "global" },

@@ -21,9 +21,11 @@ export function projectAgentTaskResult(
     lifecycleState: task.state,
     configuredAgentProfileId: task.configuredAgentProfileId,
     admissionProfileId: task.admissionProfileId,
+    ...(task.capability ? { capability: structuredClone(task.capability) } : {}),
     ...(result ? {
       routeId: result.routeId, providerId: result.providerId, completedAt: result.completedAt,
       provenance: { ...result.provenance }, handoff: normalizeAgentTaskResultHandoff(result.resultHandoff),
+      ...(result.capabilityOutput ? { capabilityOutput: structuredClone(result.capabilityOutput) } : {}),
       ...(result.writeEvidence ? { writeEvidence: structuredClone(result.writeEvidence) } : {}),
       ...(result.dataPolicyProof ? { dataPolicyProof: structuredClone(result.dataPolicyProof) } : {}),
     } : task.dispatch.kind === "native-harness"
@@ -45,11 +47,13 @@ export function projectAgentTaskReplay(
     lifecycleState: task.state,
     configuredAgentProfileId: task.configuredAgentProfileId,
     admissionProfileId: task.admissionProfileId,
+    ...(task.capability ? { capability: structuredClone(task.capability) } : {}),
     ...(task.result ? { routeId: task.result.routeId, providerId: task.result.providerId } : {}),
     lifecycle: task.lifecycle,
     resultAvailability: task.state === "succeeded" ? (task.result ? "available" : "unavailable")
       : task.state === "awaiting_approval" || task.state === "queued" || task.state === "running" ? "pending"
         : task.state === "interrupted" ? "unresolved" : "failed",
+    ...(task.result?.capabilityOutput ? { capabilityOutput: structuredClone(task.result.capabilityOutput) } : {}),
     ...(task.result?.writeEvidence ? { writeEvidence: structuredClone(task.result.writeEvidence) } : {}),
     ...(task.result?.dataPolicyProof ? { dataPolicyProof: structuredClone(task.result.dataPolicyProof) } : {}),
     ...(task.writeApproval ? { writeApproval: task.writeApproval } : {}),

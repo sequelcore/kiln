@@ -388,6 +388,23 @@ const NATIVE_CODEX_DELIBERATION_AGENT = [
   "Regression fixture agent; not used for real work.",
 ].join("\n");
 
+const NATIVE_VISION_AGENT = [
+  "---",
+  "name: native-vision-worker",
+  "role: Governed vision analyst",
+  "goal: Analyze only admitted image resources.",
+  "tier: reasoning",
+  "mode: managed-child",
+  "structured: true",
+  "modalities:",
+  "  - text",
+  "  - image",
+  "targetId: native-vision-route",
+  "authorityProfileId: readonly-plan",
+  "---",
+  "Return only the required structured vision handoff.",
+].join("\n");
+
 function nativeCodexDeliberationConfig(): KilnGlobalConfig {
   return {
     version: "6",
@@ -455,6 +472,29 @@ function accountBoundEconomicConfig(): KilnGlobalConfig {
         },
       })),
     },
+  };
+}
+
+function nativeVisionConfig(): KilnGlobalConfig {
+  const config = nativeCodexDeliberationConfig();
+  return {
+    ...config,
+    targetCatalog: {
+      ...config.targetCatalog!,
+      targets: [{
+        id: "native-vision-route",
+        kind: "harness",
+        label: "Native vision route",
+        providerId: "codex",
+        providerModelId: "gpt-5.6-codex",
+        dataClassification: "internal",
+        externalRuntimeAttachment: {
+          runtimeId: "vision-runtime",
+          attachmentId: "vision-instance",
+        },
+      }],
+    },
+    deliberationPolicy: undefined,
   };
 }
 
@@ -771,6 +811,182 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
       start.mockRestore();
       join.mockRestore();
     }
+  });
+
+  it("executes a typed vision capability through an admitted local Agent Task profile", async () => {
+    useIsolatedGlobalConfigHome();
+    persistGlobalConfig(nativeVisionConfig());
+    const projectRoot = createProjectRoot('version: "1"\n', {
+      "native-vision-worker.md": NATIVE_VISION_AGENT,
+    });
+    const resourceUri = "kiln://artifacts/images/fixture";
+    const start = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "start").mockResolvedValue({ status: "started" } as never);
+    const join = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "join").mockResolvedValue({
+      status: "completed",
+      record: {
+        invocationId: "agent-task-native-vision",
+        lifecycleState: "completed",
+        resultHandoff: {
+          provenance: {
+            delivery: "native-structured-output",
+            configuredModelId: "gpt-5.6-codex",
+            primaryObservedModelId: "gpt-5.6-codex",
+            observedModelIds: ["gpt-5.6-codex"],
+          },
+          summary: "A bounded fixture image was analyzed.",
+          resourceUris: [
+            "kiln://managed-invocations/agent-task-native-vision/transcript",
+            "kiln://managed-invocations/agent-task-native-vision/write-attempts/1",
+          ],
+          memoryWriteProposalUris: [],
+          structuredResult: {
+            version: "structured-execution-result-v1",
+            status: "completed",
+            summary: "A bounded fixture image was analyzed.",
+            uncertainty: 0.15,
+            limitations: ["Synthetic fixture."],
+            operatorDecisions: [],
+            evidence: [{ uri: resourceUri, kind: "artifact" }],
+            citations: [],
+            warnings: [],
+            failures: [],
+            approvalRequirements: [],
+            residualRisks: [],
+            verificationResults: [],
+          },
+        },
+      },
+    } as never);
+    const composition = await createOperatorProjectAgentTaskApplicationComposition({
+      projectPath: projectRoot,
+      projectStateBinding: projectStateBindings.get(projectRoot),
+      authorityAdmission: taskAuthorityAdmission(),
+      discoverProviderModels: async () => eligibleHarnessProviderCatalog("codex", "gpt-5.6-codex"),
+    });
+    try {
+      expect(composition.localVisionAgentProfileId).toBe("native-vision-worker");
+      const accepted = await composition.application.accept({
+        objective: "Analyze the admitted fixture image.",
+        configuredAgentProfileId: "native-vision-worker",
+        callerId: "codex-native-harness",
+        idempotencyKey: "native-vision-capability",
+        capability: {
+          capabilityId: "vision.analyze",
+          contract: "vision.analyze/v1",
+          input: {
+            resourceUris: [resourceUri],
+            instruction: "Describe the visible subject.",
+          },
+        },
+      });
+      await composition.close();
+
+      await expect(composition.application.getResult({ callerId: "codex-native-harness" }, accepted.id))
+        .resolves.toMatchObject({
+          availability: "available",
+          capability: {
+            capabilityId: "vision.analyze",
+            contract: "vision.analyze/v1",
+            input: { resourceUris: [resourceUri], instruction: "Describe the visible subject." },
+            inputDigest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+          },
+          capabilityOutput: {
+            status: "completed",
+            summary: "A bounded fixture image was analyzed.",
+            uncertainty: 0.15,
+            limitations: ["Synthetic fixture."],
+            evidenceUris: [resourceUri],
+          },
+        });
+      expect(start).toHaveBeenCalledOnce();
+      expect(start.mock.calls[0]?.[0]).toMatchObject({
+        parentSessionId: `agent-task:${accepted.id}`,
+        parentTurnId: `agent-task:${accepted.id}:turn:1`,
+        input: {
+          prompt: "Describe the visible subject.",
+          resourceUris: [resourceUri],
+          context: { mode: "resources" },
+        },
+      });
+      expect(start.mock.calls[0]?.[2]).toMatchObject({
+        externalRuntimeAttachment: {
+          kind: "external-runtime",
+          runtimeId: "vision-runtime",
+          attachmentId: "vision-instance",
+        },
+        resourcePlane: { available: true, resourceUris: [resourceUri] },
+      });
+      expect(start.mock.calls[0]?.[3]).toMatchObject({
+        childAuthorityAdmission: {
+          bundle: {
+            sessionId: `agent-task:${accepted.id}`,
+            turnId: `agent-task:${accepted.id}:turn:1`,
+          },
+        },
+      });
+    } finally {
+      await composition.close();
+      start.mockRestore();
+      join.mockRestore();
+    }
+  });
+
+  it("does not select a local vision capability when two profiles are eligible", async () => {
+    useIsolatedGlobalConfigHome();
+    persistGlobalConfig(nativeVisionConfig());
+    const projectRoot = createProjectRoot('version: "1"\n', {
+      "native-vision-worker.md": NATIVE_VISION_AGENT,
+      "native-vision-worker-two.md": NATIVE_VISION_AGENT.replace(
+        "name: native-vision-worker",
+        "name: native-vision-worker-two",
+      ),
+    });
+    const composition = await createOperatorProjectAgentTaskApplicationComposition({
+      projectPath: projectRoot,
+      projectStateBinding: projectStateBindings.get(projectRoot),
+      authorityAdmission: taskAuthorityAdmission(),
+      discoverProviderModels: async () => eligibleHarnessProviderCatalog("codex", "gpt-5.6-codex"),
+    });
+    try {
+      expect(composition.localVisionAgentProfileId).toBeUndefined();
+    } finally {
+      await composition.close();
+    }
+  });
+
+  it("drains local capability dispatch before closing its lifecycle owner", async () => {
+    useIsolatedGlobalConfigHome();
+    persistGlobalConfig(nativeVisionConfig());
+    const projectRoot = createProjectRoot('version: "1"\n', {
+      "native-vision-worker.md": NATIVE_VISION_AGENT,
+    });
+    const composition = await createOperatorProjectAgentTaskApplicationComposition({
+      projectPath: projectRoot,
+      projectStateBinding: projectStateBindings.get(projectRoot),
+      authorityAdmission: taskAuthorityAdmission(),
+      discoverProviderModels: async () => eligibleHarnessProviderCatalog("codex", "gpt-5.6-codex"),
+    });
+    let settleDispatch!: (value: unknown) => void;
+    const pendingDispatch = new Promise<unknown>((resolve) => { settleDispatch = resolve; });
+    const dispatch = vi.spyOn(composition.service, "dispatch").mockImplementation(
+      async () => await pendingDispatch as never,
+    );
+    const binding = composition.createAgentTaskVisionAnalysisCapabilityBinding({
+      configuredAgentProfileId: "native-vision-worker",
+      callerId: "canonical-run-drain-test",
+    });
+
+    const execution = binding.agentTaskService.dispatch("agent-task-drain-test");
+    await vi.waitFor(() => expect(dispatch).toHaveBeenCalledOnce());
+    let closed = false;
+    const closing = composition.close().then(() => { closed = true; });
+    await Promise.resolve();
+    expect(closed).toBe(false);
+
+    settleDispatch({ id: "agent-task-drain-test", state: "cancelled" });
+    await expect(execution).resolves.toMatchObject({ id: "agent-task-drain-test" });
+    await closing;
+    expect(closed).toBe(true);
   });
 
   it("fails closed before adapter creation when native deliberation evidence drifts", async () => {

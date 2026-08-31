@@ -53,6 +53,15 @@ export type {
   AgentBackedInvocationPort,
 } from "../capabilities/agent-backed-execution.js";
 export {
+  AgentTaskVisionAnalysisCapabilityExecutor,
+  createAgentTaskVisionAnalysisCapabilityExecutor,
+} from "../capabilities/agent-task-vision-analysis-execution.js";
+export type {
+  AgentTaskCapabilityService,
+  AgentTaskVisionAnalysisAcceptance,
+  AgentTaskVisionAnalysisCapabilityExecutorOptions,
+} from "../capabilities/agent-task-vision-analysis-execution.js";
+export {
   PortableLocalFunctionInvocationPort,
   createLocalFunctionPortableInvocationPort,
   createPortableLocalFunctionInvocationPort,

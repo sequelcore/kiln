@@ -2010,6 +2010,9 @@ export class RuntimeSessionToolExecutor {
             ? { allowedToolNames: [...readExecutionToolAllowlist(perCallConfig)!] }
             : {}),
           ...(authority ? { authority } : {}),
+          ...(perCallConfig?.authorityAdmission
+            ? { authorityAdmission: perCallConfig.authorityAdmission }
+            : {}),
           resolvedEffect,
           ...(perCallConfig?.attendedTrustedExecution !== undefined
             ? { attendedTrustedExecution: perCallConfig.attendedTrustedExecution }

@@ -257,6 +257,10 @@ export interface ManagedInvocationAgentCatalogEntry {
   readonly authorityProfileId: string;
   readonly admissionProfile: ManagedAgentAdmissionProfile;
   readonly skills?: readonly string[];
+  /** Explicit operator-configured input modalities; never inferred from role prose. */
+  readonly modalities?: readonly string[];
+  /** Explicit promise that this configured child emits the canonical structured handoff. */
+  readonly structured?: boolean;
   readonly taskAffinity?: readonly ModelTaskSuitabilityTask[];
   readonly economicPolicyId?: string;
   readonly economicPolicyRevision?: string;

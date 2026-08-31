@@ -1082,6 +1082,8 @@ function projectManagedAgentCatalogEntry(
       authorityProfileId: agent.authorityProfileId!,
       admissionProfile,
       ...(agent.skills ? { skills: agent.skills } : {}),
+      ...(agent.modalities ? { modalities: agent.modalities } : {}),
+      ...(agent.structured !== undefined ? { structured: agent.structured } : {}),
       ...(agent.taskAffinity ? { taskAffinity: agent.taskAffinity } : {}),
       ...(() => {
         const policy = derivedPolicy;

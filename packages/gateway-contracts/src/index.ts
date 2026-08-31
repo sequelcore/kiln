@@ -198,10 +198,12 @@ export {
 } from "./operator-runtime.js";
 
 export type {
+  AgentTaskCapabilitySubmission,
   OperatorRuntimeApplicationRequest,
   OperatorRuntimeApplicationResponse,
 } from "./operator-runtime-application.js";
 export {
+  AgentTaskCapabilitySubmissionSchema,
   OperatorRuntimeApplicationRequestSchema,
   OperatorRuntimeApplicationResponseSchema,
 } from "./operator-runtime-application.js";

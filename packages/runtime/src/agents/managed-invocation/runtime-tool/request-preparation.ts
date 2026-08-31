@@ -1538,9 +1538,17 @@ export async function prepareManagedInvocationRequest(
       ),
     };
   }
-  const effectiveAttachment: ManagedInvocationToolAttachment = callerResolution.callerIdentity
-    ? { ...attachment, callerIdentity: callerResolution.callerIdentity }
-    : attachment;
+  // The attached surface deliberately keeps its invocation owner and service
+  // private. Bind the exact parent bundle at the Runtime call boundary when
+  // that surface did not already provide a child admission contract.
+  const effectiveAttachment: ManagedInvocationToolAttachment = {
+    ...(callerResolution.callerIdentity
+      ? { ...attachment, callerIdentity: callerResolution.callerIdentity }
+      : attachment),
+    ...(attachment.childAuthorityAdmission === undefined && context.authorityAdmission !== undefined
+      ? { childAuthorityAdmission: { bundle: context.authorityAdmission } }
+      : {}),
+  };
   const { callerIdentity } = effectiveAttachment;
 
   // Computed once, from `context` alone, so it is identical whether read here (for the economic
@@ -1555,7 +1563,7 @@ export async function prepareManagedInvocationRequest(
     context.toolCall.id,
   );
 
-  const scopeOutcome = admitManagedInvocationScope(rawInput, context, attachment, toolName, scopeAdmission);
+  const scopeOutcome = admitManagedInvocationScope(rawInput, context, effectiveAttachment, toolName, scopeAdmission);
   if (!scopeOutcome.ok) return scopeOutcome;
   const { canonicalizedRawInput, parsed: scopedParsed, requestedAuthority } = scopeOutcome;
 

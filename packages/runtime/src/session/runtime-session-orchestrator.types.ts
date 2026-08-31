@@ -113,6 +113,8 @@ export interface RuntimeBuiltinToolExecutionContext {
   readonly sandbox?: unknown;
   readonly allowedToolNames?: readonly string[];
   readonly authority?: AuthorityDescriptor;
+  /** Exact parent admission bundle supplied by Runtime before child dispatch. */
+  readonly authorityAdmission?: EffectiveAuthorityAdmissionBundle;
   /** Exact invocation effect resolved and admitted by the Runtime owner. */
   readonly resolvedEffect?: ResolvedInvocationEffect;
   /** Process-local attended authority evidence; never persisted or cloned. */

@@ -213,7 +213,7 @@ function agentTask(overrides: Partial<AgentTaskRecord> = {}): AgentTaskRecord {
     },
   };
   return {
-    version: 14,
+    version: 15,
     id: "agent-task-0001",
     adoptedDecisionAt: OBSERVED_AT,
     state,
@@ -425,7 +425,15 @@ describe("NativeHarnessMcpTools", () => {
     expect(tool?.inputSchema).toMatchObject({
       additionalProperties: false,
       required: ["objective", "configuredAgentProfileId", "idempotencyKey"],
-      properties: { configuredAgentProfileId: { type: "string", minLength: 1, maxLength: 200 } },
+      properties: {
+        configuredAgentProfileId: { type: "string", minLength: 1, maxLength: 200 },
+        capability: {
+          properties: {
+            capabilityId: { const: "vision.analyze" },
+            contract: { const: "vision.analyze/v1" },
+          },
+        },
+      },
     });
     expect(JSON.stringify(tool?.inputSchema)).not.toContain("route");
     expect(JSON.stringify(tool?.inputSchema)).not.toContain("foundation-readonly-plan");
@@ -445,8 +453,33 @@ describe("NativeHarnessMcpTools", () => {
       requestIdentity: () => ({ callerId: "trusted-codex-user", requestId: "trusted-request" }),
     });
 
-    const result = await server.callTool("kiln_agent_task_submit", { objective: "  inspect bounded work  ", configuredAgentProfileId: "scout", idempotencyKey: "retry-1" });
-    expect(accepted).toEqual([{ objective: "inspect bounded work", configuredAgentProfileId: "scout", idempotencyKey: "retry-1", callerId: "trusted-codex-user" }]);
+    const result = await server.callTool("kiln_agent_task_submit", {
+      objective: "  inspect bounded work  ",
+      configuredAgentProfileId: "scout",
+      idempotencyKey: "retry-1",
+      capability: {
+        capabilityId: "vision.analyze",
+        contract: "vision.analyze/v1",
+        input: {
+          resourceUris: ["kiln://project/artifacts/image-1"],
+          instruction: "Summarize the visible evidence.",
+        },
+      },
+    });
+    expect(accepted).toEqual([{
+      objective: "inspect bounded work",
+      configuredAgentProfileId: "scout",
+      idempotencyKey: "retry-1",
+      capability: {
+        capabilityId: "vision.analyze",
+        contract: "vision.analyze/v1",
+        input: {
+          resourceUris: ["kiln://project/artifacts/image-1"],
+          instruction: "Summarize the visible evidence.",
+        },
+      },
+      callerId: "trusted-codex-user",
+    }]);
     expect(result.structuredContent).toMatchObject({
       accepted: true,
       completionChannel: "status-result-replay",

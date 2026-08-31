@@ -4,6 +4,26 @@ const identifier = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/);
 const opaqueRecord = z.record(z.string(), z.unknown());
 const agentTaskObjective = z.string().trim().min(1).max(12_000);
 const agentTaskIdentifier = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/);
+const agentTaskVisionResourceUri = z.string().trim().min(1).max(512).regex(
+  /^kiln:\/\/[A-Za-z0-9][A-Za-z0-9.-]*(?:\/[A-Za-z0-9][A-Za-z0-9:._%~-]*)+$/u,
+);
+const agentTaskVisionAnalyzeInput = z.object({
+  resourceUris: z.array(agentTaskVisionResourceUri).min(1).max(16).superRefine((resourceUris, context) => {
+    if (new Set(resourceUris).size !== resourceUris.length) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "resourceUris must contain unique values." });
+    }
+  }),
+  instruction: z.string().trim().min(1).max(4_096),
+}).strict();
+
+/** The public, bounded capability request carried by Agent Task submission. */
+export const AgentTaskCapabilitySubmissionSchema = z.object({
+  capabilityId: z.literal("vision.analyze"),
+  contract: z.literal("vision.analyze/v1"),
+  input: agentTaskVisionAnalyzeInput,
+  inputDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/).optional(),
+}).strict();
+export type AgentTaskCapabilitySubmission = z.infer<typeof AgentTaskCapabilitySubmissionSchema>;
 const managedEconomicActionClaim = z.object({
   version: z.literal(1),
   attemptId: identifier,
@@ -23,6 +43,7 @@ export const OperatorRuntimeApplicationRequestSchema = z.discriminatedUnion("ope
       objective: agentTaskObjective,
       configuredAgentProfileId: agentTaskIdentifier,
       idempotencyKey: agentTaskIdentifier,
+      capability: AgentTaskCapabilitySubmissionSchema.optional(),
     }).strict(),
   }).strict(),
   ...(["status", "result", "cancel", "replay"] as const).map((operation) => z.object({

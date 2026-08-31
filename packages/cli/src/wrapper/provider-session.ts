@@ -73,18 +73,27 @@ import type { AttachedRuntimeBuiltinToolSurfaceOptions } from "@kilnai/runtime";
 import {
   createRuntimeCapabilityCompositionFactory,
   createTrustedRuntimeBuiltinPortableInvocationPort,
+  createAgentBackedCapabilityInvocationPort,
+  createAgentTaskVisionAnalysisCapabilityExecutor,
+  createManagedVisionAnalysisCapabilityExecutor,
+  MANAGED_AGENT_INVOKE_TOOL_NAME,
+  type AgentTaskVisionAnalysisCapabilityBinding,
   type RuntimeCapabilityGeneration,
   type RuntimeCapabilityMaterializationRecord,
 } from "@kilnai/runtime";
 import {
   buildAggregateCapabilityCatalog,
-  VERIFICATION_CAPABILITY_IDS,
   type CapabilityCatalogContribution,
   type VerificationCapabilityToolSchema,
+  type VisionAnalyzeCapabilityToolSchema,
+  VISION_ANALYZE_CAPABILITY_ID,
 } from "@kilnai/core/capabilities";
 import { createCliOperatorThemeController } from "../application/operator-theme-preferences.js";
 import { assertConfiguredInvocationAdmission } from "../config/builtin-tool-surface-config.js";
 import { deriveProjectRuntimeId } from "../application/project-state-root.js";
+import { resolveConfiguredVisionCapability } from "./configured-vision-capability.js";
+
+type ConfiguredCapabilityToolSchema = VerificationCapabilityToolSchema | VisionAnalyzeCapabilityToolSchema;
 
 export interface ProviderSessionConfig {
   readonly provider: DirectProviderId;
@@ -109,13 +118,15 @@ export interface ProviderSessionConfig {
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions & {
     readonly capabilityEvaluatedAt?: string;
     readonly capabilityContributions?: readonly CapabilityCatalogContribution[];
-    readonly capabilityToolSchemas?: readonly VerificationCapabilityToolSchema[];
+    readonly capabilityToolSchemas?: readonly ConfiguredCapabilityToolSchema[];
   };
   /** Explicit surface ownership required before this wrapper may prepare a capability generation. */
   readonly capabilityComposition?: {
     readonly appId: string;
     readonly surfaceId: string;
   };
+  /** Existing project Agent Task owner used for local agent-backed capabilities. */
+  readonly agentTaskCapability?: AgentTaskVisionAnalysisCapabilityBinding;
   readonly managedInvocation?: ManagedInvocationToolAttachment;
   readonly boundedWork?: AttachedRuntimeBuiltinToolSurfaceOptions["boundedWork"];
   readonly runtimeExecutionMode?: "execute" | "plan";
@@ -1061,32 +1072,109 @@ function createConfiguredCapabilityGeneration(
   config: ProviderSessionConfig,
   surface: ReturnType<typeof createAttachedRuntimeBuiltinToolSurface>,
 ): RuntimeCapabilityGeneration | undefined {
-  const contributions = config.builtinToolOptions?.capabilityContributions;
   const evaluatedAt = config.builtinToolOptions?.capabilityEvaluatedAt;
   const composition = config.capabilityComposition;
-  const toolSchemas = config.builtinToolOptions?.capabilityToolSchemas;
-  if (!contributions || contributions.length === 0 || !evaluatedAt || !composition || !toolSchemas) return undefined;
+  if (!evaluatedAt || !composition) return undefined;
+  const vision = resolveConfiguredVisionCapability(
+    config.managedInvocation,
+    evaluatedAt,
+    config.agentTaskCapability?.configuredAgentProfileId,
+  );
+  const hasConfiguredVisionImplementation = config.managedInvocation !== undefined
+    || config.agentTaskCapability !== undefined;
+  const contributions = [
+    ...(config.builtinToolOptions?.capabilityContributions ?? []),
+    ...(hasConfiguredVisionImplementation ? [vision.discovery.contribution] : []),
+  ];
+  const toolSchemas: readonly ConfiguredCapabilityToolSchema[] = [
+    ...(config.builtinToolOptions?.capabilityToolSchemas ?? []),
+    ...(hasConfiguredVisionImplementation ? vision.discovery.toolSchemas : []),
+  ];
+  if (contributions.length === 0 || toolSchemas.length === 0) return undefined;
   const tools = new Map<string, ToolDefinition>([
     ...surface.toolDefinitions.map((tool) => [tool.name, tool] as const),
     ...surface.materializableTools,
   ]);
   const materializations: RuntimeCapabilityMaterializationRecord[] = [];
-  const verificationNames = Object.entries(VERIFICATION_CAPABILITY_IDS) as readonly (readonly [string, string])[];
   const catalog = buildAggregateCapabilityCatalog(contributions, evaluatedAt);
   for (const descriptor of catalog.descriptors) {
     const capabilityId = descriptor.capabilityId;
-    const toolName = verificationNames.find(([, id]) => id === capabilityId)?.[0];
-    if (!toolName) continue;
-    const tool = tools.get(toolName);
     const schemas = toolSchemas.find((candidate) =>
       candidate.capabilityId === capabilityId
-      && candidate.revision === descriptor.revision
-      && candidate.toolName === toolName);
-    const executor = surface.callBuiltinTools.get(toolName);
+      && candidate.revision === descriptor.revision);
+    if (!schemas) continue;
+    const toolName = schemas.toolName;
     const implementationReference = descriptor.implementationReferences.find(
       (candidate) => candidate.identityDigest === schemas?.implementationIdentityDigest,
     );
-    if (!tool || !schemas || !executor || !implementationReference) continue;
+    if (!implementationReference) continue;
+    if (capabilityId === VISION_ANALYZE_CAPABILITY_ID) {
+      const selection = vision.selection;
+      if (!selection || selection.implementationIdentityDigest !== implementationReference.identityDigest) continue;
+      const materializedTool: ToolDefinition = {
+        name: toolName,
+        description: selection.kind === "agent-task"
+          ? "Analyze admitted image resources with the configured local Agent Task vision specialist."
+          : "Analyze admitted image resources with the configured read-only vision specialist.",
+        inputSchema: { ...schemas.inputSchema },
+        outputSchema: { ...schemas.outputSchema },
+        strict: true,
+        tags: new Set(["capability", "vision", "read-only", "agent-backed"]),
+      };
+      const port = selection.kind === "agent-task"
+        ? config.agentTaskCapability === undefined
+          ? undefined
+          : createAgentBackedCapabilityInvocationPort({
+              executor: createAgentTaskVisionAnalysisCapabilityExecutor(config.agentTaskCapability),
+              kind: "agent-task",
+              childId: selection.agentProfile,
+              executorId: `agent-task:${selection.agentProfile}:${VISION_ANALYZE_CAPABILITY_ID}`,
+              implementationIdentityDigest: implementationReference.identityDigest,
+            })
+        : (() => {
+            const managedInvocationExecutor = surface.callBuiltinTools.get(MANAGED_AGENT_INVOKE_TOOL_NAME);
+            if (!managedInvocationExecutor || !selection.routeId || !selection.providerRoute) return undefined;
+            return createAgentBackedCapabilityInvocationPort({
+              executor: createManagedVisionAnalysisCapabilityExecutor({
+                managedInvocationExecutor,
+                agentProfile: selection.agentProfile,
+                routeId: selection.routeId,
+                providerRoute: selection.providerRoute,
+                ...(selection.externalRuntimeAttachment
+                  ? { externalRuntimeAttachment: selection.externalRuntimeAttachment }
+                  : {}),
+              }),
+              kind: "managed-invocation",
+              childId: selection.agentProfile,
+              executorId: `${selection.routeId}:${MANAGED_AGENT_INVOKE_TOOL_NAME}`,
+              implementationIdentityDigest: implementationReference.identityDigest,
+            });
+          })();
+      if (!port) continue;
+      materializations.push({
+        capabilityId,
+        revision: descriptor.revision,
+        descriptorDigest: descriptor.descriptorDigest,
+        inputSchemaDigest: descriptor.inputSchemaDigest,
+        outputSchemaDigest: descriptor.outputSchemaDigest,
+        implementationIdentityDigest: implementationReference.identityDigest,
+        implementationReference,
+        toolName,
+        tool: materializedTool,
+        port,
+        requirements: {
+          data: descriptor.data,
+          network: descriptor.network,
+          artifacts: descriptor.artifacts,
+          budget: { status: "not-required" },
+        },
+        freshness: descriptor.freshness,
+      });
+      continue;
+    }
+    const tool = tools.get(toolName);
+    const executor = surface.callBuiltinTools.get(toolName);
+    if (!tool || !executor) continue;
     const materializedTool: ToolDefinition = {
       ...tool,
       inputSchema: { ...schemas.inputSchema },

@@ -3,6 +3,13 @@ import {
   digestManagedEconomicValue,
   type ManagedAgentCallerAttachmentIdentity,
 } from "@kilnai/core";
+import {
+  parseVisionAnalyzeInput,
+  parseVisionAnalysis,
+  VISION_ANALYZE_CAPABILITY_ID,
+  VISION_ANALYZE_CONTRACT,
+  type VisionAnalyzeInput,
+} from "@kilnai/core/capabilities";
 import type { ManagedWriteApprovalBinding, ManagedWriteApprovalReceipt } from "../managed-write-approvals/contracts.js";
 import {
   createInternalConsumedWriteApproval,
@@ -17,6 +24,7 @@ import type {
 import {
   AGENT_TASK_SCHEMA_VERSION,
   type AgentTaskCommitmentRecoveryPort,
+  type AgentTaskCapabilityRequest,
   type AgentTaskDiagnosticCode,
   type AgentTaskDispatch,
   type AgentTaskEconomicAdoptionPort,
@@ -51,6 +59,7 @@ import { AgentTaskApplicationError } from "./errors.js";
 import {
   hasOnly,
   isApprovedWriteProfile,
+  isCanonicalHash,
   isDiagnostic,
   isIdentifier,
   isRecord,
@@ -127,7 +136,7 @@ export class AgentTaskApplicationService {
   }
 
   /**
-   * Accepts and durably reserves governed V14 work without crossing an
+   * Accepts and durably reserves governed V15 work without crossing an
    * economic/native dispatch boundary. Completion is observed through the
    * status, result, and replay queries after the project owner schedules the
    * returned job.
@@ -161,6 +170,12 @@ export class AgentTaskApplicationService {
     try { profile = await this.options.profiles.resolve(request.configuredAgentProfileId); } catch { throw new AgentTaskApplicationError("profile_unavailable", "Choose a configured admitted agent profile."); }
     if (!profile) throw new AgentTaskApplicationError("profile_unavailable", "Choose a configured admitted agent profile.");
     if (!isIdentifier(profile.id) || profile.id !== request.configuredAgentProfileId) throw new AgentTaskApplicationError("profile_unavailable", "Choose a configured admitted agent profile.");
+    if (request.capability && !profileSupportsCapability(profile, request.capability.capabilityId)) {
+      throw new AgentTaskApplicationError(
+        "profile_unavailable",
+        "The configured agent profile has not explicitly admitted the requested capability.",
+      );
+    }
     if (profile.kind === "native-harness") {
       return await this.startNativeHarnessPrecommit(request, project, governance, profile);
     }
@@ -168,7 +183,7 @@ export class AgentTaskApplicationService {
   }
 
   private async startEconomicPrecommit(
-    request: AgentTaskSubmission,
+    request: ParsedAgentTaskSubmission,
     project: TrustedAgentTaskProject,
     governance: AgentTaskGovernanceEvidence,
     profile: AgentTaskEconomicProfile,
@@ -225,6 +240,7 @@ export class AgentTaskApplicationService {
       economicPolicyId: profile.economicPolicyId,
       economicPolicyRevision: profile.economicPolicyRevision,
       constraints,
+      ...(request.capability ? { capability: capabilityFingerprint(request.capability) } : {}),
       parent: request.parent,
     });
     const dispatch: Extract<AgentTaskDispatch, { readonly kind: "economic" }> = {
@@ -246,6 +262,7 @@ export class AgentTaskApplicationService {
       callerId: request.callerId,
       configuredAgentProfileId: profile.id,
       admissionProfileId: profile.admissionProfileId,
+      ...(request.capability ? { capability: request.capability } : {}),
       dispatch,
       run: {
         runId: `agent-run:${jobId}`,
@@ -276,7 +293,7 @@ export class AgentTaskApplicationService {
   }
 
   private async startNativeHarnessPrecommit(
-    request: AgentTaskSubmission,
+    request: ParsedAgentTaskSubmission,
     project: TrustedAgentTaskProject,
     governance: AgentTaskGovernanceEvidence,
     profile: AgentTaskNativeHarnessProfile,
@@ -330,6 +347,7 @@ export class AgentTaskApplicationService {
       kind: dispatch.kind,
       objective: request.objective,
       configuredAgentProfileId: request.configuredAgentProfileId,
+      ...(request.capability ? { capability: capabilityFingerprint(request.capability) } : {}),
       route: {
         routeId: dispatch.routeId,
         routeRevision: dispatch.routeRevision,
@@ -368,6 +386,7 @@ export class AgentTaskApplicationService {
       callerId: request.callerId,
       configuredAgentProfileId: profile.id,
       admissionProfileId: profile.admissionProfileId,
+      ...(request.capability ? { capability: request.capability } : {}),
       dispatch,
       run: {
         runId: `agent-run:${jobId}`,
@@ -655,6 +674,7 @@ export class AgentTaskApplicationService {
       });
       if (abortSignal?.aborted) return await this.transition(fenced.id, "interrupted", "result_pending");
       const selected = fenced.dispatch;
+      const capabilityOutput = parseCapabilityOutput(fenced, execution.capabilityOutput);
       const result: AgentTaskResult = {
         version: 1,
         jobId: fenced.id,
@@ -667,6 +687,7 @@ export class AgentTaskApplicationService {
         completedAt: execution.completedAt,
         provenance: { source: "runtime-managed-invocation", trust: "untrusted-child-output" },
         resultHandoff: normalizeAgentTaskResultHandoff(execution.resultHandoff, fenced.objective),
+        ...(capabilityOutput === undefined ? {} : { capabilityOutput }),
         dataPolicyProof: execution.dataPolicyProof,
         ...(execution.writeEvidence ? { writeEvidence: normalizeAgentTaskWriteEvidence(execution.writeEvidence, fenced.id) } : {}),
       };
@@ -721,7 +742,12 @@ export class AgentTaskApplicationService {
       });
       let consumedWriteApproval: ManagedAgentRuntimeConsumedWriteApproval | undefined;
       const executionProfile = await this.options.profiles.resolve(job.configuredAgentProfileId);
-      if (!executionProfile || executionProfile.kind !== "economic") {
+      if (
+        !executionProfile
+        || executionProfile.kind !== "economic"
+        || !isValidEconomicAgentTaskProfile(executionProfile)
+        || (job.capability !== undefined && !profileSupportsCapability(executionProfile, job.capability.capabilityId))
+      ) {
         return this.transition(job.id, "failed", "route_unavailable");
       }
       const preparation = await this.options.economicDispatch.prepare({
@@ -826,6 +852,7 @@ export class AgentTaskApplicationService {
         });
         if (abortSignal?.aborted) return await this.currentJob(job.id);
         const selected = preparation.commitment.reservation.selectedIdentity.route;
+        const capabilityOutput = parseCapabilityOutput(job, execution.capabilityOutput);
         const result: AgentTaskResult = {
           version: 1,
           jobId: job.id,
@@ -838,6 +865,7 @@ export class AgentTaskApplicationService {
           completedAt: execution.completedAt,
           provenance: { source: "runtime-managed-invocation", trust: "untrusted-child-output" },
           resultHandoff: normalizeAgentTaskResultHandoff(execution.resultHandoff, job.objective),
+          ...(capabilityOutput === undefined ? {} : { capabilityOutput }),
           dataPolicyProof: execution.dataPolicyProof,
           ...(execution.writeEvidence ? { writeEvidence: normalizeAgentTaskWriteEvidence(execution.writeEvidence, job.id) } : {}),
         };
@@ -891,7 +919,12 @@ export class AgentTaskApplicationService {
   ): Promise<AgentTaskNativeHarnessRoute> {
     try {
       const profile = await this.options.profiles.resolve(job.configuredAgentProfileId);
-      if (!profile || profile.kind !== "native-harness" || !isValidNativeHarnessProfile(profile)) {
+      if (
+        !profile
+        || profile.kind !== "native-harness"
+        || !isValidNativeHarnessProfile(profile)
+        || (job.capability !== undefined && !profileSupportsCapability(profile, job.capability.capabilityId))
+      ) {
         throw new Error("profile");
       }
       const resolved = await this.options.routes.resolve(profile, {
@@ -910,14 +943,19 @@ export class AgentTaskApplicationService {
     }
   }
 
-  /** Re-checks the persisted V14 candidate identity before and after fencing. */
+  /** Re-checks the persisted V15 candidate identity before and after fencing. */
   private async validateCurrentEconomicCandidateIdentity(job: AgentTaskRecord): Promise<void> {
     const dispatch = economicDispatchOf(job);
     let profile: AgentTaskProfile | undefined;
     let resolved: ManagedEconomicCandidateSet | AgentTaskNativeHarnessRoute | undefined;
     try {
       profile = await this.options.profiles.resolve(job.configuredAgentProfileId);
-      if (!profile || profile.kind !== "economic") throw new Error("profile");
+      if (
+        !profile
+        || profile.kind !== "economic"
+        || !isValidEconomicAgentTaskProfile(profile)
+        || (job.capability !== undefined && !profileSupportsCapability(profile, job.capability.capabilityId))
+      ) throw new Error("profile");
       resolved = await this.options.routes.resolve(profile, {
         invocationId: `agent-task:${job.id}`,
         compositionMode: "execution",
@@ -925,13 +963,13 @@ export class AgentTaskApplicationService {
     } catch {
       throw new AgentTaskApplicationError(
         "identity-revision-conflict",
-        "Restore the exact V14 managed economic candidate identity before execution.",
+        "Restore the exact V15 managed economic candidate identity before execution.",
       );
     }
     if (!isManagedEconomicCandidateSet(resolved) || !sameManagedEconomicCandidateSet(dispatch.candidateSet, resolved)) {
       throw new AgentTaskApplicationError(
         "identity-revision-conflict",
-        "Restore the exact V14 managed economic candidate identity before execution.",
+        "Restore the exact V15 managed economic candidate identity before execution.",
       );
     }
   }
@@ -1023,13 +1061,87 @@ export class AgentTaskApplicationService {
   }
 }
 
-function parseAgentTaskSubmission(value: unknown): AgentTaskSubmission {
-  if (!isRecord(value) || !hasOnly(value, ["objective", "configuredAgentProfileId", "callerId", "idempotencyKey", "parent"]) || typeof value.objective !== "string" || typeof value.configuredAgentProfileId !== "string" || typeof value.callerId !== "string" || typeof value.idempotencyKey !== "string") throw new AgentTaskApplicationError("invalid_request", "Provide only the supported managed-work fields.");
+type ParsedAgentTaskSubmission = Omit<AgentTaskSubmission, "capability"> & {
+  readonly capability?: AgentTaskCapabilityRequest;
+};
+
+function parseAgentTaskSubmission(value: unknown): ParsedAgentTaskSubmission {
+  if (!isRecord(value) || !hasOnly(value, ["objective", "configuredAgentProfileId", "callerId", "idempotencyKey", "capability", "parent"]) || typeof value.objective !== "string" || typeof value.configuredAgentProfileId !== "string" || typeof value.callerId !== "string" || typeof value.idempotencyKey !== "string") throw new AgentTaskApplicationError("invalid_request", "Provide only the supported managed-work fields.");
   const objective = value.objective.trim(); const configuredAgentProfileId = value.configuredAgentProfileId.trim(); const callerId = value.callerId.trim(); const idempotencyKey = value.idempotencyKey.trim();
   if (objective.length === 0 || objective.length > 12000 || !isIdentifier(configuredAgentProfileId) || !isIdentifier(callerId) || !isIdentifier(idempotencyKey)) throw new AgentTaskApplicationError("invalid_request", "Provide bounded valid managed-work identities and objective.");
+  const capability = value.capability === undefined ? undefined : parseAgentTaskCapability(value.capability);
   let parent: AgentTaskSubmission["parent"];
   if (value.parent !== undefined) { if (!isRecord(value.parent) || !hasOnly(value.parent, ["invocationId", "turnId"]) || !isIdentifier(value.parent.invocationId) || !isIdentifier(value.parent.turnId)) throw new AgentTaskApplicationError("invalid_request", "Provide valid parent invocation lineage."); parent = { invocationId: value.parent.invocationId, turnId: value.parent.turnId }; }
-  return { objective, configuredAgentProfileId, callerId, idempotencyKey, ...(parent ? { parent } : {}) };
+  return {
+    objective,
+    configuredAgentProfileId,
+    callerId,
+    idempotencyKey,
+    ...(capability ? { capability } : {}),
+    ...(parent ? { parent } : {}),
+  };
+}
+
+function parseAgentTaskCapability(value: unknown): AgentTaskCapabilityRequest {
+  if (
+    !isRecord(value)
+    || !hasOnly(value, ["capabilityId", "contract", "input", "inputDigest"])
+    || value.capabilityId !== VISION_ANALYZE_CAPABILITY_ID
+    || value.contract !== VISION_ANALYZE_CONTRACT
+    || (value.inputDigest !== undefined && !isCanonicalHash(value.inputDigest))
+  ) {
+    throw new AgentTaskApplicationError("invalid_request", "Provide the exact supported capability identity and input.");
+  }
+  let input: VisionAnalyzeInput;
+  try {
+    input = parseVisionAnalyzeInput(value.input);
+  } catch {
+    throw new AgentTaskApplicationError("invalid_request", "Provide a valid bounded vision.analyze input.");
+  }
+  const inputDigest = digestManagedEconomicValue(input);
+  if (value.inputDigest !== undefined && value.inputDigest !== inputDigest) {
+    throw new AgentTaskApplicationError("invalid_request", "The capability input digest does not match the validated input.");
+  }
+  return {
+    capabilityId: VISION_ANALYZE_CAPABILITY_ID,
+    contract: VISION_ANALYZE_CONTRACT,
+    input,
+    inputDigest,
+  };
+}
+
+function capabilityFingerprint(capability: AgentTaskCapabilityRequest): Readonly<Record<string, string>> {
+  return {
+    capabilityId: capability.capabilityId,
+    contract: capability.contract,
+    inputDigest: capability.inputDigest,
+  };
+}
+
+function profileSupportsCapability(profile: AgentTaskProfile, capabilityId: string): boolean {
+  return Array.isArray(profile.supportedCapabilityIds)
+    && profile.supportedCapabilityIds.includes(capabilityId);
+}
+
+function parseCapabilityOutput(
+  job: AgentTaskRecord,
+  value: unknown,
+): AgentTaskResult["capabilityOutput"] {
+  if (job.capability === undefined) return undefined;
+  if (value === undefined) {
+    throw new AgentTaskApplicationError("result_corrupt", "The admitted capability did not return typed output.");
+  }
+  try {
+    const parsed = parseVisionAnalysis(value);
+    const requestedUris = new Set(job.capability.input.resourceUris);
+    if (parsed.evidenceUris.some((uri) => !requestedUris.has(uri))) {
+      throw new AgentTaskApplicationError("result_corrupt", "The capability output cites evidence outside its admitted resources.");
+    }
+    return parsed;
+  } catch (error) {
+    if (error instanceof AgentTaskApplicationError) throw error;
+    throw new AgentTaskApplicationError("result_corrupt", "Persist only validated vision.analyze output.");
+  }
 }
 function normalizeStoreError(error: unknown): AgentTaskApplicationError { return error instanceof AgentTaskApplicationError ? error : new AgentTaskApplicationError("job_persistence_unavailable", "Restore the agent-task store and retry safely."); }
 function economicDispatchOf(job: AgentTaskRecord): Extract<AgentTaskDispatch, { readonly kind: "economic" }> {

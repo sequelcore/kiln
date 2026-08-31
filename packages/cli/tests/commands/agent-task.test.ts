@@ -59,6 +59,48 @@ describe("agentTaskCommand", () => {
     })).rejects.toThrow(/routing.*Runtime-owned/i);
   });
 
+  it("submits the typed vision capability from JSON without accepting routing flags", async () => {
+    const log = vi.fn();
+    const close = vi.fn();
+    const client = {
+      submit: vi.fn(async () => ({ id: "job-vision-1", state: "queued" })),
+      status: vi.fn(),
+      result: vi.fn(),
+      cancel: vi.fn(),
+      replay: vi.fn(),
+    };
+
+    await agentTaskCommand([
+      "submit",
+      "--profile", "vision-worker",
+      "--idempotency-key", "vision-1",
+      "--capability", JSON.stringify({
+        capabilityId: "vision.analyze",
+        contract: "vision.analyze/v1",
+        input: {
+          resourceUris: ["kiln://project/artifacts/image-1"],
+          instruction: "Summarize the visible evidence.",
+        },
+      }),
+      "Analyze", "the", "image",
+    ], { createClient: () => ({ client, close }), log });
+
+    expect(client.submit).toHaveBeenCalledWith({
+      objective: "Analyze the image",
+      configuredAgentProfileId: "vision-worker",
+      idempotencyKey: "vision-1",
+      capability: {
+        capabilityId: "vision.analyze",
+        contract: "vision.analyze/v1",
+        input: {
+          resourceUris: ["kiln://project/artifacts/image-1"],
+          instruction: "Summarize the visible evidence.",
+        },
+      },
+    });
+    expect(close).toHaveBeenCalledOnce();
+  });
+
   it("prints a useful bounded result without leaking the canonical admission bundle", async () => {
     const log = vi.fn();
     const client = {

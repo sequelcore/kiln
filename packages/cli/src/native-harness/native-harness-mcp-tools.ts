@@ -1,5 +1,6 @@
 import type { AgentTaskRecord, AgentTaskReplayQuery, AgentTaskResultQuery } from "@kilnai/runtime";
 import {
+  AgentTaskCapabilitySubmissionSchema,
   KilnSettingsApplyRequestSchema,
   KilnSettingsProposalRequestSchema,
 } from "@kilnai/gateway-contracts";
@@ -224,15 +225,18 @@ export class NativeHarnessMcpTools {
   }
 
   private invokeRequest(args: unknown, identity: NativeHarnessMcpRequestIdentity): Record<string, unknown> {
-    if (!isRecord(args) || !hasOnly(args, ["objective", "configuredAgentProfileId", "idempotencyKey"]) || typeof args.objective !== "string" || typeof args.configuredAgentProfileId !== "string" || typeof args.idempotencyKey !== "string") throw applicationInputError();
+    if (!isRecord(args) || !hasOnly(args, ["objective", "configuredAgentProfileId", "idempotencyKey", "capability"]) || typeof args.objective !== "string" || typeof args.configuredAgentProfileId !== "string" || typeof args.idempotencyKey !== "string") throw applicationInputError();
     const objective = args.objective.trim();
     const configuredAgentProfileId = args.configuredAgentProfileId.trim();
     const idempotencyKey = args.idempotencyKey.trim();
     if (objective.length === 0 || objective.length > 12000 || !isIdentifier(configuredAgentProfileId) || !isIdentifier(idempotencyKey)) throw applicationInputError();
+    const capability = args.capability === undefined ? undefined : AgentTaskCapabilitySubmissionSchema.safeParse(args.capability);
+    if (capability !== undefined && !capability.success) throw applicationInputError();
     return {
       objective,
       configuredAgentProfileId,
       idempotencyKey,
+      ...(capability ? { capability: capability.data } : {}),
       callerId: identity.callerId,
       ...(identity.parent ? { parent: identity.parent } : {}),
     };
@@ -269,6 +273,7 @@ export class NativeHarnessMcpTools {
         state: job.state,
         configuredAgentProfileId: job.configuredAgentProfileId,
         admissionProfileId: job.admissionProfileId,
+        ...(job.capability ? { capability: job.capability } : {}),
         dispatch,
         ...(job.result ? { routeId: job.result.routeId } : {}),
         ...(job.result?.dataPolicyProof ? { dataPolicyProof: structuredClone(job.result.dataPolicyProof) } : {}),
@@ -297,11 +302,13 @@ export class NativeHarnessMcpTools {
         lifecycleState: result.lifecycleState,
         configuredAgentProfileId: result.configuredAgentProfileId,
         admissionProfileId: result.admissionProfileId,
+        ...(result.capability ? { capability: result.capability } : {}),
         routeId: result.routeId,
         providerId: result.providerId,
         ...(result.completedAt ? { completedAt: result.completedAt } : {}),
         ...(result.provenance ? { provenance: result.provenance } : {}),
         ...(result.handoff ? { handoff: result.handoff } : {}),
+        ...(result.capabilityOutput ? { capabilityOutput: result.capabilityOutput } : {}),
         ...(result.dataPolicyProof ? { dataPolicyProof: structuredClone(result.dataPolicyProof) } : {}),
         ...(result.diagnostic ? { diagnostic: { code: result.diagnostic, operatorAction: operatorActionFor(result.diagnostic) } } : {}),
         ...(result.failureEvidence ? { failureEvidence: result.failureEvidence } : {}),
@@ -325,10 +332,12 @@ export class NativeHarnessMcpTools {
         lifecycleState: replay.lifecycleState,
         configuredAgentProfileId: replay.configuredAgentProfileId,
         admissionProfileId: replay.admissionProfileId,
+        ...(replay.capability ? { capability: replay.capability } : {}),
         routeId: replay.routeId,
         providerId: replay.providerId,
         lifecycle: replay.lifecycle,
         resultAvailability: replay.resultAvailability,
+        ...(replay.capabilityOutput ? { capabilityOutput: replay.capabilityOutput } : {}),
         dispatch: replay.dispatch,
         ...(replay.dataPolicyProof ? { dataPolicyProof: structuredClone(replay.dataPolicyProof) } : {}),
         ...(replay.diagnostic ? { diagnostic: { code: replay.diagnostic, operatorAction: operatorActionFor(replay.diagnostic) } } : {}),
@@ -409,6 +418,36 @@ function inputSchemaFor(name: NativeHarnessMcpToolName): Record<string, unknown>
         objective: { type: "string", minLength: 1, maxLength: 12000 },
         configuredAgentProfileId: { type: "string", minLength: 1, maxLength: 200 },
         idempotencyKey: { type: "string", minLength: 1, maxLength: 200 },
+        capability: {
+          type: "object",
+          additionalProperties: false,
+          required: ["capabilityId", "contract", "input"],
+          properties: {
+            capabilityId: { const: "vision.analyze" },
+            contract: { const: "vision.analyze/v1" },
+            input: {
+              type: "object",
+              additionalProperties: false,
+              required: ["resourceUris", "instruction"],
+              properties: {
+                resourceUris: {
+                  type: "array",
+                  minItems: 1,
+                  maxItems: 16,
+                  uniqueItems: true,
+                  items: {
+                    type: "string",
+                    minLength: 1,
+                    maxLength: 512,
+                    pattern: "^kiln://[A-Za-z0-9][A-Za-z0-9.-]*(?:/[A-Za-z0-9][A-Za-z0-9:._%~-]*)+$",
+                  },
+                },
+                instruction: { type: "string", minLength: 1, maxLength: 4096 },
+              },
+            },
+            inputDigest: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
+          },
+        },
       },
     };
   }

@@ -99,6 +99,59 @@ describe("operator runtime application protocol", () => {
     }).success).toBe(false);
   });
 
+  it("accepts the bounded typed vision capability on Agent Task submission", () => {
+    expect(OperatorRuntimeApplicationRequestSchema.parse({
+      schemaVersion: 1,
+      operation: "agent-task.submit",
+      input: {
+        objective: "Inspect the image evidence.",
+        configuredAgentProfileId: "vision-reviewer",
+        idempotencyKey: "vision-review-1",
+        capability: {
+          capabilityId: "vision.analyze",
+          contract: "vision.analyze/v1",
+          input: {
+            resourceUris: ["kiln://project/artifacts/image-1"],
+            instruction: "Summarize the visible evidence.",
+          },
+        },
+      },
+    })).toMatchObject({
+      input: { capability: { capabilityId: "vision.analyze", contract: "vision.analyze/v1" } },
+    });
+    expect(OperatorRuntimeApplicationRequestSchema.safeParse({
+      schemaVersion: 1,
+      operation: "agent-task.submit",
+      input: {
+        objective: "Inspect",
+        configuredAgentProfileId: "vision-reviewer",
+        idempotencyKey: "vision-review-1",
+        capability: {
+          capabilityId: "vision.analyze",
+          contract: "vision.analyze/v1",
+          input: {
+            resourceUris: ["kiln://project/artifacts/image-1", "kiln://project/artifacts/image-1"],
+            instruction: "Summarize",
+          },
+        },
+      },
+    }).success).toBe(false);
+    expect(OperatorRuntimeApplicationRequestSchema.safeParse({
+      schemaVersion: 1,
+      operation: "agent-task.submit",
+      input: {
+        objective: "Inspect",
+        configuredAgentProfileId: "vision-reviewer",
+        idempotencyKey: "vision-review-1",
+        capability: {
+          capabilityId: "vision.analyze",
+          contract: "vision.analyze/v1",
+          input: { resourceUris: ["https://example.invalid/image"], instruction: "Summarize" },
+        },
+      },
+    }).success).toBe(false);
+  });
+
   it("admits only explicit success or bounded failure responses", () => {
     expect(OperatorRuntimeApplicationResponseSchema.parse({
       schemaVersion: 1,

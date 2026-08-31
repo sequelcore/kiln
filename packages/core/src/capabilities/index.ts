@@ -31,3 +31,4 @@ export * from "./graphql-capability-discovery.js";
 export * from "./harness-compatibility-capability-discovery.js";
 export * from "./verification-capability-discovery.js";
 export * from "./vision-analysis-capability.js";
+export * from "./vision-analysis-capability-discovery.js";

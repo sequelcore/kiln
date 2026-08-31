@@ -188,6 +188,8 @@ export interface ProviderCreateConfig {
   readonly operatorSurface?: OperatorSurfaceController;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly managedInvocation?: ManagedInvocationToolAttachment;
+  /** Existing project Agent Task owner for local agent-backed capabilities. */
+  readonly agentTaskCapability?: import("@kilnai/runtime").AgentTaskVisionAnalysisCapabilityBinding;
   readonly operatorAdoption?: import("@kilnai/runtime").OperatorAdoptionRuntimeBinding;
   readonly authorityAdmissionContext?: import("./provider-session.js").ProviderSessionConfig["authorityAdmissionContext"];
   readonly runtimeExecutionMode?: "execute" | "plan";
@@ -1228,6 +1230,7 @@ function createDirectProviderSession(
     ...(config.operatorSurface ? { operatorSurface: config.operatorSurface } : {}),
     ...(config.builtinToolOptions ? { builtinToolOptions: config.builtinToolOptions } : {}),
     ...(config.managedInvocation ? { managedInvocation: config.managedInvocation } : {}),
+    ...(config.agentTaskCapability ? { agentTaskCapability: config.agentTaskCapability } : {}),
     ...(config.operatorAdoption ? { operatorAdoption: config.operatorAdoption } : {}),
     ...(config.authorityAdmissionContext ? { authorityAdmissionContext: config.authorityAdmissionContext } : {}),
     ...(config.runtimeExecutionMode ? { runtimeExecutionMode: config.runtimeExecutionMode } : {}),

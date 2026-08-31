@@ -59,6 +59,11 @@ import {
 } from "../application/operator-transcript-projection.js";
 import { captureOperatorExecutionTargetCatalogSnapshot } from "../application/operator-turn-dispatch-composition.js";
 import {
+  createOperatorProjectAgentTaskApplicationComposition,
+  resolveOperatorProjectLocalVisionAgentProfileId,
+  type OperatorProjectAgentTaskApplicationComposition,
+} from "../application/operator-project-agent-tasks.js";
+import {
   assertPrivateStateFileTargetSync,
   ensurePrivateStateDirectorySync,
 } from "../application/private-project-state-filesystem.js";
@@ -1199,8 +1204,15 @@ export async function runCommand(
     privateStateRoot: projectStateBinding.projectStateRoot,
   });
   const managedDirectAdmissionEvidence = new TranscriptAuthorityAdmissionEvidenceStore(transcriptStore);
-  cleanupRegistry.register(async () => managedDirectToolActionClaims.close());
-  cleanupRegistry.register(async () => managedDirectModelRoundActionClaims.close());
+  let localAgentTaskComposition: OperatorProjectAgentTaskApplicationComposition | undefined;
+  cleanupRegistry.register(async () => {
+    await localAgentTaskComposition?.close();
+    try {
+      managedDirectToolActionClaims.close();
+    } finally {
+      managedDirectModelRoundActionClaims.close();
+    }
+  });
   const continuedMeta = continuationSessionId ? await transcriptStore.readMeta(continuationSessionId) : null;
   const sessionTokenUsageReader =
     executionOptions.sessionTokenUsageReader ?? createCliTranscriptSessionTokenUsageReader(transcriptStore);
@@ -1615,6 +1627,43 @@ export async function runCommand(
     projectedBlocks: context.projectedContext.blocks,
     requestedAuthority: flags.requestedAuthority,
   });
+  let agentTaskCapability: ReturnType<
+    OperatorProjectAgentTaskApplicationComposition["createAgentTaskVisionAnalysisCapabilityBinding"]
+  > | undefined;
+  if (managedInvocationWithService) {
+    const localVisionAgentProfileId = resolveOperatorProjectLocalVisionAgentProfileId(
+      await loadAgentDefinitions(cwd, { projectStateBinding }),
+      managedInvocationWithService,
+      new Date().toISOString(),
+      managedRouteConfig?.deliberationPolicy,
+    );
+    if (localVisionAgentProfileId) {
+      try {
+        const candidateComposition = await createOperatorProjectAgentTaskApplicationComposition({
+          projectPath: cwd,
+          projectStateBinding,
+          authorityAdmissionEvidenceStore: managedDirectAdmissionEvidence,
+          runtimeToolActionClaims: managedDirectToolActionClaims,
+          runtimeModelRoundActionClaims: managedDirectModelRoundActionClaims,
+        });
+        if (candidateComposition.localVisionAgentProfileId === localVisionAgentProfileId) {
+          localAgentTaskComposition = candidateComposition;
+          const callerId = `run:${sessionId}`;
+          agentTaskCapability = candidateComposition.createAgentTaskVisionAnalysisCapabilityBinding({
+            configuredAgentProfileId: localVisionAgentProfileId,
+            callerId,
+            callerIdentity: { kind: "kiln-runtime", surface: "run", attachmentId: callerId },
+          });
+        } else {
+          await candidateComposition.close();
+        }
+      } catch {
+        // Agent-backed capability discovery remains unavailable when its
+        // current project lifecycle owner cannot be materialized. The parent
+        // run continues through its independently admitted direct route.
+      }
+    }
+  }
   const sessionConfig = {
     task,
     mcpServerEntryPath: context.mcpServerEntryPath,
@@ -1630,6 +1679,7 @@ export async function runCommand(
     localProvider: flags.localProvider,
     builtinToolOptions,
     managedInvocation: managedInvocationWithTranscriptSink,
+    ...(agentTaskCapability ? { agentTaskCapability } : {}),
     boundedWork: boundedWork.surface,
     runtimeExecutionMode: flags.plan ? ("plan" as const) : ("execute" as const),
     ...(sessionTurnBudget ? { sessionTurnBudget } : {}),

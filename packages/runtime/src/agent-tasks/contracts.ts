@@ -7,6 +7,12 @@ import type {
   ManagedEconomicAdoptedSnapshot,
   ManagedEconomicAdoptedSnapshotExpectation,
 } from "@kilnai/core";
+import type {
+  VisionAnalyzeInput,
+  VisionAnalysis,
+  VISION_ANALYZE_CAPABILITY_ID,
+  VISION_ANALYZE_CONTRACT,
+} from "@kilnai/core/capabilities";
 import type { ManagedWriteApprovalBinding, ManagedWriteApprovalReceipt } from "../managed-write-approvals/contracts.js";
 import type { ManagedEconomicCandidateSet } from "../agents/managed-invocation/runtime-tool/index.js";
 import type { ManagedEconomicCommitmentAcquireResult, ManagedEconomicReplayEvidence, ManagedEconomicRouteCapacity } from "../managed-account-leases/managed-account-lease-authority.js";
@@ -15,7 +21,7 @@ import type { EffectiveAuthorityAdmissionBundle } from "../session/effective-aut
 
 
 export const AGENT_TASK_STATES = ["awaiting_approval", "queued", "running", "succeeded", "failed", "timed_out", "interrupted", "cancelled"] as const;
-export const AGENT_TASK_SCHEMA_VERSION = 14 as const;
+export const AGENT_TASK_SCHEMA_VERSION = 15 as const;
 /** Recovery redispatches only unfenced economic work. A durable economic
  * action fence becomes an explicit unknown projection, and native-harness
  * work is never resumed after a process restart. */
@@ -57,8 +63,35 @@ export interface AgentTaskSubmission {
   readonly configuredAgentProfileId: string;
   readonly callerId: string;
   readonly idempotencyKey: string;
+  readonly capability?: AgentTaskCapabilitySubmission;
   readonly parent?: { readonly invocationId: string; readonly turnId: string };
 }
+
+/**
+ * The only capability request currently owned by the Agent Task boundary.
+ * Runtime computes the digest after parsing the input; a supplied digest is
+ * accepted only as a checked assertion and is never trusted as authority.
+ */
+export interface AgentTaskCapabilitySubmission {
+  readonly capabilityId: typeof VISION_ANALYZE_CAPABILITY_ID;
+  readonly contract: typeof VISION_ANALYZE_CONTRACT;
+  readonly input: VisionAnalyzeInput;
+  readonly inputDigest?: string;
+}
+
+/** Canonical, persisted capability request carried by an Agent Task. */
+export interface AgentTaskCapabilityRequest {
+  readonly capabilityId: typeof VISION_ANALYZE_CAPABILITY_ID;
+  readonly contract: typeof VISION_ANALYZE_CONTRACT;
+  readonly input: VisionAnalyzeInput;
+  readonly inputDigest: string;
+}
+
+/** Stable name for the typed result carried beside the text handoff. */
+export type AgentTaskCapabilityOutput = VisionAnalysis;
+
+/** Alias used by callers that refer to the persisted request as a capability. */
+export type AgentTaskCapability = AgentTaskCapabilityRequest;
 
 export interface TrustedAgentTaskProject {
   readonly id: string;
@@ -82,6 +115,8 @@ export interface AgentTaskEconomicProfile {
   readonly kind: "economic";
   readonly id: string;
   readonly authorityProfileId: string;
+  /** Capability contracts this profile has explicitly admitted for execution. Absent means none. */
+  readonly supportedCapabilityIds?: readonly string[];
   readonly economicPolicyId: string;
   readonly economicPolicyRevision: string;
   readonly admissionProfileId: ManagedAgentAdmissionProfile;
@@ -166,6 +201,8 @@ export interface AgentTaskNativeHarnessProfile {
   readonly kind: "native-harness";
   readonly id: string;
   readonly authorityProfileId: string;
+  /** Capability contracts this profile has explicitly admitted for execution. Absent means none. */
+  readonly supportedCapabilityIds?: readonly string[];
   readonly admissionProfileId: ManagedAgentAdmissionProfile;
   readonly routeId: string;
   readonly routeRevision: string;
@@ -179,7 +216,7 @@ export interface AgentTaskNativeHarnessProfile {
 
 export type AgentTaskProfile = AgentTaskEconomicProfile | AgentTaskNativeHarnessProfile;
 
-export type AgentTaskNativeHarnessRoute = Omit<AgentTaskNativeHarnessProfile, "id" | "authorityProfileId">;
+export type AgentTaskNativeHarnessRoute = Omit<AgentTaskNativeHarnessProfile, "id" | "authorityProfileId" | "supportedCapabilityIds">;
 
 /**
  * The one durable outer-effect claim for a native or remote Agent Task.
@@ -246,6 +283,8 @@ export interface AgentTaskResult {
     readonly trust: "untrusted-child-output";
   };
   readonly resultHandoff: ManagedAgentResultHandoff;
+  /** Typed output for the persisted capability request, never encoded in the handoff summary. */
+  readonly capabilityOutput?: AgentTaskCapabilityOutput;
   /** Every successful Agent Task, native or economic, carries one exact proof. */
   readonly dataPolicyProof: AgentTaskDataPolicyProof;
   readonly writeEvidence?: readonly ManagedAgentWriteEvidence[];
@@ -281,7 +320,7 @@ export interface AgentTaskLifecycleEntry {
   readonly failureEvidence?: AgentTaskFailureEvidence;
 }
 
-/** The one committed execution attempt. Retry/recovery never creates a second run in V14. */
+/** The one committed execution attempt. Retry/recovery never creates a second run in V15. */
 export interface AgentRun {
   readonly runId: string;
   readonly state: AgentTaskState;
@@ -302,6 +341,7 @@ export interface AgentTaskRecord {
   readonly callerId: string;
   readonly configuredAgentProfileId: string;
   readonly admissionProfileId: ManagedAgentAdmissionProfile;
+  readonly capability?: AgentTaskCapabilityRequest;
   readonly dispatch: AgentTaskDispatch;
   readonly governanceSource: string;
   readonly admissionId: string;
@@ -326,11 +366,13 @@ export interface AgentTaskResultQuery {
   readonly lifecycleState: AgentTaskState;
   readonly configuredAgentProfileId: string;
   readonly admissionProfileId: string;
+  readonly capability?: AgentTaskCapabilityRequest;
   readonly routeId?: string;
   readonly providerId?: string;
   readonly completedAt?: string;
   readonly provenance?: AgentTaskResult["provenance"];
   readonly handoff?: ManagedAgentResultHandoff;
+  readonly capabilityOutput?: AgentTaskCapabilityOutput;
   readonly writeEvidence?: readonly ManagedAgentWriteEvidence[];
   readonly writeApproval?: AgentTaskWriteApproval;
   readonly diagnostic?: AgentTaskDiagnosticCode;
@@ -344,10 +386,12 @@ export interface AgentTaskReplayQuery {
   readonly lifecycleState: AgentTaskState;
   readonly configuredAgentProfileId: string;
   readonly admissionProfileId: string;
+  readonly capability?: AgentTaskCapabilityRequest;
   readonly routeId?: string;
   readonly providerId?: string;
   readonly lifecycle: readonly AgentTaskLifecycleEntry[];
   readonly resultAvailability: AgentTaskResultAvailability;
+  readonly capabilityOutput?: AgentTaskCapabilityOutput;
   readonly writeEvidence?: readonly ManagedAgentWriteEvidence[];
   readonly dataPolicyProof?: AgentTaskDataPolicyProof;
   readonly writeApproval?: AgentTaskWriteApproval;

@@ -3,6 +3,10 @@
 export type {
   AgentTaskCommitmentRecoveryPort,
   AgentTaskCommitmentRecoveryState,
+  AgentTaskCapability,
+  AgentTaskCapabilityOutput,
+  AgentTaskCapabilityRequest,
+  AgentTaskCapabilitySubmission,
   AgentTaskDataPolicyProof,
   AgentTaskDiagnosticCode,
   AgentTaskEconomicAdoption,
@@ -321,6 +325,23 @@ export type {
   AgentBackedCapabilitySettlement,
   AgentBackedInvocationPort,
 } from "./capabilities/agent-backed-execution.js";
+export {
+  ManagedVisionAnalysisCapabilityExecutor,
+  createManagedVisionAnalysisCapabilityExecutor,
+} from "./capabilities/managed-vision-analysis-execution.js";
+export type {
+  ManagedVisionAnalysisCapabilityExecutorOptions,
+} from "./capabilities/managed-vision-analysis-execution.js";
+export {
+  AgentTaskVisionAnalysisCapabilityExecutor,
+  createAgentTaskVisionAnalysisCapabilityExecutor,
+} from "./capabilities/agent-task-vision-analysis-execution.js";
+export type {
+  AgentTaskCapabilityService,
+  AgentTaskVisionAnalysisCapabilityBinding,
+  AgentTaskVisionAnalysisAcceptance,
+  AgentTaskVisionAnalysisCapabilityExecutorOptions,
+} from "./capabilities/agent-task-vision-analysis-execution.js";
 export {
   PortableCliInvocationPort,
   createCliPortableInvocationPort,

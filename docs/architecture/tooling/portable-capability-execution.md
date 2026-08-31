@@ -88,6 +88,50 @@ producer whose actual execution is already governed behind a typed adapter.
 Declaring that attachment as CLI does not expose the command to the model or
 replace the producer's own candidate and evidence contract.
 
+### Agent-backed execution
+
+Agent-backed capabilities use the same immutable binding, exact schema
+validation, bounds, settlement, and replay rules as direct portable tools.
+Their Runtime-owned port records whether the existing lifecycle owner is an
+`agent-task` or `managed-invocation`, plus the exact child and executor
+identities. A callback that only imitates this port is rejected during
+materialization.
+
+The agent port does not own another child lifecycle. A local implementation
+uses the existing Agent Task application and its durable AgentTask/AgentRun
+record. A managed implementation accepts the already-attached
+`managed_agent.invoke` executor closure, so the configured invocation service,
+owner, route admission, cancellation, and terminal observation remain
+canonical. The exact parent authority bundle reaches that owner through
+trusted process-local context; it is neither reconstructed from tool input nor
+serialized as child output.
+
+Canonical direct runs materialize the local port only when project evidence
+selects one eligible non-economic vision profile. The run creates one Agent
+Task composition for its lifetime, lends it the run-owned authority-evidence
+and exact-once action-claim stores, drains it before those owners close, and
+passes its binding to ProviderSession. Zero or multiple eligible profiles leave
+the local implementation unavailable. Operator Runtime, CLI, and native MCP
+submission preserve the same typed capability request at their public boundary.
+
+`vision.analyze/v1` is the first agent-backed contract. Core contributes it
+only when configuration resolves one unambiguous specialist with explicit
+structured output, image modality, a read-only admission profile, an exact
+attachment-capable route, and current route proof. Accountless routes declare
+that capability invocation does not consume Kiln turn-budget authority;
+economic routes are not admitted by this first resolver. An external-runtime
+route carries its exact configured attachment identity into managed admission.
+
+Both executors send only the bounded instruction and admitted resource URIs.
+They accept only a terminal completed structured handoff, validate the result
+against `VisionAnalysis`, and reject evidence outside the requested URI set.
+Denied, failed, malformed, partial, cancelled, timed-out, and unobserved
+outcomes cannot produce a successful capability result. The capability
+adapter retains no separate request or result copy. A descriptor's
+`data.retention: "none"` describes that capability-owned payload posture; it
+does not suppress Agent Task or managed-invocation lifecycle, replay, or audit
+records, which remain owned by those subsystems.
+
 ## Settlement And Replay
 
 Every port invocation returns `kiln.portable-invocation-settlement/v1` with:
@@ -156,6 +200,12 @@ schema before the portable settlement is attached.
   `verification-capability-discovery.ts`
 - Runtime binding and settlement:
   `packages/runtime/src/capabilities/portable-execution.ts`
+- Runtime agent-backed port and vision executors:
+  `packages/runtime/src/capabilities/agent-backed-execution.ts`,
+  `managed-vision-analysis-execution.ts`, and
+  `agent-task-vision-analysis-execution.ts`
+- Durable local Agent Task contract and lifecycle:
+  `packages/runtime/src/agent-tasks/`
 - CLI and trusted local ports:
   `packages/runtime/src/capabilities/portable-cli.ts` and
   `portable-local-function.ts`

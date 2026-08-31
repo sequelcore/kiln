@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
 import pkg from "../../package.json" with { type: "json" };
+import {
+  AgentTaskCapabilitySubmissionSchema,
+  type AgentTaskCapabilitySubmission,
+} from "@kilnai/gateway-contracts";
 import { createOperatorRuntimeAgentTaskClient, type OperatorRuntimeAgentTaskClient } from "../application/operator-runtime-agent-tasks.js";
 import { createOperatorRuntimeClientSession } from "../application/operator-runtime-client-session.js";
 import { createGlobalOperatorRuntimeLifecycle } from "../application/operator-runtime-lifecycle.js";
@@ -18,6 +22,7 @@ interface ParsedFlags {
   readonly wait: boolean;
   readonly profile?: string;
   readonly idempotencyKey?: string;
+  readonly capability?: AgentTaskCapabilitySubmission;
   readonly positional: readonly string[];
 }
 
@@ -64,12 +69,13 @@ export async function agentTaskCommand(
         objective,
         configuredAgentProfileId: flags.profile,
         idempotencyKey: flags.idempotencyKey ?? dependencies.createIdempotencyKey(),
+        ...(flags.capability ? { capability: flags.capability } : {}),
       });
       printValue("submitted", submitted, flags.json, dependencies.log);
       if (flags.wait) await waitForTerminal(connection.client, requireJobId(submitted), flags.json, dependencies);
       return;
     }
-    if (flags.wait || flags.profile || flags.idempotencyKey || flags.positional.length !== 1) {
+    if (flags.wait || flags.profile || flags.idempotencyKey || flags.capability || flags.positional.length !== 1) {
       throw new Error(`agent-task ${operation} requires exactly one job id.`);
     }
     const jobId = requireIdentifier(flags.positional[0], "job id");
@@ -109,16 +115,18 @@ function parseFlags(args: readonly string[]): ParsedFlags {
   let wait = false;
   let profile: string | undefined;
   let idempotencyKey: string | undefined;
+  let capability: AgentTaskCapabilitySubmission | undefined;
   const positional: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!;
     if (arg === "--json") { json = true; continue; }
     if (arg === "--wait") { wait = true; continue; }
-    if (arg === "--profile" || arg === "--idempotency-key") {
+    if (arg === "--profile" || arg === "--idempotency-key" || arg === "--capability") {
       const value = args[index + 1];
       if (!value) throw new Error(`${arg} requires a value.`);
       if (arg === "--profile") profile = requireIdentifier(value, "profile id");
-      else idempotencyKey = requireIdentifier(value, "idempotency key");
+      else if (arg === "--idempotency-key") idempotencyKey = requireIdentifier(value, "idempotency key");
+      else capability = parseCapability(value);
       index += 1;
       continue;
     }
@@ -133,7 +141,20 @@ function parseFlags(args: readonly string[]): ParsedFlags {
     positional,
     ...(profile ? { profile } : {}),
     ...(idempotencyKey ? { idempotencyKey } : {}),
+    ...(capability ? { capability } : {}),
   };
+}
+
+function parseCapability(value: string): AgentTaskCapabilitySubmission {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error("Agent-task capability must be valid JSON.");
+  }
+  const result = AgentTaskCapabilitySubmissionSchema.safeParse(parsed);
+  if (!result.success) throw new Error("Agent-task capability does not match the typed vision.analyze/v1 contract.");
+  return result.data;
 }
 
 function printValue(operation: string, value: unknown, json: boolean, log: (message: string) => void): void {
@@ -231,6 +252,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function printHelp(log: (message: string) => void): void {
-  log("\nUsage: kiln agent-task submit --profile <id> [--wait] [--json] <objective>");
+  log("\nUsage: kiln agent-task submit --profile <id> [--capability <json>] [--wait] [--json] <objective>");
   log("       kiln agent-task <status|result|cancel|replay> [--json] <job-id>\n");
 }

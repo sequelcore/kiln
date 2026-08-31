@@ -338,6 +338,7 @@ const nativeHarnessProfile: AgentTaskNativeHarnessProfile = {
   kind: "native-harness",
   id: "claude-reviewer",
   authorityProfileId: "authority:agent-task-native-readonly",
+  supportedCapabilityIds: ["vision.analyze"],
   admissionProfileId: "foundation-readonly-plan",
   routeId: "claude-sonnet-readonly",
   routeRevision: "configured-v1",
@@ -423,7 +424,7 @@ function nativeStoredJob(input: {
     ...(actionClaim ? { actionClaim } : {}),
   };
   return {
-    version: 14,
+    version: 15,
     run: {
       runId: `agent-run:${input.id}`,
       state: input.state,
@@ -466,7 +467,7 @@ async function dispatchAccepted(
   return accepted;
 }
 
-describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
+describe("AgentTaskApplicationService V15 AgentTask/AgentRun record", () => {
   it("holds approved-write work awaiting approval and never dispatches it without an attached receipt", async () => {
     const execute = vi.fn();
     const service = new AgentTaskApplicationService({
@@ -484,7 +485,7 @@ describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
     });
 
     const accepted = await service.accept(submission);
-    expect(accepted).toMatchObject({ version: 14, state: "awaiting_approval" });
+    expect(accepted).toMatchObject({ version: 15, state: "awaiting_approval" });
     await expect(service.attachWriteApproval(query, accepted.id, "approval-000001")).rejects.toMatchObject({
       code: "admission_denied",
     });
@@ -853,7 +854,7 @@ describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
     });
 
     expect(job).toMatchObject({
-      version: 14,
+      version: 15,
       state: "succeeded",
       dispatch: {
         kind: "native-harness",
@@ -2080,7 +2081,7 @@ describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
     const job = await dispatchAccepted(service, submission);
 
     expect(job).toMatchObject({
-      version: 14,
+      version: 15,
       state: "failed",
       diagnostic: "economic_commitment_unavailable",
       dispatch: {
@@ -2175,7 +2176,7 @@ describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
     await expect(corrupt.getReplay(query, job.id)).resolves.toMatchObject({ dispatch: { kind: "economic", economic: { availability: "unavailable", reason: "evidence-unprojectable" } } });
   });
 
-  it("persists one V14 terminal result after commitment, exact adapter construction, fence, and settlement", async () => {
+  it("persists one V15 terminal result after commitment, exact adapter construction, fence, and settlement", async () => {
     const fenceDispatch = vi.fn();
     const settleExecution = vi.fn();
     const selectedCommitment = {
@@ -2271,7 +2272,7 @@ describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
 
     const completed = await dispatchAccepted(service, submission);
     expect(completed).toMatchObject({
-      version: 14,
+      version: 15,
       state: "succeeded",
       objective: submission.objective,
       dispatch: {
@@ -2364,7 +2365,14 @@ describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
     }));
   });
 
-  it("returns the persisted V14 run identity and decision time on a later replay", async () => {
+  it("rejects V14 agent-task records without a compatibility reader", () => {
+    const legacy = nativeStoredJob({ id: "job-legacy-v14", state: "queued" });
+    expect(() => new InMemoryAgentTaskStore([{ ...legacy, version: 14 }])).toThrowError(
+      expect.objectContaining({ code: "job_persistence_corrupt" }),
+    );
+  });
+
+  it("returns the persisted V15 run identity and decision time on a later replay", async () => {
     let currentTime = now;
     const store = new InMemoryAgentTaskStore();
     const service = new AgentTaskApplicationService(createOptions({
@@ -2378,7 +2386,7 @@ describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
 
     expect(replay).toEqual(first);
     expect(replay).toMatchObject({
-      version: 14,
+      version: 15,
       dispatch: { kind: "economic", economicAttemptId: "economic-attempt:attempt-000000001" },
       adoptedDecisionAt: now.toISOString(),
     });
@@ -2458,7 +2466,7 @@ describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
     });
   });
 
-  it("preserves V14 idempotency across a filesystem restart", async () => {
+  it("preserves V15 idempotency across a filesystem restart", async () => {
     const root = await mkdtemp(join(tmpdir(), "kiln-agent-tasks-v9-"));
     try {
       const first = new AgentTaskApplicationService(createOptions({
@@ -2475,20 +2483,22 @@ describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
         await readFile(join(root, "agent-tasks", "agent-tasks.json"), "utf8"),
       ) as unknown[];
       expect(persisted).toHaveLength(1);
-      expect(persisted[0]).toMatchObject({ version: 14 });
+      expect(persisted[0]).toMatchObject({ version: 15 });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  it("rejects V10 persisted records without a compatibility migration", async () => {
-    const root = await mkdtemp(join(tmpdir(), "kiln-agent-tasks-v10-rejected-"));
+  it("rejects V14 persisted records without a compatibility reader or mutation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "kiln-agent-tasks-v14-rejected-"));
     try {
-      const legacy = { ...nativeStoredJob({ id: "native-job-v10-rejected", state: "queued" }), version: 10 };
+      const legacy = { ...nativeStoredJob({ id: "native-job-v14-rejected", state: "queued" }), version: 14 };
       await mkdir(join(root, "agent-tasks"));
-      await writeFile(join(root, "agent-tasks", "agent-tasks.json"), `${JSON.stringify([legacy])}\n`, "utf8");
+      const persisted = `${JSON.stringify([legacy])}\n`;
+      await writeFile(join(root, "agent-tasks", "agent-tasks.json"), persisted, "utf8");
 
       await expect(new FilesystemAgentTaskStore(root).get(legacy.id)).rejects.toMatchObject({ code: "job_persistence_corrupt" });
+      await expect(readFile(join(root, "agent-tasks", "agent-tasks.json"), "utf8")).resolves.toBe(persisted);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -2502,7 +2512,7 @@ describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
     }])).rejects.toMatchObject({ code: "job_persistence_corrupt" });
   });
 
-  it("fails closed for corrupt V14 candidate evidence", async () => {
+  it("fails closed for corrupt V15 candidate evidence", async () => {
     const root = await mkdtemp(join(tmpdir(), "kiln-agent-tasks-corrupt-"));
     try {
       const service = new AgentTaskApplicationService(createOptions({
@@ -2558,5 +2568,219 @@ describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
         message: "job_persistence_unavailable",
       }),
     );
+  });
+
+  it("persists and projects a typed vision.analyze request and output beside the text handoff", async () => {
+    const visionInput = {
+      resourceUris: ["kiln://artifacts/images/cat"],
+      instruction: "Describe the visible subject.",
+    } as const;
+    const visionOutput = {
+      status: "completed" as const,
+      summary: "A cat is sitting near a window.",
+      uncertainty: 0.12,
+      limitations: ["The image is low resolution."],
+      evidenceUris: ["kiln://artifacts/images/cat"],
+    } as const;
+    const execution = vi.fn(async (input: NativeHarnessExecutionInput) => ({
+      runtimeInvocationId: `agent-task:${input.job.id}`,
+      completedAt: now.toISOString(),
+      resultHandoff: {
+        provenance: {
+          delivery: "assistant-text" as const,
+          configuredModelId: input.route.model,
+          observedModelIds: [input.route.model],
+        },
+        summary: "The child returned a bounded text handoff.",
+        resourceUris: [],
+        memoryWriteProposalUris: [],
+      },
+      capabilityOutput: visionOutput,
+      dataPolicyProof: nativeDataPolicyProof(input),
+    }));
+    const root = await mkdtemp(join(tmpdir(), "kiln-agent-tasks-capability-replay-"));
+    try {
+      const service = new AgentTaskApplicationService({
+        ...createOptions({ store: new FilesystemAgentTaskStore(root) }),
+        profiles: { resolve: async (id) => id === nativeHarnessProfile.id ? nativeHarnessProfile : undefined },
+        routes: { resolve: async () => nativeHarnessRoute },
+        nativeHarnessExecution: { execute: execution },
+      });
+      const capability = {
+        capabilityId: "vision.analyze" as const,
+        contract: "vision.analyze/v1" as const,
+        input: visionInput,
+      };
+
+      const accepted = await service.accept({
+        ...submission,
+        configuredAgentProfileId: nativeHarnessProfile.id,
+        capability,
+      });
+      const expectedCapability = {
+        ...capability,
+        inputDigest: digestManagedEconomicValue(visionInput),
+      };
+      expect(accepted.capability).toEqual(expectedCapability);
+      expect(accepted.requestFingerprint).toBe(digestManagedEconomicValue({
+        kind: "native-harness",
+        objective: submission.objective,
+        configuredAgentProfileId: nativeHarnessProfile.id,
+        capability: {
+          capabilityId: capability.capabilityId,
+          contract: capability.contract,
+          inputDigest: expectedCapability.inputDigest,
+        },
+        route: {
+          routeId: nativeHarnessRoute.routeId,
+          routeRevision: nativeHarnessRoute.routeRevision,
+          providerId: nativeHarnessRoute.providerId,
+          model: nativeHarnessRoute.model,
+          admissionProfileId: nativeHarnessRoute.admissionProfileId,
+          adapterCapabilityId: nativeHarnessRoute.adapterCapabilityId,
+          adapterCapabilityVersion: nativeHarnessRoute.adapterCapabilityVersion,
+          acknowledgement: {
+            version: nativeHarnessRoute.acknowledgement.version,
+            source: nativeHarnessRoute.acknowledgement.source,
+            credentialMode: nativeHarnessRoute.acknowledgement.credentialMode,
+            routeId: nativeHarnessRoute.acknowledgement.routeId,
+            routeRevision: nativeHarnessRoute.acknowledgement.routeRevision,
+            providerId: nativeHarnessRoute.acknowledgement.providerId,
+            model: nativeHarnessRoute.acknowledgement.model,
+            admissionProfileId: nativeHarnessRoute.acknowledgement.admissionProfileId,
+            adapterCapabilityId: nativeHarnessRoute.acknowledgement.adapterCapabilityId,
+            adapterCapabilityVersion: nativeHarnessRoute.acknowledgement.adapterCapabilityVersion,
+          },
+        },
+      }));
+
+      const completed = await service.dispatch(accepted.id);
+      expect(completed.result?.resultHandoff.summary).toBe("The child returned a bounded text handoff.");
+      expect(completed.result?.capabilityOutput).toEqual(visionOutput);
+      const firstResult = await service.getResult(query, accepted.id);
+      const firstReplay = await service.getReplay(query, accepted.id);
+      expect(firstResult).toMatchObject({
+        capability: expectedCapability,
+        capabilityOutput: visionOutput,
+        handoff: expect.objectContaining({ summary: "The child returned a bounded text handoff." }),
+      });
+      expect(firstReplay).toMatchObject({
+        capability: expectedCapability,
+        capabilityOutput: visionOutput,
+      });
+      const persisted = JSON.parse(
+        await readFile(join(root, "agent-tasks", "agent-tasks.json"), "utf8"),
+      ) as unknown[];
+      expect(persisted).toHaveLength(1);
+      expect(persisted[0]).toMatchObject({
+        version: 15,
+        capability: expectedCapability,
+        result: { capabilityOutput: visionOutput },
+      });
+      const reloaded = new AgentTaskApplicationService({
+        ...createOptions({ store: new FilesystemAgentTaskStore(root) }),
+      });
+      await expect(reloaded.getResult(query, accepted.id)).resolves.toEqual(firstResult);
+      await expect(reloaded.getReplay(query, accepted.id)).resolves.toEqual(firstReplay);
+      expect(execution).toHaveBeenCalledWith(expect.objectContaining({
+        job: expect.objectContaining({ capability: expectedCapability }),
+      }));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a capability before economic admission when the profile does not declare it", async () => {
+    const resolveRoute = vi.fn(async () => candidateSet());
+    const service = new AgentTaskApplicationService({
+      ...createOptions(),
+      routes: { resolve: resolveRoute },
+    });
+
+    await expect(service.accept({
+      ...submission,
+      capability: {
+        capabilityId: "vision.analyze" as const,
+        contract: "vision.analyze/v1" as const,
+        input: { resourceUris: ["kiln://artifacts/images/cat"], instruction: "Describe it." },
+      },
+    })).rejects.toMatchObject({
+      code: "profile_unavailable",
+    });
+    expect(resolveRoute).not.toHaveBeenCalled();
+  });
+
+  it("rejects a capability before native admission when the profile declares another capability", async () => {
+    const unsupportedProfile: AgentTaskNativeHarnessProfile = {
+      ...nativeHarnessProfile,
+      supportedCapabilityIds: ["text.summarize"],
+    };
+    const resolveRoute = vi.fn(async () => nativeHarnessRoute);
+    const service = new AgentTaskApplicationService({
+      ...createOptions(),
+      profiles: { resolve: async (id) => id === unsupportedProfile.id ? unsupportedProfile : undefined },
+      routes: { resolve: resolveRoute },
+    });
+
+    await expect(service.accept({
+      ...submission,
+      configuredAgentProfileId: unsupportedProfile.id,
+      capability: {
+        capabilityId: "vision.analyze" as const,
+        contract: "vision.analyze/v1" as const,
+        input: { resourceUris: ["kiln://artifacts/images/cat"], instruction: "Describe it." },
+      },
+    })).rejects.toMatchObject({
+      code: "profile_unavailable",
+    });
+    expect(resolveRoute).not.toHaveBeenCalled();
+  });
+
+  it("does not complete a vision capability job when child output is malformed", async () => {
+    const execution = vi.fn(async (input: NativeHarnessExecutionInput) => ({
+      runtimeInvocationId: `agent-task:${input.job.id}`,
+      completedAt: now.toISOString(),
+      resultHandoff: {
+        provenance: {
+          delivery: "assistant-text" as const,
+          configuredModelId: input.route.model,
+          observedModelIds: [input.route.model],
+        },
+        summary: "The child returned a text handoff.",
+        resourceUris: [],
+        memoryWriteProposalUris: [],
+      },
+      capabilityOutput: {
+        status: "failed",
+        summary: "not a completed analysis",
+        uncertainty: 0.4,
+        limitations: [],
+        evidenceUris: [],
+      } as never,
+      dataPolicyProof: nativeDataPolicyProof(input),
+    }));
+    const service = new AgentTaskApplicationService({
+      ...createOptions(),
+      profiles: { resolve: async (id) => id === nativeHarnessProfile.id ? nativeHarnessProfile : undefined },
+      routes: { resolve: async () => nativeHarnessRoute },
+      nativeHarnessExecution: { execute: execution },
+    });
+
+    const accepted = await service.accept({
+      ...submission,
+      configuredAgentProfileId: nativeHarnessProfile.id,
+      capability: {
+        capabilityId: "vision.analyze" as const,
+        contract: "vision.analyze/v1" as const,
+        input: { resourceUris: ["kiln://artifacts/images/cat"], instruction: "Describe it." },
+      },
+    });
+    const settled = await service.dispatch(accepted.id);
+    expect(settled.state).not.toBe("succeeded");
+    expect(settled.result).toBeUndefined();
+    await expect(service.getResult(query, accepted.id)).resolves.toMatchObject({
+      availability: "unresolved",
+      diagnostic: "result_pending",
+    });
   });
 });

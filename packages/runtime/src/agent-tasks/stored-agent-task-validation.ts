@@ -28,6 +28,7 @@ import {
 } from "./validation-primitives.js";
 import {
   isValidAgentTaskDispatch,
+  isValidAgentTaskCapabilityRequest,
   isValidAgentTaskFailureEvidence,
   isValidAgentTaskResult,
   isValidAgentTaskWriteApproval,
@@ -64,7 +65,7 @@ export function validateStoredAgentTask(value: unknown, v: StoredAgentTaskValida
   const allowed = [
     "version", "id", "adoptedDecisionAt", "state", "objective", "projectId", "callerId",
     "configuredAgentProfileId", "admissionProfileId", "dispatch", "governanceSource", "admissionId",
-    "admissionBundle", "requestFingerprint", "idempotencyKeyHash", "createdAt", "updatedAt", "parent", "diagnostic",
+    "admissionBundle", "requestFingerprint", "idempotencyKeyHash", "createdAt", "updatedAt", "parent", "capability", "diagnostic",
     "failureEvidence", "result", "writeApproval", "lifecycle", "run",
   ];
   if (
@@ -81,6 +82,7 @@ export function validateStoredAgentTask(value: unknown, v: StoredAgentTaskValida
     || !v.identifier(value.callerId)
     || !v.identifier(value.configuredAgentProfileId)
     || !v.admissionProfile(value.admissionProfileId)
+    || (value.capability !== undefined && !isValidAgentTaskCapabilityRequest(value.capability))
     || !v.dispatch(value.dispatch)
     || !v.record(value.run)
     || !v.hasOnly(value.run, ["runId", "state", "dispatch", "result", "failureEvidence", "dataPolicyProof"])

@@ -7,6 +7,7 @@ import type { ManagedEconomicDispatchPreparation } from "../agents/managed-invoc
 import type { ManagedAgentRuntimeConsumedWriteApproval } from "../agents/managed-invocation/internal-consumed-write-approval.js";
 import type {
   AgentTaskDataPolicyProof,
+  AgentTaskCapabilityOutput,
   AgentTaskDispatch,
   AgentTaskNativeHarnessRoute,
   AgentTaskRecord,
@@ -26,6 +27,8 @@ export interface AgentTaskEconomicExecutionPort {
     readonly runtimeInvocationId: string;
     readonly completedAt: string;
     readonly resultHandoff: ManagedAgentResultHandoff;
+    /** Typed child evidence for the job's admitted capability, when present. */
+    readonly capabilityOutput?: AgentTaskCapabilityOutput;
     /** Exact sanitized decision returned by the configured Runtime authority. */
     readonly dataPolicyProof: AgentTaskDataPolicyProof;
     readonly writeEvidence?: readonly ManagedAgentWriteEvidence[];
@@ -44,6 +47,8 @@ export interface AgentTaskNativeHarnessExecutionPort {
     readonly runtimeInvocationId: string;
     readonly completedAt: string;
     readonly resultHandoff: ManagedAgentResultHandoff;
+    /** Typed child evidence for the job's admitted capability, when present. */
+    readonly capabilityOutput?: AgentTaskCapabilityOutput;
     readonly dataPolicyProof: AgentTaskDataPolicyProof;
     readonly writeEvidence?: readonly ManagedAgentWriteEvidence[];
   }>;

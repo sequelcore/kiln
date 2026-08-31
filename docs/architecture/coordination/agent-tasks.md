@@ -32,13 +32,16 @@ second provider, harness, or task abstraction.
 
 ## Canonical record
 
-The supported persisted schema is v14. An `AgentTaskRecord` contains the
+The supported persisted schema is v15. An `AgentTaskRecord` contains the
 trusted project and caller identities, configured agent profile, exact admitted
 route, governance/admission evidence, idempotency fingerprint, lifecycle,
-write-approval receipt, data-policy proof, and the single `AgentRun`.
+write-approval receipt, data-policy proof, and the single `AgentRun`. When a
+capability is admitted, the record also carries its canonical typed request and
+input digest; a successful result carries the validated typed output beside the
+bounded text handoff so result and replay projections remain deterministic.
 
 An Agent Run has deterministic identity `agent-run:<taskId>`. It is not a retry
-history: v14 has exactly one run per task. Its state is one of
+history: v15 has exactly one run per task. Its state is one of
 `awaiting_approval`, `queued`, `running`, `succeeded`, `failed`, `timed_out`,
 `interrupted`, or `cancelled`. Terminal records and successful handoffs are
 immutable.
@@ -53,7 +56,11 @@ Runtime persists only safe evidence. It does not persist credentials,
 environment values, storage paths, prompts, raw provider payloads, stack
 traces, hidden reasoning, or unbounded child output. Result handoffs are
 explicitly untrusted child output and are bounded before persistence and again
-before projection.
+before projection. A capability descriptor's `data.retention: "none"` is scoped
+to capability-owned request/result copies; it does not disable Runtime-owned
+Agent Task lifecycle, replay, or audit evidence. Those records follow the Agent
+Task owner, while artifact storage and retention remain owned by the context
+resource plane.
 
 An attended trusted-execution lease is not Agent Task authority and is never
 stored in an Agent Task, Agent Run, admission bundle, or recovery checkpoint.
@@ -180,7 +187,7 @@ migration, archive, or compatibility alias.
 ## Invariants
 
 - one Runtime owner for Agent Task and Agent Run lifecycle;
-- one deterministic run per v14 task;
+- one deterministic run per v15 task;
 - one explicit route and policy decision before dispatch;
 - native harnesses retain native loops, tools, and subagents;
 - attended trusted-execution leases are process-local, non-persistent, and

@@ -286,6 +286,27 @@ const operatorCompositionMocks = vi.hoisted(() => {
   return { create, state };
 });
 
+const agentTaskRunMocks = vi.hoisted(() => {
+  const close = vi.fn().mockResolvedValue(undefined);
+  const binding = {
+    agentTaskService: { dispatch: vi.fn(), getResult: vi.fn(), cancel: vi.fn() },
+    configuredAgentProfileId: "local-vision-worker",
+    callerId: "run:test",
+    acceptAgentTask: vi.fn(),
+  };
+  return {
+    selectedProfileId: undefined as string | undefined,
+    close,
+    binding,
+    createBinding: vi.fn(() => binding),
+    createComposition: vi.fn(async () => ({
+      localVisionAgentProfileId: agentTaskRunMocks.selectedProfileId,
+      createAgentTaskVisionAnalysisCapabilityBinding: agentTaskRunMocks.createBinding,
+      close,
+    })),
+  };
+});
+
 vi.mock("@kilnai/runtime", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@kilnai/runtime")>();
   return {
@@ -537,6 +558,11 @@ vi.mock("../../src/application/project-root-resolver.js", () => ({
 
 vi.mock("../../src/application/operator-turn-dispatch-composition.js", () => ({
   createOperatorTurnDispatchComposition: operatorCompositionMocks.create,
+}));
+
+vi.mock("../../src/application/operator-project-agent-tasks.js", () => ({
+  resolveOperatorProjectLocalVisionAgentProfileId: vi.fn(() => agentTaskRunMocks.selectedProfileId),
+  createOperatorProjectAgentTaskApplicationComposition: agentTaskRunMocks.createComposition,
 }));
 
 vi.mock("../../src/kiln-yaml.js", () => ({
@@ -828,6 +854,7 @@ describe("run command builtin tool wiring", () => {
   beforeEach(() => {
     bootstrapProjectAdoption(resolveProjectStateBinding(REPO_ROOT));
     vi.clearAllMocks();
+    agentTaskRunMocks.selectedProfileId = undefined;
     runWiringMocks.cleanupHandlers.length = 0;
     loadKilnConfigMock.mockResolvedValue(APP_KILN_YAML);
     runWiringMocks.capturedSessionConfigs.length = 0;
@@ -1024,6 +1051,33 @@ describe("run command builtin tool wiring", () => {
         },
       },
     });
+  });
+
+  it("injects one run-owned local vision Agent Task binding into the canonical session", async () => {
+    const managedInvocation = parallelManagedInvocation();
+    agentTaskRunMocks.selectedProfileId = "local-vision-worker";
+
+    await runCommand(
+      { ...APP_CONFIG, managedInvocation: managedInvocation as never },
+      "analyze the admitted image",
+      {},
+    );
+
+    expect(agentTaskRunMocks.createComposition).toHaveBeenCalledOnce();
+    expect(agentTaskRunMocks.createComposition).toHaveBeenCalledWith(expect.objectContaining({
+      projectPath: REPO_ROOT,
+      authorityAdmissionEvidenceStore: expect.any(Object),
+      runtimeToolActionClaims: expect.any(Object),
+      runtimeModelRoundActionClaims: expect.any(Object),
+    }));
+    expect(agentTaskRunMocks.createBinding).toHaveBeenCalledWith(expect.objectContaining({
+      configuredAgentProfileId: "local-vision-worker",
+      callerIdentity: expect.objectContaining({ kind: "kiln-runtime", surface: "run" }),
+    }));
+    expect(runWiringMocks.capturedSessionConfigs[0]).toMatchObject({
+      agentTaskCapability: agentTaskRunMocks.binding,
+    });
+    expect(agentTaskRunMocks.close).toHaveBeenCalledOnce();
   });
 
   it("keeps routing budget admission out of parallel fan-out and preserves session lineage", async () => {

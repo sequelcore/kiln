@@ -6,9 +6,17 @@ import {
   type ManagedAgentResultHandoff,
   type ManagedAgentWriteEvidence,
 } from "@kilnai/core";
+import {
+  parseVisionAnalyzeInput,
+  parseVisionAnalysis,
+  VISION_ANALYZE_CAPABILITY_ID,
+  VISION_ANALYZE_CONTRACT,
+} from "@kilnai/core/capabilities";
 import type { ManagedEconomicCandidateSet } from "../agents/managed-invocation/runtime-tool/index.js";
 import type {
   AgentTaskDataPolicyProof,
+  AgentTaskCapabilityRequest,
+  AgentTaskCapabilityOutput,
   AgentTaskDiagnosticCode,
   AgentTaskDispatch,
   AgentTaskEconomicProfile,
@@ -98,7 +106,7 @@ export function isValidAgentTaskResult(
     || !hasOnly(value, [
       "version", "jobId", "runtimeInvocationId", "configuredAgentProfileId", "admissionProfileId",
       "routeId", "providerId", "terminalState", "completedAt", "provenance", "resultHandoff",
-      "writeEvidence", "dataPolicyProof",
+      "capabilityOutput", "writeEvidence", "dataPolicyProof",
     ])
     || value.version !== 1
     || value.jobId !== job.id
@@ -114,6 +122,7 @@ export function isValidAgentTaskResult(
     || value.provenance.trust !== "untrusted-child-output"
     || !isSafeResultHandoff(value.resultHandoff)
     || !isSafeAgentTaskWriteEvidence(value.writeEvidence, job.id)
+    || !isValidAgentTaskCapabilityOutput(value.capabilityOutput, job)
   ) return false;
   if (job.dispatch.kind === "native-harness") {
     return job.dispatch.routeId === value.routeId
@@ -356,6 +365,7 @@ function looksLikeRawProviderPayload(value: string): boolean {
 export function isValidEconomicAgentTaskProfile(profile: AgentTaskEconomicProfile): boolean {
   return profile.kind === "economic"
     && isIdentifier(profile.id)
+    && (profile.supportedCapabilityIds === undefined || isValidSupportedCapabilityIds(profile.supportedCapabilityIds))
     && isIdentifier(profile.economicPolicyId)
     && isIdentifier(profile.economicPolicyRevision)
     && isManagedAgentAdmissionProfile(profile.admissionProfileId)
@@ -420,6 +430,7 @@ function sameNativeDeliberationResolution(
 export function isValidNativeHarnessProfile(profile: AgentTaskNativeHarnessProfile): boolean {
   return profile.kind === "native-harness"
     && isIdentifier(profile.id)
+    && (profile.supportedCapabilityIds === undefined || isValidSupportedCapabilityIds(profile.supportedCapabilityIds))
     && isManagedAgentAdmissionProfile(profile.admissionProfileId)
     && isIdentifier(profile.routeId)
     && isIdentifier(profile.routeRevision)
@@ -538,6 +549,41 @@ function isValidNativeHarnessDispatch(
     && value.acknowledgement.adapterCapabilityId === value.adapterCapabilityId
     && value.acknowledgement.adapterCapabilityVersion === value.adapterCapabilityVersion
     && sameNativeDeliberationResolution(value.deliberationResolution, value.acknowledgement.deliberationResolution);
+}
+
+function isValidSupportedCapabilityIds(value: unknown): value is readonly string[] {
+  return Array.isArray(value)
+    && value.every(isIdentifier)
+    && new Set(value).size === value.length;
+}
+
+/** Validates the concrete capability request persisted on a V15 task. */
+export function isValidAgentTaskCapabilityRequest(value: unknown): value is AgentTaskCapabilityRequest {
+  if (!isRecord(value)
+    || !hasOnly(value, ["capabilityId", "contract", "input", "inputDigest"])
+    || value.capabilityId !== VISION_ANALYZE_CAPABILITY_ID
+    || value.contract !== VISION_ANALYZE_CONTRACT
+    || !isCanonicalHash(value.inputDigest)) return false;
+  try {
+    const input = parseVisionAnalyzeInput(value.input);
+    return digestManagedEconomicValue(input) === value.inputDigest
+      && JSON.stringify(input) === JSON.stringify(value.input);
+  } catch {
+    return false;
+  }
+}
+
+function isValidAgentTaskCapabilityOutput(value: unknown, job: AgentTaskRecord): value is AgentTaskCapabilityOutput | undefined {
+  if (job.capability === undefined) return value === undefined;
+  if (value === undefined) return false;
+  try {
+    const parsed = parseVisionAnalysis(value);
+    const requestedUris = new Set(job.capability?.input.resourceUris);
+    return parsed.evidenceUris.every((uri) => requestedUris.has(uri))
+      && JSON.stringify(parsed) === JSON.stringify(value);
+  } catch {
+    return false;
+  }
 }
 
 function isValidAgentTaskActionClaim(value: unknown): boolean {

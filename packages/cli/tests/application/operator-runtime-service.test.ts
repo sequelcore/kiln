@@ -920,7 +920,13 @@ function composition(
 ): OperatorProjectAgentTaskApplicationComposition {
   const unavailable = async (): Promise<never> => { throw Object.assign(new Error("unavailable"), { code: "unknown_job" }); };
   return {
-  service: {} as OperatorProjectAgentTaskApplicationComposition["service"],
+    service: {} as OperatorProjectAgentTaskApplicationComposition["service"],
+    createAgentTaskVisionAnalysisCapabilityBinding: vi.fn(() => ({
+      agentTaskService: {} as never,
+      configuredAgentProfileId: "vision-worker",
+      callerId: "operator-runtime-test",
+      acceptAgentTask: vi.fn(),
+    })),
     application: {
       accept: async (value) => {
         if (typeof value === "object" && value !== null && !Array.isArray(value)) {

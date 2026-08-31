@@ -1,5 +1,6 @@
 import {
   OperatorRuntimeApplicationResponseSchema,
+  type AgentTaskCapabilitySubmission,
   type OperatorRuntimeApplicationResponse,
   type OperatorRuntimeApplicationRequest,
 } from "@kilnai/gateway-contracts";
@@ -29,12 +30,15 @@ export interface OperatorRuntimeAgentTaskClientOptions {
   readonly retryDelaysMs?: readonly number[];
 }
 
+export interface OperatorRuntimeAgentTaskSubmitInput {
+  readonly objective: string;
+  readonly configuredAgentProfileId: string;
+  readonly idempotencyKey: string;
+  readonly capability?: AgentTaskCapabilitySubmission;
+}
+
 export interface OperatorRuntimeAgentTaskClient {
-  submit(input: {
-    readonly objective: string;
-    readonly configuredAgentProfileId: string;
-    readonly idempotencyKey: string;
-  }): Promise<unknown>;
+  submit(input: OperatorRuntimeAgentTaskSubmitInput): Promise<unknown>;
   status(jobId: string): Promise<unknown>;
   result(jobId: string): Promise<unknown>;
   cancel(jobId: string): Promise<unknown>;

@@ -2059,11 +2059,15 @@ describe("resolveManagedInvocationToolOptions", () => {
           "role: Visual reference research specialist",
           "goal: Collect real product UI evidence before frontend implementation.",
           "tier: reasoning",
+          "structured: true",
           "targetId: opencode-go-kimi-k2-6-readonly",
           "authorityProfileId: authority:foundation-readonly-plan",
           "taskAffinity:",
           "  - frontend-design",
           "  - research",
+          "modalities:",
+          "  - text",
+          "  - image",
           "---",
           "Collect visual evidence.",
           "",
@@ -2114,6 +2118,8 @@ describe("resolveManagedInvocationToolOptions", () => {
           providerId: "opencode-go",
           model: "kimi-k2.6",
         },
+        modalities: ["text", "image"],
+        structured: true,
       }));
     } finally {
       rmSync(root, { recursive: true, force: true });

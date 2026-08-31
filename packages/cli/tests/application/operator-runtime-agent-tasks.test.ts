@@ -115,7 +115,7 @@ describe("createOperatorRuntimeAgentTaskClient", () => {
   });
 
   it("sends closed Agent Task requests over the authenticated application path", async () => {
-    const request = vi.fn(async () => new Response(JSON.stringify({
+    const request = vi.fn(async (_path: string, _init: RequestInit) => new Response(JSON.stringify({
       schemaVersion: 1,
       status: "ok",
       result: { id: "job-1", state: "queued" },
@@ -143,6 +143,51 @@ describe("createOperatorRuntimeAgentTaskClient", () => {
           idempotencyKey: "review-1",
         },
       }),
+    });
+  });
+
+  it("sends the typed vision capability without exposing caller or route authority", async () => {
+    const request = vi.fn(async (_path: string, _init: RequestInit) => new Response(JSON.stringify({
+      schemaVersion: 1,
+      status: "ok",
+      result: { id: "job-vision-1", state: "queued" },
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    const client = createOperatorRuntimeAgentTaskClient({
+      request,
+      endpoint: vi.fn(),
+      close: vi.fn(),
+    });
+
+    await client.submit({
+      objective: "Analyze the admitted image.",
+      configuredAgentProfileId: "vision-worker",
+      idempotencyKey: "vision-submit-1",
+      capability: {
+        capabilityId: "vision.analyze",
+        contract: "vision.analyze/v1",
+        input: {
+          resourceUris: ["kiln://project/artifacts/image-1"],
+          instruction: "Summarize the visible evidence.",
+        },
+      },
+    });
+
+    expect(JSON.parse(request.mock.calls[0]?.[1]?.body as string)).toEqual({
+      schemaVersion: 1,
+      operation: "agent-task.submit",
+      input: {
+        objective: "Analyze the admitted image.",
+        configuredAgentProfileId: "vision-worker",
+        idempotencyKey: "vision-submit-1",
+        capability: {
+          capabilityId: "vision.analyze",
+          contract: "vision.analyze/v1",
+          input: {
+            resourceUris: ["kiln://project/artifacts/image-1"],
+            instruction: "Summarize the visible evidence.",
+          },
+        },
+      },
     });
   });
 

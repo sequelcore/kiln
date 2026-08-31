@@ -568,7 +568,7 @@ are recorded by the closing commit.
 
 ### Slice 5 - Agent-Backed Capabilities
 
-Status: In progress as of 2026-08-30.
+Status: Complete as of 2026-08-31.
 
 The first implementation increment defines the provider-neutral
 `vision.analyze/v1` input and `VisionAnalysis` result, adds a Runtime-owned
@@ -576,12 +576,6 @@ agent-backed invocation port with exact schema validation and conservative
 settlement. Runtime composition now rejects direct ports for
 agent-backed descriptors and projects validated structured child results into
 the string-oriented tool surface without treating child output as authority.
-
-This does not complete the slice. Managed and local Agent Task materialization,
-configured catalog contribution, end-to-end selection through every admitted
-surface, and complete executor/route/policy/budget evidence conformance remain
-open. Artifact identity and cross-harness resource transport remain owned by
-Slice 6.
 
 Allow the resolver to choose a governed specialist agent when no direct tool
 can satisfy a capability. The parent remains responsible for the user-facing
@@ -598,9 +592,41 @@ provenance are explicit; failed, partial, cancelled, and unknown outcomes do
 not become successful capability results; the parent cannot inherit the
 child's broader permissions.
 
+Closure decision: Core contributes `vision.analyze` only from one exact,
+unambiguous configured specialist with declared image modality, structured
+output, read-only admission, an attachment-capable route, and current route
+proof. The direct CLI generation materializes that descriptor through a
+Runtime-owned managed-invocation port that reuses the attached
+`managed_agent.invoke` executor and its canonical service owner. Exact external
+runtime attachment identity, route, model, implementation and schema digests,
+accountless budget posture, freshness, and parent authority stay bound to the
+invocation. Economic routes remain excluded from this first resolver rather
+than receiving an inferred budget.
+
+Local execution uses the existing Agent Task lifecycle. The V15 durable record
+stores the typed capability request, input digest, admitted profile support,
+typed result, query projection, and replay projection beside the ordinary text
+handoff. The CLI project composition passes only admitted resource URIs,
+creates a distinct child authority bundle, and refuses malformed, missing, or
+out-of-scope structured results. Canonical `kiln run` selects exactly one
+eligible local vision profile, borrows the run-owned authority-evidence and
+exact-once claim stores, and binds that single Agent Task owner into the parent
+ProviderSession for the run lifetime. Gateway, CLI, and native MCP Agent Task
+submission carry the same typed request rather than encoding it in the
+objective. Managed and local executors map denied, failed, partial, cancelled,
+timed-out, and unobserved outcomes conservatively.
+
+Closure evidence: focused Core discovery, Runtime agent-port and managed
+executor, Runtime Agent Task, configured CLI generation, canonical run wiring,
+public Agent Task contracts, and real project Agent Task composition tests
+pass. Package typechecks and the broader workspace gates are recorded by the
+closing commit. Cross-harness artifact hydration, content identity, lineage,
+and storage/retention authority remain Slice 6; this slice passes bounded
+canonical resource URIs without claiming that later continuity proof.
+
 ### Slice 6 - Cross-Harness Artifact Continuity
 
-Status: Blocked on Slice 5.
+Status: Ready after Slice 5.
 
 Extend capability invocation and result contracts to carry references to
 artifacts already owned by the context resource plane. Preserve canonical

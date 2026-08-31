@@ -14,6 +14,7 @@ export type {
   AgentTaskEconomicFenceResult, AgentTaskNativeHarnessAcknowledgement, AgentTaskNativeHarnessFenceResult,
   AgentTaskNativeDeliberationResolution,
   AgentTaskNativeHarnessProfile, AgentTaskNativeHarnessRoute, AgentTaskProfilePort,
+  AgentTaskCapability, AgentTaskCapabilityOutput, AgentTaskCapabilityRequest, AgentTaskCapabilitySubmission,
   AgentTaskProjectPort, AgentTaskLifecycleEntry, AgentTaskRecord, AgentTaskReplayQuery,
   AgentTaskRoutePort, AgentTaskResult, AgentTaskResultAvailability, AgentTaskResultQuery,
   AgentTaskRouteResolutionContext, AgentTaskState, AgentTaskStore, AgentTaskSubmission,
