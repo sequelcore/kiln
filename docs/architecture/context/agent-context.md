@@ -543,9 +543,11 @@ The built-in skill ids are:
 | `codebase-scouting` | Map repository ownership, causal dependency paths, affected verification, and uncertainty before broad changes. | `scout` |
 | `implementation-planning` | Convert a scoped objective into an evidence-bound, dependency-ordered sequence with verification and recovery. | `planner`, `architecture-planner` |
 | `tdd-workflow` | Design failing tests, implement only the target behavior, and verify. | `tdd`, `coder` |
+| `verification-evidence` | Match implementation claims to current verification evidence through capability discovery or repository-owned checks. | Any agent closing out changed work |
 | `code-review-findings` | Perform findings-first review with severity, evidence, and test-gap risk. | `reviewer`, `adversarial-reviewer` |
 | `clean-architecture-boundary-review` | Review dependency direction, runtime coupling, contract ownership, and justified boundary tradeoffs. | `architect`, `ddd-validator` |
 | `ddd-boundary-review` | Review domain language, bounded contexts, aggregate invariants, and integration relationships. | `ddd-validator`, `architect` |
+| `concept-modeling` | Discover and name domain or technical concepts before they become cross-surface contracts, including deliberate translations. | `architect`, `ddd-validator`, `scout` |
 | `refactoring-safety` | Preserve behavior while removing dead code, redundancy, and avoidable complexity. | `refactoring-specialist` |
 | `security-scope-review` | Trace authority, untrusted data, credentials, and consequential effects to enforcement evidence. | `adversarial-reviewer`, `reviewer` |
 | `managed-agent-risk-review` | Audit delegated identity, attenuated authority, lifecycle settlement, evidence, and honest replay limits. | `architect`, `reviewer` |
@@ -568,6 +570,31 @@ opinionated packs belong outside core. Future official packs such as web,
 backend, security, or an opinionated engineering pack may be installable
 content, but they must not become default product doctrine unless promoted
 through the same evaluation and documentation gate.
+
+`concept-modeling` is available for explicit selection and governed catalog
+admission, but it is not part of static `architecture-review` routing. That
+route currently recommends `repo-context-review`, `ddd-boundary-review`, and
+`clean-architecture-boundary-review`; adding concept modeling there requires a
+separate routing decision. Concept modeling owns the cross-surface semantic
+contract for any domain or technical concept. `ddd-boundary-review` owns
+business capabilities, bounded contexts, aggregates, and domain invariants
+when DDD complexity is justified. The procedures can complement each other,
+but neither expands the other's boundary.
+
+Concept modeling does not require `CONTEXT.md`, a glossary, an ADR, a registry,
+or a new type. Durable knowledge belongs with its natural authoritative owner;
+documentation or an ADR is warranted only for non-derivable meaning or a real,
+consequential tradeoff.
+
+The paired internal evaluation fixture is
+[`kiln-concept-modeling-v1.json`](../../../packages/core/evals/benchmark/kiln-concept-modeling-v1.json).
+It records six synthetic baseline/skill task pairs run with `gpt-5.6-luna` at
+high reasoning effort under the same Codex harness, authority, output schema,
+and task inputs. See the bounded
+[`methodology`](../../benchmarks/concept-modeling-v1/methodology.md) and
+[`limitations`](../../benchmarks/concept-modeling-v1/limitations.md); this
+fixture is internal evidence for the admission decision, not a public or
+universal model-quality claim.
 
 `action-first-communication` is an explicit response-shaping option, not a
 medical profile and not universal doctrine. It does not infer a diagnosis,

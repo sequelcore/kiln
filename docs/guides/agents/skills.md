@@ -112,13 +112,16 @@ mutation authority.
 
 Current core built-ins:
 
+- `agent-context-doctor`
 - `repo-context-review`
 - `codebase-scouting`
 - `implementation-planning`
 - `tdd-workflow`
+- `verification-evidence`
 - `code-review-findings`
 - `clean-architecture-boundary-review`
 - `ddd-boundary-review`
+- `concept-modeling`
 - `refactoring-safety`
 - `security-scope-review`
 - `managed-agent-risk-review`
@@ -129,6 +132,36 @@ Current core built-ins:
 - `config-projection-review`
 - `action-first-communication`
 - `clear-writing`
+
+`concept-modeling` is the neutral procedure for discovering and naming domain
+or technical concepts before they become cross-surface contracts. It owns the
+concept contract and translation mapping; `ddd-boundary-review` owns business
+capabilities, bounded contexts, aggregates, and domain invariants when DDD
+complexity is justified. They may be paired, but concept modeling does not
+impose DDD ceremony and DDD review does not own every technical concept.
+
+The skill is available for explicit selection and governed catalog admission,
+but it is not included in the static `architecture-review` recommendations.
+That routing remains intentionally limited to `repo-context-review`,
+`ddd-boundary-review`, and `clean-architecture-boundary-review` until a
+separate routing decision is admitted.
+
+Concept modeling does not require `CONTEXT.md`, a glossary, an ADR, a registry,
+or a new type. Durable knowledge stays with its natural authoritative owner;
+create documentation or an ADR only when non-derivable meaning or a real,
+consequential tradeoff requires it.
+
+## Concept Modeling Evaluation
+
+The paired internal fixture is
+[`kiln-concept-modeling-v1.json`](../../../packages/core/evals/benchmark/kiln-concept-modeling-v1.json).
+It compares baseline and skill arms on six synthetic tasks using
+`gpt-5.6-luna` at high reasoning effort, with identical Codex harness,
+authority, output schema, and task inputs. The skill arm uses a stable
+application wrapper plus the candidate, while the baseline uses a neutral
+no-tool wrapper. The bounded method and limitations are recorded in
+[`methodology.md`](../../benchmarks/concept-modeling-v1/methodology.md) and
+[`limitations.md`](../../benchmarks/concept-modeling-v1/limitations.md).
 
 Use global config to make the policy explicit:
 

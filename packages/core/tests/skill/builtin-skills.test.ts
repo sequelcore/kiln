@@ -21,6 +21,7 @@ describe("Kiln core builtin skills", () => {
       "code-review-findings",
       "clean-architecture-boundary-review",
       "ddd-boundary-review",
+      "concept-modeling",
       "refactoring-safety",
       "security-scope-review",
       "managed-agent-risk-review",
@@ -232,6 +233,28 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toMatch(/does not grant route, provider, model,\s+network, permission, budget, or approval\s+authority/);
     expect(skill?.instructions).toMatch(/searched and unsearched surfaces/);
     expect(skill?.instructions).toMatch(/does\s+not map repository ownership, dependency paths, or affected tests/);
+  });
+
+  it("models cross-surface concepts without imposing domain ceremony or duplicate documentation", () => {
+    const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === "concept-modeling");
+
+    expect(skill).toBeDefined();
+    expect(skill?.description).toMatch(/domain or technical concept/i);
+    expect(skill?.description).toMatch(/conflicting meanings across surfaces/i);
+    expect(skill?.description).toMatch(/Do not use merely because a concept is new/i);
+    expect(skill?.description).toMatch(/mechanical local rename/i);
+    expect(skill?.description).toMatch(/already coherent contract/i);
+    expect(skill?.tools).toEqual(["read", "grep", "glob"]);
+    expect(skill?.instructions).toMatch(/representative scenarios and observable behavior/i);
+    expect(skill?.instructions).toMatch(/dimensions that can vary independently/i);
+    expect(skill?.instructions).toMatch(/bounded contexts, locales, audiences, or\s+platform syntax/i);
+    expect(skill?.instructions).toMatch(/public, persisted, serialized, or model-facing names as contracts/i);
+    expect(skill?.instructions).toMatch(/Persist durable knowledge where it can remain authoritative/i);
+    expect(skill?.instructions).toMatch(/Do not require a glossary, `CONTEXT\.md`, ADR, registry, wrapper, or new type/i);
+    expect(skill?.instructions).toMatch(/DDD review owns business capabilities/i);
+    expect(skill?.instructions).toMatch(/purely\s+mechanical rename/i);
+    expect(skill?.instructions).toMatch(/already coherent and no\s+change or new artifact is warranted/i);
+    expect(skill?.instructions).not.toMatch(/foundational|Sequel|Kiln-specific/i);
   });
 
   it("requires discovery-first and lifecycle-honest Kiln control-plane use", () => {
