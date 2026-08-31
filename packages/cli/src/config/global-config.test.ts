@@ -830,6 +830,19 @@ describe("global-config", () => {
       ].join("\n"),
     );
     expect(() => readGlobalConfig()).toThrow("maximumLimits.maxExecutionAttempts must be a positive safe integer");
+
+    readFileSyncMock.mockReturnValue(
+      [
+        'version: "7"',
+        "workGovernance:",
+        "  boundedWorkCeiling:",
+        "    maximumLimits:",
+        "      maxToolCalls: 20",
+      ].join("\n"),
+    );
+    expect(() => readGlobalConfig()).toThrow(
+      "Unknown workGovernance.boundedWorkCeiling.maximumLimits field: maxToolCalls",
+    );
   });
 
   it("readGlobalConfig() accepts web provider defaults", () => {

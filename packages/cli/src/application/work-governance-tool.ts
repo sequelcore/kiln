@@ -973,7 +973,6 @@ class GoalCreateTool implements DevTool {
     type: "object",
     properties: {
       id: { type: "string", minLength: 1, description: "Stable goal id and bounded-work accounting lineage id." },
-      objective: { type: "string", minLength: 1, description: "Operator-facing goal objective." },
       ownerSessionId: {
         type: "string",
         description: "Owning session id. Omit only when the runtime supplied the current session id.",
@@ -1021,7 +1020,6 @@ class GoalCreateTool implements DevTool {
     },
     required: [
       "id",
-      "objective",
       "workItemIds",
       "maximumAuthority",
       "escalationPolicy",
@@ -1055,7 +1053,6 @@ class GoalCreateTool implements DevTool {
       contractAuthority: adoptionDecision.contractAuthority,
     };
     const id = readText(authoritativeInput.id);
-    const objective = readText(authoritativeInput.objective);
     const operatorTurnId = readText(authoritativeInput.operatorTurnId);
     const workItemIds = readTextArray(authoritativeInput.workItemIds);
     const maximumAuthority = readGoalAuthorityLevel(authoritativeInput.maximumAuthority);
@@ -1068,7 +1065,6 @@ class GoalCreateTool implements DevTool {
 
     const missingFields = [
       ...(!id ? ["id"] : []),
-      ...(!objective ? ["objective"] : []),
       ...(!ownerSessionId ? ["ownerSessionId"] : []),
       ...(!operatorTurnId ? ["operatorTurnId"] : []),
       ...(workItemIds.length === 0 ? ["workItemIds"] : []),
@@ -1082,12 +1078,11 @@ class GoalCreateTool implements DevTool {
     if (missingFields.length > 0) {
       return goalCreateContractError({
         code: "invalid_input",
-        message: "goal.create requires a stable id, explicit bounded-work contract and adoption authority, objective, canonical operator-turn provenance, ownerSessionId, at least one workItemId, authority envelope, and workflowProfile.",
+        message: "goal.create requires a stable id, explicit bounded-work contract and adoption authority, canonical operator-turn provenance, ownerSessionId, at least one workItemId, authority envelope, and workflowProfile.",
         missingFields,
       });
     }
 
-    const goalObjective = objective!;
     const goalMaximumAuthority = maximumAuthority!;
     const goalEscalationPolicy = escalationPolicy!;
     const goalAuthorityReason = authorityReason!;
@@ -1172,7 +1167,7 @@ class GoalCreateTool implements DevTool {
       const currentPhase = readText(authoritativeInput.currentPhase);
       const goal = this.goalRunStore.create({
         id: id!,
-        objective: goalObjective,
+        objective: goalBoundedWorkContract.intent.objective,
         ownerSessionId: ownerSessionId!,
         source: {
           kind: "operator_direct",
@@ -1429,7 +1424,6 @@ class WorkItemExecutionStartTool implements DevTool {
             recoverable: true,
             suggestedNextTool: "goal.create",
             requiredInputShape: {
-              objective: "string",
               ownerSessionId: "current runtime session id",
               workItemIds: ["existing work item id"],
               maximumAuthority: GOAL_AUTHORITY_LEVELS,
@@ -1963,7 +1957,6 @@ function goalCreateContractError(input: {
         suggestedNextTool: input.missingFields.includes("workItemIds") ? "work_item.update" : "goal.create",
         requiredInputShape: {
           id: "stable goal id",
-          objective: "string",
           ownerSessionId: "current runtime session id",
           workItemIds: ["existing work item id"],
           maximumAuthority: GOAL_AUTHORITY_LEVELS,
@@ -2458,8 +2451,10 @@ function isReadOnlyArchitectureReview(
   }
   const effects = classification.effects ?? [];
   const intents = classification.intents ?? [];
-  return effects.includes("read-only")
-    && (intents.includes("analyze") || intents.includes("review"));
+  return effects.length > 0
+    && effects.every((effect) => effect === "read-only")
+    && intents.every((intent) => intent === "analyze" || intent === "review")
+    && intents.some((intent) => intent === "analyze" || intent === "review");
 }
 
 function readWorkClassificationProvenanceInput(

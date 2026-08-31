@@ -192,7 +192,7 @@ describe("RuntimeSessionOrchestrator - turn convergence enforcement", () => {
         },
       },
     });
-    expect(result.parts).toEqual(textParts("Turn paused: providerRequests limit reached (1/1)."));
+    expect(result.parts).toEqual(textParts("Turn paused: providerRequests limit reached (1/1). Continue this Kiln session to resume from its canonical transcript."));
   });
 
   it("denies projected cumulative input before the first provider dispatch", async () => {
@@ -220,7 +220,7 @@ describe("RuntimeSessionOrchestrator - turn convergence enforcement", () => {
     expect(requireRuntimeConvergencePause(result).convergence.pause).toMatchObject({ observed: expect.any(Number) });
     expect(result.parts[0]).toEqual(expect.objectContaining({
       type: "text",
-      text: expect.stringMatching(/^Turn paused: cumulativeInputTokens limit reached \(\d+\/1\)\.$/u),
+      text: expect.stringMatching(/^Turn paused: cumulativeInputTokens limit reached \(\d+\/1\)\. Continue this Kiln session to resume from its canonical transcript\.$/u),
     }));
   });
 
@@ -263,7 +263,7 @@ describe("RuntimeSessionOrchestrator - turn convergence enforcement", () => {
         },
       },
     });
-    expect(result.parts).toEqual(textParts("Turn paused: toolCalls limit reached (2/1)."));
+    expect(result.parts).toEqual(textParts("Turn paused: toolCalls limit reached (2/1). Continue this Kiln session to resume from its canonical transcript."));
     expect(session.conversationHistory.flatMap((message) => message.parts)
       .some((part) => part.type === "tool_use" || part.type === "tool_result")).toBe(false);
   });
@@ -355,7 +355,7 @@ describe("RuntimeSessionOrchestrator - turn convergence enforcement", () => {
         },
       },
     });
-    expect(result.parts).toEqual(textParts("Turn paused: recoveryAttempts limit reached (1/1)."));
+    expect(result.parts).toEqual(textParts("Turn paused: recoveryAttempts limit reached (1/1). Continue this Kiln session to resume from its canonical transcript."));
   });
 
   it("uses one managed transition reserve only for the tool-round limit", async () => {
@@ -409,6 +409,9 @@ describe("RuntimeSessionOrchestrator - turn convergence enforcement", () => {
         item: { id: "work-1", providedEvidence: ["visual-reference-research"] },
       },
     });
+    const eventBus = new EventBus(100);
+    const emittedErrors = vi.fn();
+    eventBus.on("error", emittedErrors);
     const orchestrator = new RuntimeSessionOrchestrator({
       provider,
       tools: [tool("managed_agent.invoke"), tool("work_item.update")],
@@ -416,7 +419,7 @@ describe("RuntimeSessionOrchestrator - turn convergence enforcement", () => {
         ["managed_agent.invoke", managedInvoke],
         ["work_item.update", workItemUpdate],
       ]),
-      eventBus: new EventBus(100),
+      eventBus,
       executionEnvelope: envelope({
         providerRequests: 4,
         toolRounds: 1,
@@ -445,6 +448,7 @@ describe("RuntimeSessionOrchestrator - turn convergence enforcement", () => {
       },
     });
     expect(requireRuntimeConvergencePause(result).convergence.pause).toMatchObject({ observed: expect.any(Number) });
+    expect(emittedErrors).not.toHaveBeenCalled();
   });
 
   it("does not let the managed reserve bypass the provider-request limit", async () => {

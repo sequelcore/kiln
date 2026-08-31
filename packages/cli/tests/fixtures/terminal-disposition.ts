@@ -49,6 +49,32 @@ export function runtimeFailureDisposition(): Extract<
   return { outcome: "failed", dispositionReason: "runtime_failure" };
 }
 
+export function runtimePausedDisposition(): Extract<
+  TurnTerminalDisposition,
+  { readonly dispositionReason: "tool_round_limit" }
+> {
+  return {
+    outcome: "paused",
+    dispositionReason: "tool_round_limit",
+    convergence: {
+      policy: TEST_RUNTIME_CONVERGENCE_POLICY,
+      progressEvidence: [{
+        kind: "progress",
+        reason: "new_material_result",
+        evidenceFingerprint: `sha256:${"1".repeat(64)}`,
+        supportingToolCallIds: ["tool-progress"],
+      }],
+      pause: {
+        status: "pause",
+        reason: "tool_round_limit",
+        metric: "toolRounds",
+        observed: TEST_RUNTIME_CONVERGENCE_POLICY.toolRounds,
+        limit: TEST_RUNTIME_CONVERGENCE_POLICY.toolRounds,
+      },
+    },
+  };
+}
+
 export function runtimeCancellationDisposition(): {
   readonly outcome: "cancelled";
   readonly dispositionReason: "operator_cancelled";

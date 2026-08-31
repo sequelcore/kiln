@@ -135,8 +135,6 @@ export function boundedWorkContractSchema(): Record<string, unknown> {
           maxChildDepth: { type: "integer", minimum: 0 },
           maxReviewRounds: { type: "integer", minimum: 0 },
           maxRemediationRounds: { type: "integer", minimum: 0 },
-          maxToolCalls: { type: "integer", minimum: 1 },
-          maxActiveDurationMs: { type: "integer", minimum: 1 },
         },
         required: [
           "maxExecutionAttempts",
@@ -308,8 +306,6 @@ function assertBoundedWorkContractShape(value: Record<string, unknown>): void {
       "maxChildDepth",
       "maxReviewRounds",
       "maxRemediationRounds",
-      "maxToolCalls",
-      "maxActiveDurationMs",
     ],
     "boundedWorkContract.limits",
     [

@@ -421,16 +421,21 @@ explicit policy, otherwise it uses the centralized
 `RUNTIME_DEFAULT_TURN_CONVERGENCE_POLICY`. The policy carries a stable identity,
 configuration digest, and limits for provider requests, tool rounds and calls,
 cumulative input tokens, elapsed and active time, recovery attempts, and
-consecutive no-progress steps. The numeric defaults are centralized and
-provisional pending calibration; they are not an additional YAML configuration
-schema.
+consecutive no-progress steps. The centralized default is an interactive safety
+envelope sized for multi-step engineering work; an admitted workflow may supply
+a narrower explicit envelope. It is executable policy, not an additional YAML
+configuration schema, and a tool-round count is never evidence that the task is
+complete.
 
 Runtime calls the convergence decision before every provider request and before
 every atomically admitted tool batch, including the first request. A bound is
 settled deterministically as a typed pause in the same turn; reaching a bound
 does not trigger another model request or a hidden finalization prompt. The
 terminal disposition carries the exact reason and convergence evidence for
-replay. No-progress evidence may pause a turn, but it never proves completion.
+replay. A convergence pause is action-required continuity, not an error: Runtime
+does not emit `error_recorded` for it, and the operator can continue the same
+Kiln session from its canonical transcript. No-progress evidence may pause a
+turn, but it never proves completion.
 
 `sessionTurnBudget` is a separate outer/session-history authorization. Runtime
 checks it before consequential steps, but it cannot replace or widen the

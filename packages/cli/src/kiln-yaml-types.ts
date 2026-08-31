@@ -181,8 +181,6 @@ export interface KilnBoundedWorkPolicyCeiling {
     readonly maxChildDepth?: number;
     readonly maxReviewRounds?: number;
     readonly maxRemediationRounds?: number;
-    readonly maxToolCalls?: number;
-    readonly maxActiveDurationMs?: number;
   };
   readonly minimumHarnessCapability?: "authoritative" | "partially_enforced" | "advisory_only";
 }

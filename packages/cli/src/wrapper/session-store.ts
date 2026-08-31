@@ -463,10 +463,14 @@ export interface PersistedSessionMeta {
   resumeOutcome?: ResumeOutcome;
   sessionLedger?: {
     currentPhase: string;
+    /** Canonical turn whose incremental state is currently projected. */
+    currentTurnId?: string;
     resumedFrom?: string;
     workingDirectory?: string;
     worktreePath?: string;
     lastError?: string;
+    /** Canonical turn that produced lastError. */
+    lastErrorTurnId?: string;
     lastProvider?: string;
     toolCallCount?: number;
     turnDepth?: number;

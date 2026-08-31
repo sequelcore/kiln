@@ -604,7 +604,7 @@ describe("RuntimeSessionOrchestrator - managed recovery and phase transitions", 
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
 
-    expect(result.parts).toEqual(textParts("Turn paused: toolRounds limit reached (4/3)."));
+    expect(result.parts).toEqual(textParts("Turn paused: toolRounds limit reached (4/3). Continue this Kiln session to resume from its canonical transcript."));
     expect(result.dispositionReason).toBe("tool_round_limit");
     expect(requireRuntimeConvergencePause(result).convergence.pause).toMatchObject({
       reason: "tool_round_limit",
@@ -721,7 +721,7 @@ describe("RuntimeSessionOrchestrator - managed recovery and phase transitions", 
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
 
-    expect(result.parts).toEqual(textParts("Turn paused: toolRounds limit reached (2/1)."));
+    expect(result.parts).toEqual(textParts("Turn paused: toolRounds limit reached (2/1). Continue this Kiln session to resume from its canonical transcript."));
     expect(result.dispositionReason).toBe("tool_round_limit");
     expect(requireRuntimeConvergencePause(result).convergence.pause).toMatchObject({
       reason: "tool_round_limit",
@@ -849,7 +849,7 @@ describe("RuntimeSessionOrchestrator - managed recovery and phase transitions", 
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
 
-    expect(result.parts).toEqual(textParts("Turn paused: toolRounds limit reached (2/1)."));
+    expect(result.parts).toEqual(textParts("Turn paused: toolRounds limit reached (2/1). Continue this Kiln session to resume from its canonical transcript."));
     expect(result.dispositionReason).toBe("tool_round_limit");
     expect(requireRuntimeConvergencePause(result).convergence.pause).toMatchObject({
       reason: "tool_round_limit",
@@ -970,7 +970,7 @@ describe("RuntimeSessionOrchestrator - managed recovery and phase transitions", 
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
 
-    expect(result.parts).toEqual(textParts("Turn paused: toolRounds limit reached (2/1)."));
+    expect(result.parts).toEqual(textParts("Turn paused: toolRounds limit reached (2/1). Continue this Kiln session to resume from its canonical transcript."));
     expect(result.dispositionReason).toBe("tool_round_limit");
     expect(requireRuntimeConvergencePause(result).convergence.pause).toMatchObject({
       reason: "tool_round_limit",
@@ -1100,7 +1100,7 @@ describe("RuntimeSessionOrchestrator - managed recovery and phase transitions", 
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
 
-    expect(result.parts).toEqual(textParts("Turn paused: toolRounds limit reached (2/1)."));
+    expect(result.parts).toEqual(textParts("Turn paused: toolRounds limit reached (2/1). Continue this Kiln session to resume from its canonical transcript."));
     expect(result.dispositionReason).toBe("tool_round_limit");
     expect(requireRuntimeConvergencePause(result).convergence.pause).toMatchObject({
       reason: "tool_round_limit",
@@ -1252,7 +1252,7 @@ describe("RuntimeSessionOrchestrator - managed recovery and phase transitions", 
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
 
-    expect(result.parts).toEqual(textParts("Turn paused: toolRounds limit reached (2/1)."));
+    expect(result.parts).toEqual(textParts("Turn paused: toolRounds limit reached (2/1). Continue this Kiln session to resume from its canonical transcript."));
     expect(result.dispositionReason).toBe("tool_round_limit");
     expect(requireRuntimeConvergencePause(result).convergence.pause).toMatchObject({
       reason: "tool_round_limit",

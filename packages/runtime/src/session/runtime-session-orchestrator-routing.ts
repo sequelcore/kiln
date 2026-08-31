@@ -324,8 +324,18 @@ export async function resolveRuntimeSessionRouting(
   });
   const delegatedMultimodalResult = multimodalEffect?.delegatedMultimodalResult;
 
-  if (routingDecision && delegatedMultimodalResult === undefined) {
-    emitModelRouted(session.id, routingDecision);
+  if (delegatedMultimodalResult === undefined) {
+    const committedRoutingDecision: RoutingDecision = routingDecision ?? {
+      provider: admittedTarget.providerId,
+      model: admittedTarget.providerModelId,
+      ...(executionIdentity?.canonicalModel ? { canonicalModel: executionIdentity.canonicalModel } : {}),
+      ...(executionIdentity?.billingMode ? { billingMode: executionIdentity.billingMode } : {}),
+      reasoning: "Committed execution target",
+      confidence: 1,
+      routingTier: "rule",
+      selectionMode: "explicit-operator-only",
+    };
+    emitModelRouted(session.id, committedRoutingDecision);
   }
 
   return {

@@ -16,12 +16,12 @@ describe("Runtime execution envelope convergence", () => {
     expect(resolved.convergence).toEqual({
       policyId: RUNTIME_DEFAULT_TURN_CONVERGENCE_POLICY_ID,
       configurationHash: RUNTIME_DEFAULT_TURN_CONVERGENCE_POLICY_INPUT.configurationHash,
-      providerRequests: 10,
-      toolRounds: 8,
-      toolCalls: 24,
-      cumulativeInputTokens: 256_000,
-      elapsedMs: 600_000,
-      activeMs: 600_000,
+      providerRequests: 40,
+      toolRounds: 32,
+      toolCalls: 128,
+      cumulativeInputTokens: 2_000_000,
+      elapsedMs: 7_200_000,
+      activeMs: 7_200_000,
       recoveryAttempts: 3,
       consecutiveNoProgressSteps: 3,
     });

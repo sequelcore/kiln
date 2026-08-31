@@ -690,7 +690,6 @@ export class RuntimeSessionOrchestrator {
         turnObservation.recordRecoveryAttempt();
         managedInvocationTransitionReserveUsed = true;
         const correction = formatManagedInvocationTransitionReserveCorrection(pendingTransitionForRound!);
-        this.telemetry.emitError(session.id, correction);
         session.addUserMessage(textParts(correction));
       }
       const providerStartedAt = turnObservation.recordProviderRequestStarted();
@@ -785,7 +784,6 @@ export class RuntimeSessionOrchestrator {
         }
         if (governedWorkProgress && !governedWorkProgress.goalCreated) {
           const correction = formatGovernedWorkMaterializationCorrection(governedWorkProgress);
-          this.telemetry.emitError(session.id, correction);
           turnObservation.recordRecoveryAttempt();
           session.addUserMessage(textParts(correction));
           round += 1;
@@ -794,7 +792,6 @@ export class RuntimeSessionOrchestrator {
         const pendingTransition = pendingManagedInvocationTransition(toolExecutions);
         if (pendingTransition) {
           const correction = formatManagedInvocationTransitionCorrection(pendingTransition);
-          this.telemetry.emitError(session.id, correction);
           turnObservation.recordRecoveryAttempt();
           session.addUserMessage(textParts(correction));
           round += 1;
@@ -1037,7 +1034,6 @@ export class RuntimeSessionOrchestrator {
     readonly preLlmEscalation?: EscalationSignal;
   }): Promise<OrchestrateResult> {
     const message = formatRuntimeTurnConvergencePause(input.decision);
-    this.telemetry.emitError(input.session.id, message);
     return finalizeRuntimeSessionResponse({
       deps: this.deps,
       session: input.session,
@@ -2645,9 +2641,10 @@ function transitionReserveConvergencePause(
 }
 
 function formatRuntimeTurnConvergencePause(decision: TurnConvergencePauseDecision): string {
-  return decision.reason === "observation_unavailable"
+  const reason = decision.reason === "observation_unavailable"
     ? `Turn paused: ${decision.metric} observation unavailable.`
     : `Turn paused: ${decision.metric} limit reached (${decision.observed}/${decision.limit}).`;
+  return `${reason} Continue this Kiln session to resume from its canonical transcript.`;
 }
 
 function errorToMessage(error: unknown): string {
