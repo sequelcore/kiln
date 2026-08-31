@@ -163,6 +163,7 @@ describe("global control-plane MCP projection", () => {
       mcp_servers: { "kiln-control-plane": {
         command: launch.executable,
         args: [launch.entrypoint, "native-harness", "control-plane-mcp", "--harness", "codex"],
+        env: { CODEX_MCP_PROTOCOL_VERSION: "2026-07-28" },
         enabled: true,
       } },
     });
@@ -184,7 +185,7 @@ describe("global control-plane MCP projection", () => {
     expect(JSON.stringify(result)).not.toContain("project-root");
   });
 
-  it("enables Codex modern MCP without claiming or removing the shared client capability", async () => {
+  it("enables both Codex modern MCP opt-ins without claiming or removing the shared client capability", async () => {
     const userHome = temporaryRoot();
     const launch = syntheticLaunch(userHome);
     const paths = resolveGlobalControlPlaneMcpProjectionPaths(userHome);
@@ -194,6 +195,11 @@ describe("global control-plane MCP projection", () => {
     await syncGlobalControlPlaneMcpProjections({ operation: "install", userHome, launch, harnesses: ["codex"] });
     expect(parseToml(readFileSync(paths.codex, "utf8"))).toMatchObject({
       features: { other: true, mcp_2026_07_28: true },
+      mcp_servers: {
+        "kiln-control-plane": {
+          env: { CODEX_MCP_PROTOCOL_VERSION: "2026-07-28" },
+        },
+      },
     });
 
     await syncGlobalControlPlaneMcpProjections({ operation: "uninstall", userHome, harnesses: ["codex"] });

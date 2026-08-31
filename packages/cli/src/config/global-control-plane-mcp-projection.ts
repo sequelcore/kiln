@@ -245,7 +245,14 @@ function expectedServer(
   launch: GlobalControlPlaneMcpLaunchDescriptor,
 ): Record<string, unknown> {
   const args = [launch.entrypoint, "native-harness", "control-plane-mcp", "--harness", harness];
-  if (harness === "codex") return { command: launch.executable, args, enabled: true };
+  if (harness === "codex") {
+    return {
+      command: launch.executable,
+      args,
+      enabled: true,
+      env: { CODEX_MCP_PROTOCOL_VERSION: "2026-07-28" },
+    };
+  }
   if (harness === "claude") return { type: "stdio", command: launch.executable, args };
   return { type: "local", command: [launch.executable, ...args], enabled: true };
 }
