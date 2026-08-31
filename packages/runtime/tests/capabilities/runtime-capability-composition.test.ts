@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   CAPABILITY_OUTPUT_SCHEMA_ABSENT_DIGEST,
+  VISION_ANALYZE_INPUT_SCHEMA,
+  VISION_ANALYSIS_OUTPUT_SCHEMA,
   buildCapabilityCatalog,
   normalizeAndDigestCapabilityJsonSchema,
   type CapabilityDescriptorCandidate,
@@ -19,6 +21,9 @@ import {
 import { defineEffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 import type { EffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 import { createLocalFunctionPortableInvocationPort } from "../../src/capabilities/portable-local-function.js";
+import { createAgentBackedCapabilityInvocationPort } from "../../src/capabilities/agent-backed-execution.js";
+import { RuntimeSession } from "../../src/session/runtime-session.js";
+import type { RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.types.js";
 
 const DIGEST_A = `sha256:${"a".repeat(64)}` as const;
 const DIGEST_B = `sha256:${"b".repeat(64)}` as const;
@@ -444,6 +449,205 @@ describe("RuntimeCapabilityCompositionFactory", () => {
         record(collisionCatalog.descriptors[1]!, { toolName: "web_search", tool: tool("web_search") }),
       ],
     })).toThrow(/shadow|tool name|collision/u);
+  });
+
+  it("rejects a portable port for an agent-backed descriptor", () => {
+    const agentCatalog = buildCapabilityCatalog([candidate("vision.analyze", {
+      kind: "agent-backed",
+      owner: { kind: "agent", identityDigest: DIGEST_C },
+      implementationReferences: [{
+        identityDigest: DIGEST_C,
+        kind: "agent",
+        inputSchemaDigest: INPUT_DIGEST,
+        outputSchemaDigest: OUTPUT_DIGEST,
+      }],
+    })], EVALUATED_AT);
+    const agentDescriptor = agentCatalog.descriptors[0]!;
+
+    expect(() => createRuntimeCapabilityCompositionFactory({
+      catalog: agentCatalog,
+      evaluatedAt: EVALUATED_AT,
+      projectId: "project-fixture",
+      appId: "app-fixture",
+      surfaceId: "cli-direct",
+      caller: "kiln-runtime",
+      materializations: [record(agentDescriptor)],
+    })).toThrow(/agent|port/u);
+  });
+
+  it("accepts an agent-backed descriptor only through the branded agent port", () => {
+    const agentCatalog = buildCapabilityCatalog([candidate("vision.analyze", {
+      kind: "agent-backed",
+      owner: { kind: "agent", identityDigest: DIGEST_C },
+      implementationReferences: [{
+        identityDigest: DIGEST_C,
+        kind: "agent",
+        inputSchemaDigest: INPUT_DIGEST,
+        outputSchemaDigest: OUTPUT_DIGEST,
+      }],
+    })], EVALUATED_AT);
+    const agentDescriptor = agentCatalog.descriptors[0]!;
+    const agentPort = createAgentBackedCapabilityInvocationPort({
+      executor: { execute: async () => ({ status: "completed", output: { output: "ok", isError: false, metadata: {} } }) },
+      kind: "agent-task",
+      implementationIdentityDigest: DIGEST_C,
+      childId: "agent-task-vision",
+      executorId: "agent-task-executor",
+    });
+    const generation = createRuntimeCapabilityCompositionFactory({
+      catalog: agentCatalog,
+      evaluatedAt: EVALUATED_AT,
+      projectId: "project-fixture",
+      appId: "app-fixture",
+      surfaceId: "cli-direct",
+      caller: "kiln-runtime",
+      materializations: [record(agentDescriptor, { port: agentPort })],
+    }).prepare();
+
+    expect(generation.authorityCandidates[0]?.materializationStatus).toBe("materializable");
+  });
+
+  it("projects a schema-validated agent result through the Runtime tool surface", async () => {
+    const visionInputDigest = schemaDigest(VISION_ANALYZE_INPUT_SCHEMA, "input");
+    const visionOutputDigest = schemaDigest(VISION_ANALYSIS_OUTPUT_SCHEMA, "output");
+    const visionCandidate = candidate("vision.analyze", {
+      kind: "agent-backed",
+      owner: { kind: "agent", identityDigest: DIGEST_C },
+      inputSchemaDigest: visionInputDigest,
+      outputSchemaDigest: visionOutputDigest,
+      implementationReferences: [{
+        identityDigest: DIGEST_C,
+        kind: "agent",
+        inputSchemaDigest: visionInputDigest,
+        outputSchemaDigest: visionOutputDigest,
+      }],
+    });
+    const catalog = buildCapabilityCatalog([visionCandidate], EVALUATED_AT);
+    const descriptor = catalog.descriptors[0]!;
+    const visionAnalysis = {
+      status: "completed" as const,
+      summary: "A bounded fixture image description.",
+      uncertainty: 0.1,
+      limitations: [] as readonly string[],
+      evidenceUris: [] as readonly string[],
+    };
+    const generation = createRuntimeCapabilityCompositionFactory({
+      catalog,
+      evaluatedAt: EVALUATED_AT,
+      projectId: "project-fixture",
+      appId: "app-fixture",
+      surfaceId: "cli-direct",
+      caller: "kiln-runtime",
+      materializations: [record(descriptor, {
+        inputSchemaDigest: visionInputDigest,
+        outputSchemaDigest: visionOutputDigest,
+        implementationReference: descriptor.implementationReferences[0]!,
+        toolName: "vision_analyze",
+        tool: {
+          name: "vision_analyze",
+          description: "Analyzes admitted image resources.",
+          inputSchema: VISION_ANALYZE_INPUT_SCHEMA,
+          outputSchema: VISION_ANALYSIS_OUTPUT_SCHEMA,
+          tags: new Set(["vision"]),
+        },
+        port: createAgentBackedCapabilityInvocationPort({
+          executor: { execute: async () => ({ status: "completed", output: visionAnalysis }) },
+          kind: "managed-invocation",
+          implementationIdentityDigest: DIGEST_C,
+          childId: "managed-vision-child",
+          executorId: "managed-vision-executor",
+        }),
+      })],
+    }).prepare();
+    const binding = generation.bindToExistingEffectiveAuthorityAdmissionBundle({
+      authorityAdmission: linkedAdmission(generation, admission("vision_analyze")),
+    });
+    const selected = binding.materialize({
+      capabilityId: descriptor.capabilityId,
+      revision: descriptor.revision,
+      descriptorDigest: descriptor.descriptorDigest,
+    });
+    const session = new RuntimeSession({
+      appName: "runtime-test",
+      tenantId: "tenant-test",
+      userId: "user-test",
+      systemPrompt: "Test parent.",
+      sessionId: "session-agent-capability-composition",
+    });
+    const context = {
+      session,
+      toolCall: {
+        id: "vision-call-1",
+        name: "vision_analyze",
+        input: { resourceUris: ["kiln://session/image-1"], instruction: "Describe it." },
+      },
+      toolCallScopeId: "vision-scope-1",
+      authority: deriveAuthorityFromEffect(SEARCH_EFFECT),
+      resolvedEffect: {},
+    } as unknown as RuntimeBuiltinToolExecutionContext;
+
+    const result = await selected!.invoke(context.toolCall.input, context);
+
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.output)).toEqual(visionAnalysis);
+    expect(result.metadata).toEqual({ kind: "capability", operation: "invoke", resultShape: "structured" });
+    expect(result.capabilitySettlement).toMatchObject({
+      port: "managed-invocation",
+      status: "completed",
+      agentBacked: { childId: "managed-vision-child", trust: "untrusted-child-output" },
+    });
+  });
+
+  it("rejects an agent port whose implementation identity differs from the admitted reference", () => {
+    const agentCatalog = buildCapabilityCatalog([candidate("vision.analyze", {
+      kind: "agent-backed",
+      owner: { kind: "agent", identityDigest: DIGEST_C },
+      implementationReferences: [{
+        identityDigest: DIGEST_C,
+        kind: "agent",
+        inputSchemaDigest: INPUT_DIGEST,
+        outputSchemaDigest: OUTPUT_DIGEST,
+      }],
+    })], EVALUATED_AT);
+    const descriptor = agentCatalog.descriptors[0]!;
+    const mismatchedPort = createAgentBackedCapabilityInvocationPort({
+      executor: { execute: async () => ({ status: "completed", output: { output: "wrong", isError: false, metadata: {} } }) },
+      kind: "managed-invocation",
+      implementationIdentityDigest: DIGEST_A,
+      childId: "managed-child-mismatch",
+      executorId: "managed-invocation-executor",
+    });
+
+    expect(() => createRuntimeCapabilityCompositionFactory({
+      catalog: agentCatalog,
+      evaluatedAt: EVALUATED_AT,
+      projectId: "project-fixture",
+      appId: "app-fixture",
+      surfaceId: "cli-direct",
+      caller: "kiln-runtime",
+      materializations: [record(descriptor, { port: mismatchedPort })],
+    })).toThrow(/agent|identity|port/u);
+  });
+
+  it("rejects an agent port for a direct descriptor", () => {
+    const { catalog, descriptor } = prepared();
+    const agentPort = createAgentBackedCapabilityInvocationPort({
+      executor: { execute: async () => ({ status: "completed", output: { output: "wrong", isError: false, metadata: {} } }) },
+      kind: "managed-invocation",
+      implementationIdentityDigest: DIGEST_C,
+      childId: "managed-child-direct",
+      executorId: "managed-invocation-executor",
+    });
+
+    expect(() => createRuntimeCapabilityCompositionFactory({
+      catalog,
+      evaluatedAt: EVALUATED_AT,
+      projectId: "project-fixture",
+      appId: "app-fixture",
+      surfaceId: "cli-direct",
+      caller: "kiln-runtime",
+      materializations: [record(descriptor, { port: agentPort })],
+    })).toThrow(/direct|agent.*port/u);
   });
 
   it("detaches source objects and keeps selection tied to one private materialization", async () => {

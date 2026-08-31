@@ -48,6 +48,10 @@ import {
 import { assertPersistableAuthorityAdmissionBundle } from "../session/authority-admission-evidence.js";
 import type { RuntimeBuiltinToolExecutionContext } from "../session/runtime-session-orchestrator.types.js";
 import {
+  isRuntimeOwnedAgentBackedCapabilityInvocationPort,
+  type AgentBackedInvocationPort,
+} from "./agent-backed-execution.js";
+import {
   createPortableInvocationBinding,
   isRuntimeOwnedPortableInvocationPort,
   type PortableInvocationPort,
@@ -267,7 +271,9 @@ export interface RuntimeCapabilityMaterializationRecord {
   readonly implementationReference: CapabilityImplementationReference;
   readonly toolName: string;
   readonly tool: ToolDefinition;
-  readonly port: PortableInvocationPort<RuntimeCapabilityToolResult>;
+  readonly port:
+    | PortableInvocationPort<RuntimeCapabilityToolResult>
+    | AgentBackedInvocationPort<unknown>;
   readonly requirements: RuntimeCapabilityMaterializationRequirements;
   readonly freshness: RuntimeCapabilityFreshnessGuard;
 }
@@ -613,7 +619,9 @@ interface InternalMaterialization {
   readonly implementationReference: CapabilityImplementationReference;
   readonly toolName: string;
   readonly tool: ToolDefinition;
-  readonly port: PortableInvocationPort<RuntimeCapabilityToolResult>;
+  readonly port:
+    | PortableInvocationPort<RuntimeCapabilityToolResult>
+    | AgentBackedInvocationPort<unknown>;
   readonly requirements: RuntimeCapabilityMaterializationRequirements;
   readonly freshness: RuntimeCapabilityFreshnessGuard;
 }
@@ -649,9 +657,6 @@ function normalizeMaterialization(
     || actualOutput !== value.outputSchemaDigest || actualOutput !== descriptor.outputSchemaDigest) {
     throw new TypeError("Capability materialization actual schema digest does not match Core declaration.");
   }
-  if (!isPortableInvocationPort(value.port)) {
-    throw new TypeError("Capability materialization must carry a Runtime-owned portable invocation port.");
-  }
   if (value.toolName !== tool.name || value.toolName.trim().length === 0) {
     throw new TypeError("Capability materialization tool identity must match its ToolDefinition.");
   }
@@ -665,6 +670,21 @@ function normalizeMaterialization(
     sameImplementationReference(reference, implementationReference));
   if (!declaredReference) {
     throw new TypeError("Capability materialization implementation reference is not declared by Core.");
+  }
+  const agentBacked = descriptor.kind === "agent-backed";
+  if (agentBacked) {
+    if (implementationReference.kind !== "agent"
+      || !isRuntimeOwnedAgentBackedCapabilityInvocationPort(value.port)
+      || value.port.implementationIdentityDigest !== implementationReference.identityDigest) {
+      throw new TypeError("Agent-backed capability materialization requires a Runtime-owned agent execution port.");
+    }
+  } else {
+    if (implementationReference.kind === "agent" || isRuntimeOwnedAgentBackedCapabilityInvocationPort(value.port)) {
+      throw new TypeError("Direct capability materializations cannot use an agent execution port.");
+    }
+    if (!isPortableInvocationPort(value.port)) {
+      throw new TypeError("Capability materialization must carry a Runtime-owned portable invocation port.");
+    }
   }
   const requirements = normalizeRequirements(value.requirements, descriptor);
   const freshness = normalizeFreshnessGuard(value.freshness, descriptor.freshness);
@@ -994,10 +1014,10 @@ function bindGeneration(
             capabilitySettlement: result.settlement,
           };
         }
-        return Object.freeze({
-          ...result.output,
-          capabilitySettlement: result.settlement,
-        });
+        if (descriptor.kind === "agent-backed") {
+          return projectAgentBackedCapabilityOutput(result.output, result.settlement);
+        }
+        return projectDirectCapabilityOutput(result.output, result.settlement);
       },
     });
     selectionCache.set(record.key, selected);
@@ -1145,6 +1165,55 @@ function bindGeneration(
     createDiscoveryToolExecutors,
   };
   return Object.freeze(binding);
+}
+
+/**
+ * Provider-neutral agent results are validated against the capability output
+ * schema before reaching this boundary. Runtime projects that typed JSON into
+ * the string-oriented tool surface without changing or duplicating its
+ * content in persisted metadata.
+ */
+function projectAgentBackedCapabilityOutput(
+  output: unknown,
+  settlement: PortableInvocationSettlement,
+): RuntimeCapabilityToolResult {
+  return Object.freeze({
+    output: typeof output === "string" ? output : stableSerialize(output),
+    isError: false,
+    metadata: Object.freeze({
+      kind: "capability",
+      operation: "invoke",
+      resultShape: "structured",
+    }),
+    capabilitySettlement: settlement,
+  });
+}
+
+function projectDirectCapabilityOutput(
+  output: unknown,
+  settlement: PortableInvocationSettlement,
+): RuntimeCapabilityToolResult {
+  if (!isPlainRecord(output)
+    || typeof output.output !== "string"
+    || typeof output.isError !== "boolean"
+    || (output.metadata !== undefined && !isPlainRecord(output.metadata))) {
+    return Object.freeze({
+      output: "Capability implementation returned an invalid Runtime tool-result envelope.",
+      isError: true,
+      metadata: Object.freeze({
+        kind: "capability",
+        operation: "invoke",
+        decision: "invalid-output-envelope",
+      }),
+      capabilitySettlement: settlement,
+    });
+  }
+  return Object.freeze({
+    output: output.output,
+    isError: output.isError,
+    ...(output.metadata === undefined ? {} : { metadata: deepFreeze(clonePlain(output.metadata)) }),
+    capabilitySettlement: settlement,
+  });
 }
 
 /** Parses only metadata emitted by the canonical describe executor. */

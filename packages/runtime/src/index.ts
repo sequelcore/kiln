@@ -302,7 +302,25 @@ export type {
   PortableInvocationSettlement,
   PortableInvocationSettlementInput,
   PortableInvocationSettlementStatus,
+  PortableInvocationAgentExecutionKind,
+  PortableInvocationAgentProvenance,
 } from "./capabilities/portable-execution.js";
+export {
+  AgentBackedCapabilityInvocationPort,
+  createAgentBackedCapabilityInvocationPort,
+  isRuntimeOwnedAgentBackedCapabilityInvocationPort,
+  isRuntimeOwnedAgentBackedCapabilityInvocationSettlement,
+} from "./capabilities/agent-backed-execution.js";
+export type {
+  AgentBackedCapabilityExecutionKind,
+  AgentBackedCapabilityExecutor,
+  AgentBackedCapabilityExecutorInput,
+  AgentBackedCapabilityExecutorResult,
+  AgentBackedCapabilityInvocationResult,
+  AgentBackedCapabilityInvocationPortOptions,
+  AgentBackedCapabilitySettlement,
+  AgentBackedInvocationPort,
+} from "./capabilities/agent-backed-execution.js";
 export {
   PortableCliInvocationPort,
   createCliPortableInvocationPort,

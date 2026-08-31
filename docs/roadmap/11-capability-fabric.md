@@ -568,7 +568,20 @@ are recorded by the closing commit.
 
 ### Slice 5 - Agent-Backed Capabilities
 
-Status: Ready; not started.
+Status: In progress as of 2026-08-30.
+
+The first implementation increment defines the provider-neutral
+`vision.analyze/v1` input and `VisionAnalysis` result, adds a Runtime-owned
+agent-backed invocation port with exact schema validation and conservative
+settlement. Runtime composition now rejects direct ports for
+agent-backed descriptors and projects validated structured child results into
+the string-oriented tool surface without treating child output as authority.
+
+This does not complete the slice. Managed and local Agent Task materialization,
+configured catalog contribution, end-to-end selection through every admitted
+surface, and complete executor/route/policy/budget evidence conformance remain
+open. Artifact identity and cross-harness resource transport remain owned by
+Slice 6.
 
 Allow the resolver to choose a governed specialist agent when no direct tool
 can satisfy a capability. The parent remains responsible for the user-facing
@@ -917,8 +930,8 @@ The track-level evidence set must include:
 - operator-question pause, validation, answer, skip, cancel, expiry, resume,
   and approval-separation conformance, promoted GUI first and then reproduced
   in TUI and native harness interactions;
-- end-to-end verification, `web.search`, `vision.analyze`, and presentation
-  workflows.
+- end-to-end verification, `web.search`, `vision.analyze`, and cross-harness
+  artifact-handoff workflows.
 
 ## Completion Criteria
 

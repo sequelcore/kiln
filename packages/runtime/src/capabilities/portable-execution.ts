@@ -30,7 +30,23 @@ export type PortableInvocationPortKind =
   | "approved-service"
   | "code-mode"
   | "cli"
-  | "local-function";
+  | "local-function"
+  /** Agent-backed execution remains a Runtime-owned invocation port. */
+  | "agent-task"
+  | "managed-invocation";
+
+export type PortableInvocationAgentExecutionKind = "agent-task" | "managed-invocation";
+
+/**
+ * Sanitized provenance attached to an agent-backed invocation settlement.
+ * Child output is evidence only; it never becomes Runtime authority.
+ */
+export interface PortableInvocationAgentProvenance {
+  readonly kind: PortableInvocationAgentExecutionKind;
+  readonly childId: string;
+  readonly executorId: string;
+  readonly trust: "untrusted-child-output";
+}
 
 export type PortableInvocationSettlementStatus =
   | "completed"
@@ -60,7 +76,10 @@ export type PortableInvocationDiagnosticCode =
   | "output_limit_exceeded"
   | "idempotency_conflict"
   | "implementation_mismatch"
-  | "local_function_error";
+  | "local_function_error"
+  | "agent_execution_error"
+  | "agent_outcome_unknown"
+  | "agent_executor_result_invalid";
 
 export interface PortableInvocationOutputEvent {
   readonly stream: CommandOutputStream;
@@ -169,6 +188,8 @@ export interface PortableInvocationSettlement {
   readonly stderrBytes: number;
   readonly outputBytes: number;
   readonly outputTruncated: boolean;
+  /** Present only for Runtime-owned agent-backed execution ports. */
+  readonly agentBacked?: PortableInvocationAgentProvenance;
   readonly diagnosticCode?: PortableInvocationDiagnosticCode;
   readonly startedAt: string;
   readonly settledAt: string;
@@ -224,6 +245,7 @@ export interface PortableInvocationSettlementInput {
   readonly stderrBytes?: number;
   readonly outputTruncated?: boolean;
   readonly outputDigest?: Sha256Digest | null;
+  readonly agentBacked?: PortableInvocationAgentProvenance;
   readonly diagnosticCode?: PortableInvocationDiagnosticCode;
 }
 
@@ -370,6 +392,14 @@ export function settlePortableInvocation(input: PortableInvocationSettlementInpu
   const outputDigest = input.outputDigest === undefined || input.outputDigest === null
     ? null
     : (isSha256Digest(input.outputDigest) ? input.outputDigest : null);
+  const agentBacked = input.agentBacked === undefined
+    ? undefined
+    : normalizeAgentProvenance(input.agentBacked);
+  const agentPort = input.port === "agent-task" || input.port === "managed-invocation";
+  if (agentPort !== (agentBacked !== undefined)
+    || (agentBacked !== undefined && agentBacked.kind !== input.port)) {
+    throw new TypeError("Agent-backed invocation port and provenance must agree.");
+  }
   const body: Omit<PortableInvocationSettlement, "settlementId"> = {
     schema: PORTABLE_INVOCATION_SETTLEMENT_SCHEMA,
     port: input.port,
@@ -403,6 +433,7 @@ export function settlePortableInvocation(input: PortableInvocationSettlementInpu
       || clipped.truncated
       || declaredStdoutBytes > stdoutBytes
       || declaredStderrBytes > stderrBytes,
+    ...(agentBacked === undefined ? {} : { agentBacked }),
     ...(input.diagnosticCode === undefined ? {} : { diagnosticCode: input.diagnosticCode }),
     startedAt: canonicalInstant(input.startedAt, "startedAt"),
     settledAt: canonicalInstant(input.settledAt, "settledAt"),
@@ -682,6 +713,24 @@ function normalizeReplayPosture(value: "allow" | "deny" | undefined): "allow" | 
     throw new TypeError("Portable invocation replay posture is invalid.");
   }
   return value;
+}
+
+function normalizeAgentProvenance(value: PortableInvocationAgentProvenance): PortableInvocationAgentProvenance {
+  if (!isPlainRecord(value)
+    || (value.kind !== "agent-task" && value.kind !== "managed-invocation")
+    || typeof value.childId !== "string"
+    || typeof value.executorId !== "string"
+    || value.trust !== "untrusted-child-output") {
+    throw new TypeError("Agent-backed invocation provenance is invalid.");
+  }
+  requireIdentifier(value.childId, "agent childId");
+  requireIdentifier(value.executorId, "agent executorId");
+  return Object.freeze({
+    kind: value.kind,
+    childId: value.childId,
+    executorId: value.executorId,
+    trust: "untrusted-child-output" as const,
+  });
 }
 
 function clonePortableJson(value: unknown, rejectSecrets: boolean, depth: number): unknown {
