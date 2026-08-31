@@ -18,6 +18,7 @@ import {
 } from "../../src/capabilities/runtime-capability-composition.js";
 import { defineEffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 import type { EffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
+import { createLocalFunctionPortableInvocationPort } from "../../src/capabilities/portable-local-function.js";
 
 const DIGEST_A = `sha256:${"a".repeat(64)}` as const;
 const DIGEST_B = `sha256:${"b".repeat(64)}` as const;
@@ -32,8 +33,12 @@ const INPUT_SCHEMA = {
 } as const;
 const OUTPUT_SCHEMA = {
   type: "object",
-  properties: { result: { type: "string" } },
-  required: ["result"],
+  properties: {
+    output: { type: "string" },
+    isError: { type: "boolean" },
+    metadata: { type: "object", additionalProperties: true },
+  },
+  required: ["output", "isError", "metadata"],
   additionalProperties: false,
 } as const;
 function schemaDigest(schema: unknown, direction: "input" | "output"): `sha256:${string}` {
@@ -127,7 +132,9 @@ function record(
     implementationReference: descriptor.implementationReferences[0]!,
     toolName: "web_search",
     tool: tool(),
-    executor: vi.fn(async () => ({ output: "ok", isError: false, metadata: {} })),
+    port: createLocalFunctionPortableInvocationPort({
+      handler: vi.fn(async () => ({ output: "ok", isError: false, metadata: {} })),
+    }),
     requirements: {
       data: descriptor.data,
       network: descriptor.network,
@@ -371,7 +378,7 @@ describe("RuntimeCapabilityCompositionFactory", () => {
     expect(projected?.find((tool) => tool.name === "capability.search")).toBe(RUNTIME_CAPABILITY_SEARCH_TOOL);
   });
 
-  it("rejects actual-schema, implementation, executor, and collision mismatches", () => {
+  it("rejects actual-schema, implementation, portable-port, and collision mismatches", () => {
     const { catalog, descriptor } = prepared();
     expect(() => createRuntimeCapabilityCompositionFactory({
       catalog,
@@ -403,8 +410,23 @@ describe("RuntimeCapabilityCompositionFactory", () => {
       appId: "app-fixture",
       surfaceId: "cli-direct",
       caller: "kiln-runtime",
-      materializations: [record(descriptor, { executor: undefined as unknown as RuntimeCapabilityMaterializationRecord["executor"] })],
-    })).toThrow(/executor/u);
+      materializations: [record(descriptor, { port: undefined as unknown as RuntimeCapabilityMaterializationRecord["port"] })],
+    })).toThrow(/portable invocation port/u);
+
+    expect(() => createRuntimeCapabilityCompositionFactory({
+      catalog,
+      evaluatedAt: EVALUATED_AT,
+      projectId: "project-fixture",
+      appId: "app-fixture",
+      surfaceId: "cli-direct",
+      caller: "kiln-runtime",
+      materializations: [record(descriptor, {
+        port: {
+          kind: "local-function",
+          invoke: async () => { throw new Error("unowned port must not execute"); },
+        },
+      })],
+    })).toThrow(/portable invocation port/u);
 
     const collisionCatalog = buildCapabilityCatalog([
       candidate(),

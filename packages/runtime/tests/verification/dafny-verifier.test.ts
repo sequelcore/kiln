@@ -20,6 +20,7 @@ const JSON_LINES = JSON.stringify({
 /** Records the spawned request and replays a scripted result. */
 class ScriptedRunner implements CommandProcessRunner {
   request?: CommandProcessRequest;
+  readonly stopReasons: string[] = [];
   constructor(
     private readonly stdout: string,
     private readonly result: CommandProcessResult,
@@ -30,7 +31,11 @@ class ScriptedRunner implements CommandProcessRunner {
     if (this.stdout) sink.output({ stream: "stdout", text: this.stdout });
     if (this.stderr) sink.output({ stream: "stderr", text: this.stderr });
     sink.finish(this.result);
-    return { stop: async () => {} };
+    return {
+      stop: async (reason: "cancelled" | "timeout" | "stopped") => {
+        this.stopReasons.push(reason);
+      },
+    };
   }
 }
 
@@ -50,6 +55,8 @@ describe("DafnyVerifier", () => {
       "csv;LogFileName=policy.csv",
       "policy.dfy",
     ]);
+    expect(runner.request?.env).toEqual({});
+    expect(runner.request?.shell).toBe(false);
   });
 
   it("reads the log relative to the subprocess working directory, not this process's", async () => {
@@ -87,6 +94,14 @@ describe("DafnyVerifier", () => {
     expect(run.log.efforts).toEqual([]);
   });
 
+  it("propagates cancellation to the process request", async () => {
+    const controller = new AbortController();
+    const runner = new ScriptedRunner("", { cancelled: true });
+    await verifier(runner).verify({ ...request, signal: controller.signal });
+
+    expect(runner.request?.signal).toBe(controller.signal);
+  });
+
   it("reports failure when the executable could not run", async () => {
     const run = await verifier(new ScriptedRunner("", { error: new Error("spawn dafny ENOENT") })).verify(request);
     expect(run.status).toBe("failed_to_run");
@@ -100,10 +115,12 @@ describe("DafnyVerifier", () => {
   });
 
   it("fails closed when machine-readable output exceeds its bound", async () => {
-    const run = await verifier(new ScriptedRunner("x".repeat(2_000_001), { exitCode: 0 })).verify(request);
+    const runner = new ScriptedRunner("x".repeat(2_000_001), { exitCode: 0 });
+    const run = await verifier(runner).verify(request);
     expect(run.status).toBe("failed_to_run");
     expect(run.log.efforts).toEqual([]);
     expect(run.failure).toContain("exceeded");
+    expect(runner.stopReasons).toEqual(["stopped"]);
   });
 
   it("treats an unreadable log as failure, never as a passing run", async () => {

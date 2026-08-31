@@ -3,6 +3,7 @@ import { readFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import {
   type CommandProcessRunner,
+  type DevToolExecutionContext,
   type DevTool,
   getBuiltinEffectEnvelope,
   getSandboxContext,
@@ -31,7 +32,7 @@ export function createGentleReviewTool(options: GentleReviewToolOptions): DevToo
     description: schema.description,
     inputSchema: schema.inputSchema,
     effectEnvelope: getBuiltinEffectEnvelope(schema.name),
-    async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
+    async execute(input: ToolInput, sandbox?: unknown, context?: DevToolExecutionContext): Promise<ToolResult> {
       if (Object.keys(input.input).length > 0)
         return toErrorResult("gentle review resolves the current transaction and accepts no input fields");
       try {
@@ -50,7 +51,7 @@ export function createGentleReviewTool(options: GentleReviewToolOptions): DevToo
           expectedVersion: options.expectedVersion,
           expectedExecutableDigest: options.expectedExecutableDigest,
           timeoutMs: options.timeoutMs ?? 60_000,
-        }).observeCurrent();
+        }).observeCurrent(context?.abortSignal);
         return toSuccessResult(
           `Gentle AI status observed for ${observation.candidate.targetIdentity}; action=${observation.outcome.action}. This is inferential review evidence only and grants no acceptance authority.`,
           observation,

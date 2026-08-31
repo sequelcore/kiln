@@ -71,6 +71,7 @@ export function createManagedInvocationRuntimeResourceReader(input: {
     resourceRead({ uri }, {
       session: input.session,
       toolCall,
+      toolCallScopeId: toolCall.id,
       abortSignal,
       authority: input.authority,
       resolvedEffect: input.resolvedEffect,

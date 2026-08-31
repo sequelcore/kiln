@@ -1,13 +1,34 @@
 import { describe, expect, it } from "vitest";
 import {
+  compileNormalizedCapabilityJsonSchema,
   discoverVerificationCapabilities,
   discoverVerificationCapabilityCatalog,
+  normalizeAndDigestCapabilityJsonSchema,
   type VerificationCapabilityDiscoveryInput,
   type VerificationProducerResolution,
   VERIFICATION_CAPABILITY_IDS,
   VERIFICATION_PRODUCER_ORDER,
 } from "../../src/capabilities/index.js";
-import { STATIC_ANALYSIS_PROFILE } from "../../src/verification/static/observation.js";
+import {
+  FORMAL_VERIFICATION_OBSERVATION_SCHEMA,
+  formalVerificationObservation,
+} from "../../src/verification/formal/observation.js";
+import {
+  GENTLE_REVIEW_CAPABILITIES_SCHEMA,
+  GENTLE_REVIEW_CONTRACT,
+  GENTLE_REVIEW_STATUS_SCHEMA,
+  gentleReviewObservation,
+} from "../../src/verification/inferential/gentle-review-observation.js";
+import {
+  QUALITY_ANALYSIS_OBSERVATION_SCHEMA,
+  QUALITY_PROFILE_ORDER,
+  qualityAnalysisObservation,
+  rulesForQualityProfile,
+} from "../../src/verification/static/quality-observation.js";
+import {
+  STATIC_ANALYSIS_PROFILE,
+  staticAnalysisObservation,
+} from "../../src/verification/static/observation.js";
 
 const DIGEST_A = `sha256:${"a".repeat(64)}` as const;
 const DIGEST_B = `sha256:${"b".repeat(64)}` as const;
@@ -15,6 +36,7 @@ const DIGEST_C = `sha256:${"c".repeat(64)}` as const;
 const EVALUATED_AT = "2026-08-28T12:00:00.000Z";
 const OBSERVED_AT = "2026-08-28T11:00:00.000Z";
 const VALID_UNTIL = "2026-08-28T13:00:00.000Z";
+const CONTENT_DIGEST = `sha256:${"d".repeat(64)}`;
 
 function resolution(
   version: string,
@@ -50,6 +72,66 @@ function availableInput(): VerificationCapabilityDiscoveryInput {
   };
 }
 
+function verificationObservations() {
+  return {
+    formal_verify: formalVerificationObservation({
+      verifier: { name: "dafny", version: "4.11.0" },
+      artifact: { contentDigest: CONTENT_DIGEST },
+      subjects: [{ path: "src/Proof.dfy", contentDigest: CONTENT_DIGEST }],
+      checks: [{ symbol: "Proof.valid", check: "correctness", outcome: "proved", durationMs: 0, resourceCount: 0 }],
+    }),
+    static_analyze: staticAnalysisObservation({
+      analyzer: { name: "oxlint", version: "1.80.0" },
+      profile: { id: STATIC_ANALYSIS_PROFILE, rulesAnalyzed: 3 },
+      outcome: "clean",
+      subjects: [{ path: "src/index.ts", contentDigest: CONTENT_DIGEST }],
+      diagnostics: [],
+    }),
+    quality_analyze: qualityAnalysisObservation({
+      analyzer: {
+        name: "kiln-quality",
+        version: "3.0.0",
+        parser: { name: "@typescript/typescript6", version: "6.0.2" },
+      },
+      artifact: { kind: "typescript", path: "src/index.ts", contentDigest: CONTENT_DIGEST },
+      outcome: "no_diagnostics",
+      profiles: QUALITY_PROFILE_ORDER.map((name) => ({
+        name,
+        revision: "v1" as const,
+        rules: rulesForQualityProfile(name),
+        diagnostics: [],
+      })),
+    }),
+    gentle_review: gentleReviewObservation({
+      engine: {
+        name: "gentle-ai",
+        version: "2.5.0-rc.1",
+        releaseChannel: "prerelease",
+        executableDigest: CONTENT_DIGEST,
+      },
+      candidate: {
+        targetIdentity: CONTENT_DIGEST,
+        projection: "workspace",
+        baseTree: "a".repeat(40),
+        candidateTree: "b".repeat(40),
+        pathsDigest: CONTENT_DIGEST,
+        paths: ["src/index.ts"],
+      },
+      authority: {
+        lineageId: "lineage-1",
+        state: "observed",
+        generation: 1,
+        revision: CONTENT_DIGEST,
+      },
+      outcome: {
+        applicability: "applicable",
+        action: "observe",
+        replayability: "replayable",
+      },
+    }),
+  };
+}
+
 describe("verification capability discovery", () => {
   it("emits deterministic candidates and a Core-built catalog from inert evidence", () => {
     const first = discoverVerificationCapabilities(availableInput());
@@ -79,6 +161,70 @@ describe("verification capability discovery", () => {
     expect(first.candidates.some((candidate) => candidate.supportedCallers.includes("codex"))).toBe(false);
     expect(first.candidates.some((candidate) => candidate.supportedCallers.includes("claude"))).toBe(false);
     expect(first.candidates.some((candidate) => candidate.supportedCallers.includes("opencode-v2"))).toBe(false);
+  });
+
+  it("publishes exact implementation bindings, empty artifact declarations, and strict result schemas", () => {
+    const result = discoverVerificationCapabilities(availableInput());
+    const observations = verificationObservations();
+    const candidateById = new Map(result.candidates.map((candidate) => [candidate.capabilityId, candidate]));
+
+    for (const toolSchema of result.toolSchemas) {
+      const candidate = candidateById.get(toolSchema.capabilityId);
+      expect(candidate).toBeDefined();
+      expect(toolSchema.implementationIdentityDigest).toBe(candidate?.implementationReferences[0]?.identityDigest);
+      expect(candidate?.artifacts).toEqual([]);
+
+      const normalized = normalizeAndDigestCapabilityJsonSchema(toolSchema.outputSchema, "output");
+      expect(normalized.ok && normalized.present ? normalized.digest : undefined).toBe(candidate?.outputSchemaDigest);
+      if (!normalized.ok || !normalized.present) throw new Error("verification output schema was not normalized");
+      const validator = compileNormalizedCapabilityJsonSchema(normalized.value, "output", candidate?.outputSchemaDigest);
+      const validResult = validator.validate({ output: "observation", isError: false, metadata: observations[toolSchema.toolName] });
+      expect(validResult, toolSchema.toolName).toBe(true);
+      expect(validator.validate({ output: "failed", isError: true })).toBe(true);
+      expect(validator.validate({ output: "observation", isError: false, metadata: { schema: "wrong" } })).toBe(false);
+      expect(validator.validate({ output: "observation", isError: false, metadata: observations[toolSchema.toolName], extra: true })).toBe(false);
+    }
+  });
+
+  it("keeps formal, static, quality, and inferential observation invariants distinct", () => {
+    const result = discoverVerificationCapabilities(availableInput());
+    const byTool = new Map(result.toolSchemas.map((schema) => [schema.toolName, schema]));
+    const observations = verificationObservations();
+
+    const validate = (toolName: keyof typeof observations, value: unknown): boolean => {
+      const schema = byTool.get(toolName)!;
+      const candidate = result.candidates.find((entry) => entry.capabilityId === schema.capabilityId)!;
+      const normalized = normalizeAndDigestCapabilityJsonSchema(schema.outputSchema, "output");
+      if (!normalized.ok || !normalized.present) throw new Error("verification output schema was not normalized");
+      return compileNormalizedCapabilityJsonSchema(normalized.value, "output", candidate.outputSchemaDigest)
+        .validate({ output: "observation", isError: false, metadata: value });
+    };
+
+    const formalWithDetail = structuredClone(observations.formal_verify) as unknown as Record<string, unknown>;
+    (formalWithDetail.checks as Array<Record<string, unknown>>)[0]!.detail = "proved detail is forbidden";
+    expect(validate("formal_verify", formalWithDetail)).toBe(false);
+
+    const staticWithDiagnostic = structuredClone(observations.static_analyze) as unknown as Record<string, unknown>;
+    staticWithDiagnostic.outcome = "clean";
+    staticWithDiagnostic.diagnostics = [{ severity: "warning", message: "unexpected", file: "src/index.ts" }];
+    expect(validate("static_analyze", staticWithDiagnostic)).toBe(false);
+
+    const qualityWithDiagnostic = structuredClone(observations.quality_analyze) as unknown as Record<string, unknown>;
+    (qualityWithDiagnostic.profiles as Array<Record<string, unknown>>)[1]!.diagnostics = [{
+      rule: { name: "high-cyclomatic-complexity", revision: "v1" },
+      message: "complexity",
+      line: 1,
+      column: 1,
+    }];
+    expect(validate("quality_analyze", qualityWithDiagnostic)).toBe(false);
+
+    const gentleWithFinding = structuredClone(observations.gentle_review) as unknown as Record<string, unknown>;
+    gentleWithFinding.findings = [{ message: "not allowed" }];
+    expect(validate("gentle_review", gentleWithFinding)).toBe(false);
+
+    expect(FORMAL_VERIFICATION_OBSERVATION_SCHEMA).not.toBe(QUALITY_ANALYSIS_OBSERVATION_SCHEMA);
+    expect(GENTLE_REVIEW_CONTRACT).not.toBe(GENTLE_REVIEW_CAPABILITIES_SCHEMA);
+    expect(GENTLE_REVIEW_STATUS_SCHEMA).not.toBe(STATIC_ANALYSIS_PROFILE);
   });
 
   it("never invokes callbacks or accessors while inspecting producer declarations", () => {

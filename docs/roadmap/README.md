@@ -29,7 +29,7 @@ roadmap reorganization.
 
 | Order | Track | State | Priority | Next bounded work |
 | --- | --- | --- | --- | --- |
-| 1 | [11 - Capability Fabric](11-capability-fabric.md) | In progress | High | Slice 3 deferred search is complete; prepare Slice 4 portable tool execution when resumed. |
+| 1 | [11 - Capability Fabric](11-capability-fabric.md) | In progress | High | Slices 3 and 4 are complete; prepare Slice 5 agent-backed capabilities when resumed. |
 | 2 | [08 - Kiln Connect Pairing And Sessions](08-remote-operator-pairing.md) | Ready | Normal | Begin Slice 0 when Capability Fabric reaches a blocker or the remote-access need becomes current again. |
 | 3 | [08.5 - Kiln Connect Remote Connectivity](08.5-remote-operator-connectivity.md) | Queued | Normal | Slice 0 is complete; later connectivity slices wait on Roadmap 08 session identity. |
 | 4 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Research | Normal | The narrow Roadmap 11 dependency is admitted; broader prompt evaluation remains behind higher-priority Ready work. |
@@ -89,7 +89,8 @@ roadmap reorganization.
   existing verification plane. The narrow Roadmap `06` disclosure dependency
   is admitted; Slice 3 now provides bounded deferred search and exact
   authority-linked next-round materialization for the first verification
-  vertical.
+  vertical. Slice 4 now supplies its exact-schema portable invocation,
+  CLI/local execution, conservative replay, and terminal-settlement boundary.
 - Configuration discoverability, desired intent, effective-value explanation,
   governed mutation, activation planning, and cross-surface settings parity
   are stable architecture. Project-state relocation is tracked by

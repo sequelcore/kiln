@@ -76,6 +76,7 @@ import type { RuntimeHostToolEnforcement } from "./runtime-host-tool-enforcement
 import type { RuntimeSessionTurnBudgetAuthority } from "./session-turn-budget-authority.js";
 import type { EscalationDetector, EscalationSignal } from "./support/escalation/escalation-detector.js";
 import type { RuntimeCapabilityGeneration } from "../capabilities/runtime-capability-composition.js";
+import type { PortableInvocationSettlement } from "../capabilities/portable-execution.js";
 
 export type {
   EffectiveTurnAuthorityCompleteness,
@@ -101,6 +102,8 @@ export interface RuntimeBuiltinToolExecutionContext {
   readonly session: RuntimeSession;
   readonly turnId?: string;
   readonly toolCall: ToolCall;
+  /** Runtime-owned correlation scope for portable invocation settlement. */
+  readonly toolCallScopeId?: string;
   /** Runtime-owned scope; tool input cannot override or remove this attribution. */
   readonly executionScope?: SessionExecutionScope;
   /** Formal-verification facts for this exact work-item execution scope only. */
@@ -223,6 +226,7 @@ export interface ToolExecutionSummary {
   readonly toolName: string;
   readonly input?: Record<string, unknown>;
   readonly metadata?: Record<string, unknown>;
+  readonly capabilitySettlement?: PortableInvocationSettlement;
   readonly resolvedEffect?: ResolvedInvocationEffect;
   readonly authority?: AuthorityDescriptor;
   readonly durationMs: number;

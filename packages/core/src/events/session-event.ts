@@ -379,6 +379,8 @@ export interface CanonicalToolCallCompletedEvent extends SessionEventEnvelope<"t
   readonly output?: string;
   readonly outputSummary?: string;
   readonly metadata?: Record<string, unknown>;
+  /** Sanitized terminal evidence for a selected portable capability invocation. */
+  readonly capabilitySettlement?: Readonly<Record<string, unknown>>;
   readonly resourceLinks?: readonly ExecutionSessionToolResultResourceLink[];
   readonly toolUsage?: SessionToolUsageSnapshot;
 }

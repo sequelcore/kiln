@@ -1,5 +1,63 @@
 export { RuntimeSession } from "./runtime-session.js";
 export type { RuntimeSessionConfig, SerializedSessionData, AgentTurnEntry } from "./runtime-session.js";
+export {
+  PORTABLE_INVOCATION_SETTLEMENT_SCHEMA,
+  PortableInvocationReplayCache,
+  assertPortableCliArguments,
+  canReplayPortableInvocation,
+  clipPortableOutput,
+  createPortableInvocationBinding,
+  digestPortable,
+  isRuntimeOwnedPortableInvocationSettlement,
+  normalizePortableEnvironment,
+  portableInvocationReplayKey,
+  preparePortableInvocationInput,
+  preparePortableInvocationOutput,
+  sanitizeTerminalText,
+  settlePortableInvocation,
+} from "../capabilities/portable-execution.js";
+export type {
+  PortableInvocationBinding,
+  PortableInvocationBindingInput,
+  PortableInvocationContext,
+  PortableInvocationDiagnosticCode,
+  PortableInvocationDispatchDisposition,
+  PortableInvocationInputPreparation,
+  PortableInvocationInputValidation,
+  PortableInvocationOutputEvent,
+  PortableInvocationOutputPreparation,
+  PortableInvocationPort,
+  PortableInvocationPortKind,
+  PortableInvocationRequest,
+  PortableInvocationResult,
+  PortableInvocationSettlement,
+  PortableInvocationSettlementInput,
+  PortableInvocationSettlementStatus,
+} from "../capabilities/portable-execution.js";
+export {
+  PortableLocalFunctionInvocationPort,
+  createLocalFunctionPortableInvocationPort,
+  createPortableLocalFunctionInvocationPort,
+  createTrustedHandlerPortableInvocationPort,
+  createTrustedRuntimeBuiltinPortableInvocationPort,
+} from "../capabilities/portable-local-function.js";
+export type {
+  PortableLocalFunction,
+  PortableLocalFunctionContext,
+  PortableLocalFunctionInvocationPortOptions,
+  PortableRuntimeBuiltinInvocationPortOptions,
+  PortableTrustedHandlerPortKind,
+} from "../capabilities/portable-local-function.js";
+export {
+  PortableCliInvocationPort,
+  createCliPortableInvocationPort,
+  createPortableCliInvocationPort,
+} from "../capabilities/portable-cli.js";
+export type {
+  PortableCliArgumentBuilder,
+  PortableCliInvocationPortOptions,
+  PortableCliOutputParser,
+} from "../capabilities/portable-cli.js";
 export { defineRuntimeSessionAuthorityFacet } from "./runtime-session-authority-facet.js";
 export type { RuntimeSessionAuthorityFacet, RuntimeSessionAuthorityFacetInput } from "./runtime-session-authority-facet.js";
 export { assertPersistableAuthorityAdmissionBundle } from "./authority-admission-evidence.js";

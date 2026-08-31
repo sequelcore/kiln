@@ -2,12 +2,13 @@
 
 Status: In progress capability-portability track
 Priority: High
-Execution: In progress - Slice 3 Deferred Tool Search is complete as of
-2026-08-30. Core owns aggregate contributions and bounded provider-neutral
-search/describe contracts; Runtime owns immutable, authority-linked generations
-and next-round materialization; canonical direct CLI verification is the first
-executable vertical; and the permanent `verification-evidence` builtin projects
-to supported native skill targets with an ordinary-command fallback. The
+Execution: In progress - Slices 3 and 4 are complete as of 2026-08-30. Core
+owns aggregate contributions, bounded provider-neutral search/describe, and
+exact executable schemas; Runtime owns immutable authority-linked generations,
+next-round materialization, portable invocation bindings, and terminal
+settlement. Canonical direct CLI verification is the first executable vertical,
+and the permanent `verification-evidence` builtin projects to supported native
+skill targets with an ordinary-command fallback. The
 2026-08-28 operator priority decision
 moves this track ahead of Roadmap 08; remote pairing remains Ready but is no
 longer the current operational priority.
@@ -498,7 +499,7 @@ closure run; focused affected CLI tests are the executable Slice 3 oracle.
 
 ### Slice 4 - Portable Tool Execution
 
-Status: Ready; not started.
+Status: Complete as of 2026-08-30.
 
 Add Runtime execution ports for admitted MCP, OpenAPI, GraphQL, CLI, local
 function, and approved service tools. Keep credentials host-side. Validate
@@ -536,9 +537,35 @@ result.
 supported provider or local service contract; an experimental ChatGPT alpha
 endpoint may be used for research only, never as release authority.
 
+Closure decision: the provider-neutral port contract admits CLI, local
+function, MCP, OpenAPI, GraphQL, approved-service, and code-mode identities,
+but this slice implements only the CLI and trusted local-function ports needed
+by the verification proof. The remaining kinds are reserved identities rather
+than empty adapters. Their real transport authority, credentials,
+cancellation, and conformance work remains with the slice that admits each
+productive integration.
+
+Closure evidence: Core compiles and enforces the exact verification input and
+output schemas and binds each tool to one implementation digest. Runtime binds
+generation, catalog, descriptor, implementation, schemas, tool-call identity,
+input, limits, and replay posture into an immutable invocation; validates input
+before dispatch and output before return; and records sanitized terminal
+settlement separately from producer metadata in canonical session events. The
+CLI port uses absolute executables, canonical working directories, argv-only
+spawning, an explicit environment allowlist, bounded output, and Runtime-owned
+TERM-to-KILL escalation. The local port uses the same settlement contract.
+Oxlint, Kiln Quality, Dafny, and Gentle AI preserve their distinct facts-only,
+formal, and inferential observations. The configured Kiln Quality vertical
+proves discovery through materialization, exact output validation, and
+settlement; focused producer, Core-schema, Runtime-port, and direct CLI tests
+cover the other verification semantics plus schema rejection, context
+propagation, replay, timeout, cancellation, overflow, process failure,
+candidate mutation, and settlement persistence. Package and workspace gates
+are recorded by the closing commit.
+
 ### Slice 5 - Agent-Backed Capabilities
 
-Status: Blocked on Slice 3 and existing Agent Task and managed-invocation admission.
+Status: Ready; not started.
 
 Allow the resolver to choose a governed specialist agent when no direct tool
 can satisfy a capability. The parent remains responsible for the user-facing

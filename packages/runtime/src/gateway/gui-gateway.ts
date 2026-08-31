@@ -1737,6 +1737,7 @@ function wireOperatorTransport(
                   await sessionRegistry.save(session);
                   await input.managedInvocation?.options.sessionEventSink?.publish([promptEvent], {
                     session,
+                    toolCallScopeId: requestId ?? `managed-agent-control:${action}:${invocationId}`,
                     toolCall: {
                       id: requestId ?? `managed-agent-control:${action}:${invocationId}`,
                       name: "managed_agent.prompt",
@@ -1781,6 +1782,7 @@ function wireOperatorTransport(
                 await sessionRegistry.save(session);
                 await input.managedInvocation?.options.sessionEventSink?.publish(terminalEvents, {
                   session,
+                  toolCallScopeId: requestId ?? `managed-agent-control:${action}:${invocationId}`,
                   toolCall: {
                     id: requestId ?? `managed-agent-control:${action}:${invocationId}`,
                     name: `managed_agent.${action}`,

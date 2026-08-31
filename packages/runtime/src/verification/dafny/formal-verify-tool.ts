@@ -27,6 +27,7 @@ import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   type CommandProcessRunner,
+  type DevToolExecutionContext,
   correctnessEfforts,
   type DafnyProofEffort,
   type DafnyProofLog,
@@ -78,7 +79,7 @@ export function createFormalVerifyTool(options: FormalVerifyToolOptions): DevToo
     ...(getBuiltinEffectEnvelope(schema.name) === undefined
       ? {}
       : { effectEnvelope: getBuiltinEffectEnvelope(schema.name) }),
-    async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
+    async execute(input: ToolInput, sandbox?: unknown, context?: DevToolExecutionContext): Promise<ToolResult> {
       const file = requireString(input, "file");
       if (!file.ok) return file.result;
       const sandboxContext = getSandboxContext(sandbox);
@@ -125,6 +126,7 @@ export function createFormalVerifyTool(options: FormalVerifyToolOptions): DevToo
         const run = await verifier.verify({
           file: snapshot.inputRelativePath,
           logFilePath: snapshot.logFileName,
+          ...(context?.abortSignal === undefined ? {} : { signal: context.abortSignal }),
         });
 
         if (run.status !== "completed") {

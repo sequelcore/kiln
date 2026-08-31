@@ -272,6 +272,8 @@ export interface ToolResultEvent extends KilnEvent {
   readonly isError?: boolean;
   readonly retryAttempt?: number;
   readonly metadata?: Record<string, unknown>;
+  /** Runtime-owned portable capability settlement; producer metadata stays separate. */
+  readonly capabilitySettlement?: Readonly<Record<string, unknown>>;
   readonly resourceLinks?: readonly import("./execution-session-event.js").ExecutionSessionToolResultResourceLink[];
   readonly toolUsage?: import("./session-event.js").SessionToolUsageSnapshot;
   readonly resolvedEffect?: import("../engine/domain/action-effect.js").ResolvedInvocationEffect;

@@ -6,11 +6,14 @@ export {
   CAPABILITY_OUTPUT_SCHEMA_ABSENT_DIGEST,
   DEFAULT_JSON_SCHEMA_SAFETY_LIMITS,
   JSON_SCHEMA_2020_12,
+  compileNormalizedCapabilityJsonSchema,
   digestNormalizedCapabilityJsonSchema,
   normalizeAndDigestCapabilityJsonSchema,
   validateJsonSchemaSafety,
 } from "./capability-json-schema-safety.js";
 export type {
+  CompiledCapabilityJsonSchema,
+  CapabilityJsonSchemaInstanceError,
   CapabilityJsonSchemaDigest,
   CapabilityJsonSchemaDigestResult,
   CapabilityJsonSchemaDirection,

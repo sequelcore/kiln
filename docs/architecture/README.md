@@ -140,6 +140,9 @@ Tool execution policy and the shared builtin-tool surface.
 - [`tooling/capability-catalog.md`](tooling/capability-catalog.md)
   Canonical provider-neutral capability identity, fail-closed catalog admission,
   sanitized decisions, and secret-free Runtime projection boundary.
+- [`tooling/portable-capability-execution.md`](tooling/portable-capability-execution.md)
+  Runtime-owned invocation bindings, execution ports, exact schema enforcement,
+  conservative replay, and sanitized terminal settlement.
 
 ## Surfaces (`surfaces/`)
 

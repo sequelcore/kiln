@@ -2122,7 +2122,7 @@ function admitProgressivelyMaterializedTools(
     if (materialized) {
       capabilityExecutors.push([
         materialized.tool.name,
-        async (input) => materialized.invoke(input),
+        async (input, context) => materialized.invoke(input, context),
       ]);
     }
     const decision = materializationDecision(admission.decision);

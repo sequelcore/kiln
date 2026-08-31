@@ -20,6 +20,7 @@ const pathsDigest = `sha256:${"b9".repeat(32)}`;
 
 class SequenceRunner implements CommandProcessRunner {
   readonly requests: CommandProcessRequest[] = [];
+  readonly stopReasons: string[] = [];
   constructor(
     private readonly values: readonly unknown[],
     private readonly results: readonly CommandProcessResult[] = [],
@@ -28,7 +29,11 @@ class SequenceRunner implements CommandProcessRunner {
     this.requests.push(request);
     sink.output({ stream: "stdout", text: JSON.stringify(this.values[this.requests.length - 1]) });
     sink.finish(this.results[this.requests.length - 1] ?? { exitCode: 0 });
-    return { stop: async () => {} };
+    return {
+      stop: async (reason: "cancelled" | "timeout" | "stopped") => {
+        this.stopReasons.push(reason);
+      },
+    };
   }
 }
 
@@ -81,6 +86,47 @@ describe("gentle_review", () => {
     expect(runner.requests[1]?.cwd).toBe(root);
     expect(runner.requests[1]?.args).not.toContain("--lineage");
     expect(runner.requests[2]?.args).toContain("review-fixture");
+    expect(runner.requests.every((request) => request.env && Object.keys(request.env).length === 0)).toBe(true);
+    expect(runner.requests.every((request) => request.shell === false)).toBe(true);
+  });
+
+  it("propagates cancellation to every provider process request", async () => {
+    root = await makeTempDir("kiln-gentle-review-");
+    const executable = join(root, "gentle-ai");
+    await writeFile(executable, "fixture executable");
+    const executableDigest = digest("fixture executable");
+    const runner = new SequenceRunner([capabilities(executableDigest), discoveryStatus(), status()]);
+    const controller = new AbortController();
+
+    await createGentleReviewTool({
+      executable,
+      expectedVersion: "2.5.0-rc.1",
+      expectedExecutableDigest: executableDigest,
+      repositoryRoot: root,
+      runner,
+    }).execute({ name: "gentle_review", input: {} }, makeSandbox(root), { abortSignal: controller.signal });
+
+    expect(runner.requests.every((request) => request.signal === controller.signal)).toBe(true);
+  });
+
+  it("stops the child when provider output exceeds its bound", async () => {
+    root = await makeTempDir("kiln-gentle-review-");
+    const executable = join(root, "gentle-ai");
+    await writeFile(executable, "fixture executable");
+    const executableDigest = digest("fixture executable");
+    const runner = new SequenceRunner(["x".repeat(2_000_001)]);
+
+    const result = await createGentleReviewTool({
+      executable,
+      expectedVersion: "2.5.0-rc.1",
+      expectedExecutableDigest: executableDigest,
+      repositoryRoot: root,
+      runner,
+    }).execute({ name: "gentle_review", input: {} }, makeSandbox(root));
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("output exceeded");
+    expect(runner.stopReasons).toEqual(["stopped"]);
   });
 
   it.each([

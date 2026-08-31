@@ -9,6 +9,14 @@ export interface CommandProcessRequest {
   readonly executable: string;
   readonly args: readonly string[];
   readonly cwd: string;
+  /**
+   * Optional explicit environment. When omitted, a host adapter may preserve
+   * the legacy inherited-environment behavior; portable callers must provide
+   * an allowlist (including an empty object when no variables are admitted).
+   */
+  readonly env?: Readonly<Record<string, string>>;
+  /** Process execution is argv-only. The only admitted value is false. */
+  readonly shell?: false;
   readonly timeoutMs?: number;
   readonly signal?: AbortSignal;
 }

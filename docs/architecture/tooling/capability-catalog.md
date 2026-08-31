@@ -288,6 +288,15 @@ generation only when the composing surface explicitly identifies itself.
 Other surfaces do not infer support from shared configuration: an unsupported
 native or surface-local search request remains unavailable or fails closed.
 
+Selected tools execute through the Runtime-owned
+[portable capability execution](portable-capability-execution.md) contract.
+The immutable invocation binds the admitted generation, exact implementation,
+schemas, tool-call identity, input digest, limits, and replay posture. Runtime
+validates both sides of the invocation and persists sanitized settlement apart
+from the producer's domain observation. CLI and trusted local function are the
+first concrete ports; reserved protocol kinds do not imply an executable
+adapter.
+
 The permanent builtin `verification-evidence` skill is projected through the
 existing native-skill lifecycle to Codex, Claude Code, and OpenCode when enabled.
 It consumes `capability.search` and `capability.describe` when the current
@@ -324,6 +333,7 @@ skill presence never grants tool authority or selects a verifier.
 - Public schema: `packages/gateway-contracts/src/capability-catalog.ts`
 - Runtime projection: `packages/runtime/src/capabilities/capability-catalog-projector.ts`
 - Runtime generation and materialization: `packages/runtime/src/capabilities/runtime-capability-composition.ts`
+- Portable binding, ports, and settlement: `packages/runtime/src/capabilities/portable-execution.ts`, `portable-cli.ts`, and `portable-local-function.ts`
 - Canonical CLI composition: `packages/cli/src/application/canonical-run-session-dispatcher.ts`
 - Permanent verification skill: `packages/core/src/skill/builtin-skills.ts`
 - Core focused tests (8 files): `packages/core/tests/capabilities/capability-catalog.test.ts`, `capability-json-schema-safety.test.ts`, `harness-compatibility-capability-discovery.test.ts`, `mcp-tool-capability-discovery.test.ts`, `mcp-tool-capability-projection.test.ts`, `openapi-capability-discovery.test.ts`, `graphql-capability-discovery.test.ts`, and `packages/core/tests/mcp/mcp-config-resolution.test.ts`
@@ -337,5 +347,6 @@ settled-snapshot adapter, and GraphQL settled-operation adapter are
 implementation-complete. Post-fix focused tests, full Core, workspace
 typechecks, and documentation validation pass. Independent Sol review closed
 with no unresolved high or medium findings.
-Execution ports, deferred search, persistence, and surface
-presentation remain owned by later slices.
+Deferred search and the first portable execution vertical are complete.
+Additional protocol ports and cross-surface presentation remain owned by later
+slices.

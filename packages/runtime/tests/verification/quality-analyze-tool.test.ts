@@ -188,6 +188,23 @@ describe("quality_analyze", () => {
     );
   });
 
+  it("settles a pre-cancelled local-function invocation without reading the candidate", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const result = await createQualityAnalyzeTool({
+      profiles: ["type-integrity"],
+      analyzerVersion: "3.0.0-beta.1",
+    }).execute(
+      { name: "quality_analyze", input: { file: "missing.ts" } },
+      { cwd: "C:/not-observed" },
+      { abortSignal: controller.signal },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("cancelled before execution");
+    expect(result.metadata).toBeUndefined();
+  });
+
   it("fails closed instead of analyzing replacement characters for invalid UTF-8", async () => {
     const root = await mkdtemp(join(tmpdir(), "kiln-quality-encoding-"));
     roots.push(root);

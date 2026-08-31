@@ -3,6 +3,7 @@ import { lstat, readFile, realpath } from "node:fs/promises";
 import { extname, isAbsolute, relative, sep } from "node:path";
 import {
   analyzeTypeScriptQuality,
+  type DevToolExecutionContext,
   type DevTool,
   getBuiltinEffectEnvelope,
   getSandboxContext,
@@ -36,7 +37,8 @@ export function createQualityAnalyzeTool(options: QualityAnalyzeToolOptions): De
     ...(getBuiltinEffectEnvelope(schema.name) === undefined
       ? {}
       : { effectEnvelope: getBuiltinEffectEnvelope(schema.name) }),
-    async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
+    async execute(input: ToolInput, sandbox?: unknown, context?: DevToolExecutionContext): Promise<ToolResult> {
+      if (context?.abortSignal?.aborted) return toErrorResult("quality analysis was cancelled before execution");
       const file = requireString(input, "file");
       if (!file.ok) return file.result;
       if (!hasValidProfiles(options.profiles))
@@ -62,6 +64,7 @@ export function createQualityAnalyzeTool(options: QualityAnalyzeToolOptions): De
         const artifactPath = toPosixPath(relative(sandboxRoot, sourcePath));
         const sourceText = new TextDecoder("utf-8", { fatal: true }).decode(source);
         const analysis = analyzeTypeScriptQuality(artifactPath, sourceText, options.profiles);
+        if (context?.abortSignal?.aborted) return toErrorResult("quality analysis was cancelled during execution");
         const diagnostics = analysis.profiles.reduce((count, profile) => count + profile.diagnostics.length, 0);
         const metadata = qualityAnalysisToolMetadata({
           analyzer: {

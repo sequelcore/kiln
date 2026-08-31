@@ -127,11 +127,26 @@ export class DafnyVerifier {
       let stdout = "";
       let stderr = "";
       let overflow = false;
-      this.runner.start(
+      let stopRequested = false;
+      let stopInvoked = false;
+      let handle: ReturnType<CommandProcessRunner["start"]> | undefined;
+      const invokeStop = (): void => {
+        if (stopInvoked || handle === undefined) return;
+        stopInvoked = true;
+        void Promise.resolve(handle.stop("stopped")).catch(() => undefined);
+      };
+      const stopOnOverflow = (): void => {
+        if (stopRequested) return;
+        stopRequested = true;
+        invokeStop();
+      };
+      handle = this.runner.start(
         {
           executable: this.options.executable,
           args: ["verify", "--json-output", `--log-format`, `csv;LogFileName=${request.logFilePath}`, request.file],
           cwd: this.options.cwd,
+          env: {},
+          shell: false,
           ...(this.options.timeoutMs === undefined ? {} : { timeoutMs: this.options.timeoutMs }),
           ...(request.signal === undefined ? {} : { signal: request.signal }),
         },
@@ -140,6 +155,7 @@ export class DafnyVerifier {
             if (chunk.stream === "stdout") {
               if (stdout.length + chunk.text.length > MAX_OUTPUT_CHARACTERS) {
                 overflow = true;
+                stopOnOverflow();
                 return;
               }
               stdout += chunk.text;
@@ -147,6 +163,7 @@ export class DafnyVerifier {
             }
             if (stderr.length + chunk.text.length > MAX_OUTPUT_CHARACTERS) {
               overflow = true;
+              stopOnOverflow();
               return;
             }
             stderr += chunk.text;
@@ -154,6 +171,7 @@ export class DafnyVerifier {
           finish: (result) => resolve({ stdout, stderr, overflow, result }),
         },
       );
+      if (stopRequested) invokeStop();
     });
   }
 }

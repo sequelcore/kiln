@@ -2,6 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import { createSessionEvent } from "@kilnai/core/events";
 import type { CanonicalSessionEvent, CostUpdateEvent, ToolCalledEvent, ToolResultEvent } from "@kilnai/core/events";
 import type { RuntimeTurnTerminalDisposition } from "@kilnai/core/agents";
+import {
+  CAPABILITY_OUTPUT_SCHEMA_ABSENT_DIGEST,
+  normalizeAndDigestCapabilityJsonSchema,
+} from "@kilnai/core/capabilities";
+import {
+  createPortableInvocationBinding,
+  settlePortableInvocation,
+} from "../../src/capabilities/portable-execution.js";
 import { CanonicalTurnLifecycle } from "../../src/session/runtime-session-event-ledger.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { canonicalTurnDisposition } from "./canonical-turn-fixture.js";
@@ -18,6 +26,46 @@ const replayPolicy = {
   recoveryAttempts: 3,
   consecutiveNoProgressSteps: 2,
 } as const;
+
+function ownedCapabilitySettlement(input: {
+  readonly toolCallScopeId: string;
+  readonly toolCallId: string;
+  readonly toolName: string;
+}): Readonly<Record<string, unknown>> {
+  const inputSchema = {
+    type: "object",
+    properties: {},
+    additionalProperties: false,
+  } as const;
+  const normalized = normalizeAndDigestCapabilityJsonSchema(inputSchema, "input", { requireObjectType: true });
+  if (!normalized.ok || !normalized.present) throw new Error("fixture schema must normalize");
+  const binding = createPortableInvocationBinding({
+    generationId: `sha256:${"a".repeat(64)}`,
+    catalogDigest: `sha256:${"b".repeat(64)}`,
+    capabilityId: "fixture.capability",
+    revision: "v1",
+    descriptorDigest: `sha256:${"c".repeat(64)}`,
+    toolName: input.toolName,
+    implementationIdentityDigest: `sha256:${"d".repeat(64)}`,
+    inputSchemaDigest: normalized.digest,
+    outputSchemaDigest: CAPABILITY_OUTPUT_SCHEMA_ABSENT_DIGEST,
+    inputSchema,
+    toolCallScopeId: input.toolCallScopeId,
+    toolCallId: input.toolCallId,
+    input: {},
+    limits: { maxInputBytes: 1_024, maxOutputBytes: 1_024, maxDurationMs: 1_000, maxArtifacts: 0 },
+    idempotency: "idempotent",
+  });
+  return settlePortableInvocation({
+    binding,
+    port: "local-function",
+    status: "completed",
+    dispatch: "terminally-observed",
+    startedAt: "2026-08-25T01:00:01.000Z",
+    settledAt: "2026-08-25T01:00:02.000Z",
+    durationMs: 1_000,
+  }) as unknown as Readonly<Record<string, unknown>>;
+}
 
 const replayConvergence = {
   policy: replayPolicy,
@@ -261,6 +309,11 @@ describe("CanonicalTurnLifecycle", () => {
       success: true,
       output: "ok",
       resultSummary: "ok",
+      capabilitySettlement: ownedCapabilitySettlement({
+        toolCallScopeId: `${turnId}:response:1`,
+        toolCallId: "burst-tool",
+        toolName: "read_file",
+      }),
       timestamp: new Date("2026-08-25T01:00:02.000Z"),
     };
     expect(lifecycle.appendRuntimeEvent(called)).toBe(true);
@@ -274,6 +327,14 @@ describe("CanonicalTurnLifecycle", () => {
       "tool_call_completed",
     ]);
     expect(session.sessionEvents.map((event) => event.sequence)).toEqual([1, 2, 3, 4, 5]);
+    expect(session.sessionEvents[4]).toMatchObject({
+      kind: "tool_call_completed",
+      capabilitySettlement: {
+        schema: "kiln.portable-invocation-settlement/v1",
+        status: "completed",
+        sanitized: true,
+      },
+    });
   });
 
   it.each(["completed", "failed", "cancelled"] as const)(

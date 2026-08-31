@@ -46,6 +46,13 @@ import {
   type EffectiveAuthorityAdmissionBundle,
 } from "../session/effective-authority-admission-bundle.js";
 import { assertPersistableAuthorityAdmissionBundle } from "../session/authority-admission-evidence.js";
+import type { RuntimeBuiltinToolExecutionContext } from "../session/runtime-session-orchestrator.types.js";
+import {
+  createPortableInvocationBinding,
+  isRuntimeOwnedPortableInvocationPort,
+  type PortableInvocationPort,
+  type PortableInvocationSettlement,
+} from "./portable-execution.js";
 
 export const CAPABILITY_SEARCH_TOOL_NAME = "capability.search" as const;
 export const CAPABILITY_DESCRIBE_TOOL_NAME = "capability.describe" as const;
@@ -53,7 +60,9 @@ export const CAPABILITY_DESCRIBE_TOOL_NAME = "capability.describe" as const;
 export interface RuntimeCapabilityToolResult {
   readonly output: string;
   readonly isError: boolean;
-  readonly metadata: Readonly<Record<string, unknown>>;
+  readonly metadata?: Readonly<Record<string, unknown>>;
+  /** Runtime-owned terminal evidence; producer metadata remains unchanged. */
+  readonly capabilitySettlement?: PortableInvocationSettlement;
 }
 
 export type RuntimeCapabilityToolExecutor = (
@@ -209,9 +218,10 @@ export function projectRuntimeCapabilityDiscoveryTools(
   return Object.freeze(projected);
 }
 
-/** Runtime-private executor port. The function is never included in a projection. */
+/** Context-aware invocation closure exposed only after exact materialization. */
 export type RuntimeCapabilityExecutor = (
   input: Record<string, unknown>,
+  context?: RuntimeBuiltinToolExecutionContext,
 ) => Promise<RuntimeCapabilityToolResult>;
 
 export type RuntimeCapabilityRequirementStatus =
@@ -244,7 +254,7 @@ export interface RuntimeCapabilityFreshnessGuard {
 
 /**
  * Process-local materialization. Schemas and identities are public evidence;
- * the executor remains private to the generation closure.
+ * the portable execution port remains private to the generation closure.
  */
 export interface RuntimeCapabilityMaterializationRecord {
   readonly capabilityId: string;
@@ -257,7 +267,7 @@ export interface RuntimeCapabilityMaterializationRecord {
   readonly implementationReference: CapabilityImplementationReference;
   readonly toolName: string;
   readonly tool: ToolDefinition;
-  readonly executor: RuntimeCapabilityExecutor;
+  readonly port: PortableInvocationPort<RuntimeCapabilityToolResult>;
   readonly requirements: RuntimeCapabilityMaterializationRequirements;
   readonly freshness: RuntimeCapabilityFreshnessGuard;
 }
@@ -306,7 +316,7 @@ export type RuntimeCapabilityAuthorityAdmissionLinkage = Extract<
 /**
  * Complete authority-facing projection prepared before a turn bundle is
  * computed. It contains candidate effects/scopes and identities only; deferred
- * schemas, private references, and executors never cross this boundary.
+ * schemas, private references, and execution ports never cross this boundary.
  */
 export interface RuntimeCapabilityAuthorityCandidateProjection {
   readonly generationId: Sha256Digest;
@@ -328,7 +338,7 @@ export interface RuntimeCapabilityMaterializedTool {
   readonly descriptorDigest: Sha256Digest;
   /** The exact frozen definition used by describe and the next provider round. */
   readonly tool: ToolDefinition;
-  /** Closure over the exact private materialization executor. */
+  /** Closure over the exact private portable execution port. */
   readonly invoke: RuntimeCapabilityExecutor;
 }
 
@@ -549,6 +559,7 @@ export function assertRuntimeCapabilityAuthorityCandidateProjection(
       || "implementationReference" in candidate
       || "tool" in candidate
       || "executor" in candidate
+      || "port" in candidate
       || "inputSchema" in candidate
       || "outputSchema" in candidate
       || typeof candidate.capabilityId !== "string"
@@ -602,7 +613,7 @@ interface InternalMaterialization {
   readonly implementationReference: CapabilityImplementationReference;
   readonly toolName: string;
   readonly tool: ToolDefinition;
-  readonly executor: RuntimeCapabilityExecutor;
+  readonly port: PortableInvocationPort<RuntimeCapabilityToolResult>;
   readonly requirements: RuntimeCapabilityMaterializationRequirements;
   readonly freshness: RuntimeCapabilityFreshnessGuard;
 }
@@ -638,8 +649,8 @@ function normalizeMaterialization(
     || actualOutput !== value.outputSchemaDigest || actualOutput !== descriptor.outputSchemaDigest) {
     throw new TypeError("Capability materialization actual schema digest does not match Core declaration.");
   }
-  if (typeof value.executor !== "function") {
-    throw new TypeError("Capability materialization executor must be a process-local function.");
+  if (!isPortableInvocationPort(value.port)) {
+    throw new TypeError("Capability materialization must carry a Runtime-owned portable invocation port.");
   }
   if (value.toolName !== tool.name || value.toolName.trim().length === 0) {
     throw new TypeError("Capability materialization tool identity must match its ToolDefinition.");
@@ -669,7 +680,7 @@ function normalizeMaterialization(
     implementationReference,
     toolName: value.toolName,
     tool,
-    executor: value.executor,
+    port: value.port,
     requirements,
     freshness,
   });
@@ -767,6 +778,7 @@ function prepareGeneration(
     implementationIdentityDigest: record.implementationIdentityDigest,
     implementationReference: record.implementationReference,
     toolName: record.toolName,
+    port: record.port.kind,
     tool: toolReplaySurface(record.tool),
     requirements: record.requirements,
     freshness: {
@@ -915,7 +927,10 @@ function bindGeneration(
       revision: record.revision,
       descriptorDigest: record.descriptorDigest,
       tool: record.tool,
-      invoke: async (toolInput: Record<string, unknown>) => {
+      invoke: async (
+        toolInput: Record<string, unknown>,
+        context?: RuntimeBuiltinToolExecutionContext,
+      ) => {
         if (!isGenerationUsable(generation, evaluatedAt)
           || !isRecordUsable(record, evaluatedAt)
           || !isAuthorized(input.authorityAdmission, record, descriptor, generation.scope.caller)) {
@@ -930,7 +945,59 @@ function bindGeneration(
             }),
           };
         }
-        return record.executor(toolInput);
+        const toolCallScopeId = context?.toolCallScopeId;
+        if (context === undefined
+          || toolCallScopeId === undefined
+          || toolCallScopeId.trim().length === 0
+          || context.toolCall.id.trim().length === 0
+          || context.toolCall.name !== record.toolName
+          || context.authority === undefined
+          || context.resolvedEffect === undefined) {
+          return {
+            output: "Capability invocation requires exact Runtime authority and tool-call context.",
+            isError: true,
+            metadata: Object.freeze({}),
+          };
+        }
+        const binding = createPortableInvocationBinding({
+          generationId: generation.generationId,
+          catalogDigest: generation.catalogDigest,
+          capabilityId: record.capabilityId,
+          revision: record.revision,
+          descriptorDigest: record.descriptorDigest,
+          toolName: record.toolName,
+          implementationIdentityDigest: record.implementationIdentityDigest,
+          inputSchemaDigest: record.inputSchemaDigest,
+          outputSchemaDigest: record.outputSchemaDigest,
+          inputSchema: record.tool.inputSchema,
+          ...(record.tool.outputSchema === undefined ? {} : { outputSchema: record.tool.outputSchema }),
+          toolCallScopeId,
+          toolCallId: context.toolCall.id,
+          input: toolInput,
+          limits: descriptor.limits,
+          idempotency: descriptor.effect.idempotency,
+        });
+        const result = await record.port.invoke({
+          binding,
+          input: toolInput,
+          trustedContext: context,
+          ...(context.abortSignal === undefined ? {} : { signal: context.abortSignal }),
+          ...(context.emitOutput === undefined
+            ? {}
+            : { onOutput: (event) => context.emitOutput?.({ stream: event.stream, delta: event.text }) }),
+        });
+        if (result.output === undefined) {
+          return {
+            output: `Capability invocation settled ${result.settlement.status}.`,
+            isError: true,
+            metadata: Object.freeze({}),
+            capabilitySettlement: result.settlement,
+          };
+        }
+        return Object.freeze({
+          ...result.output,
+          capabilitySettlement: result.settlement,
+        });
       },
     });
     selectionCache.set(record.key, selected);
@@ -1658,6 +1725,14 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
+}
+
+function isPortableInvocationPort(value: unknown): value is PortableInvocationPort<RuntimeCapabilityToolResult> {
+  if (value === null || typeof value !== "object") return false;
+  const candidate = value as { readonly kind?: unknown; readonly invoke?: unknown };
+  return isRuntimeOwnedPortableInvocationPort(value)
+    && (candidate.kind === "cli" || candidate.kind === "local-function")
+    && typeof candidate.invoke === "function";
 }
 
 function containsSecret(value: string): boolean {

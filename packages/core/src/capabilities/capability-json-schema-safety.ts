@@ -84,7 +84,28 @@ export type CapabilityJsonSchemaDigestResult =
   }
   | JsonSchemaSafetyFailure;
 
-const JSON_SCHEMA_VALIDATOR = new Ajv2020({
+/** One normalized JSON-Schema instance validation diagnostic. */
+export interface CapabilityJsonSchemaInstanceError {
+  readonly instancePath: string;
+  readonly keyword: string;
+  readonly message?: string;
+}
+
+/**
+ * Reusable validator compiled from one normalized Core schema.
+ *
+ * The validator owns the exact content digest used by the catalog. Callers
+ * may therefore carry the compiled function together with the digest instead
+ * of recompiling or trusting an adapter-local schema copy.
+ */
+export interface CompiledCapabilityJsonSchema {
+  readonly schema: Readonly<Record<string, unknown>>;
+  readonly digest: CapabilityJsonSchemaDigest;
+  readonly validate: (instance: unknown) => boolean;
+  readonly errors: () => readonly CapabilityJsonSchemaInstanceError[];
+}
+
+const JSON_SCHEMA_META_VALIDATOR = new Ajv2020({
   allErrors: false,
   strict: false,
   validateFormats: false,
@@ -225,7 +246,9 @@ export function validateJsonSchemaSafety(
   }
 
   try {
-    if (!JSON_SCHEMA_VALIDATOR.validateSchema(cloned)) return { ok: false, reason: "malformed" };
+    if (!JSON_SCHEMA_META_VALIDATOR.validateSchema(cloned)) {
+      return { ok: false, reason: "malformed" };
+    }
   } catch {
     return { ok: false, reason: "malformed" };
   }
@@ -269,6 +292,53 @@ export function digestNormalizedCapabilityJsonSchema(
   value: Readonly<Record<string, unknown>>,
 ): CapabilityJsonSchemaDigest {
   return sha256ContentIdentity(canonicalSchemaStringify(value)) as CapabilityJsonSchemaDigest;
+}
+
+/**
+ * Compile one normalized Core schema for repeated instance validation.
+ *
+ * The source is passed through the same safety and normalization boundary as
+ * catalog declarations. This keeps compilation from accepting a schema that
+ * the catalog would reject, and an optional expected digest binds the
+ * compiled validator to the declaration selected by the caller.
+ */
+export function compileNormalizedCapabilityJsonSchema(
+  value: Readonly<Record<string, unknown>>,
+  direction: CapabilityJsonSchemaDirection,
+  expectedDigest?: CapabilityJsonSchemaDigest,
+): CompiledCapabilityJsonSchema {
+  const normalized = normalizeAndDigestCapabilityJsonSchema(value, direction);
+  if (!normalized.ok || !normalized.present) {
+    throw new TypeError(`Capability ${direction} schema is not an admitted JSON Schema.`);
+  }
+  if (expectedDigest !== undefined && normalized.digest !== expectedDigest) {
+    throw new TypeError(`Capability ${direction} schema digest does not match the expected declaration.`);
+  }
+
+  const validator = new Ajv2020({
+    allErrors: false,
+    strict: false,
+    validateFormats: false,
+  });
+  let compiled: ReturnType<typeof validator.compile>;
+  try {
+    compiled = validator.compile(normalized.value);
+  } catch (error) {
+    throw new TypeError(`Capability ${direction} schema could not be compiled.`, { cause: error });
+  }
+
+  return Object.freeze({
+    schema: normalized.value,
+    digest: normalized.digest,
+    validate: (instance: unknown): boolean => compiled(instance) === true,
+    errors: (): readonly CapabilityJsonSchemaInstanceError[] => Object.freeze(
+      (compiled.errors ?? []).map((error) => Object.freeze({
+        instancePath: error.instancePath,
+        keyword: error.keyword,
+        ...(error.message === undefined ? {} : { message: error.message }),
+      })),
+    ),
+  });
 }
 
 function normalizeOptions(options: JsonSchemaSafetyOptions): NormalizedOptions {

@@ -17,6 +17,7 @@ import {
   type RuntimeCapabilityMaterializationRecord,
 } from "../../src/capabilities/runtime-capability-composition.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
+import { createLocalFunctionPortableInvocationPort } from "../../src/capabilities/portable-local-function.js";
 import {
   fixtureToolActionConfig,
   makeSession,
@@ -32,7 +33,12 @@ const INPUT_SCHEMA = {
 } as const;
 const OUTPUT_SCHEMA = {
   type: "object",
-  properties: { result: { type: "string" } },
+  properties: {
+    output: { type: "string" },
+    isError: { type: "boolean" },
+    metadata: { type: "object", additionalProperties: true },
+  },
+  required: ["output", "isError", "metadata"],
   additionalProperties: false,
 } as const;
 function schemaDigest(schema: unknown, direction: "input" | "output"): `sha256:${string}` {
@@ -109,7 +115,7 @@ function capability(name: string, effectEnvelope: ActionEffectEnvelope): Capabil
 }
 
 function preparedGeneration(
-  selectedExecutor?: (input: Record<string, unknown>) => void,
+  selectedExecutor?: (input: Record<string, unknown>, context: unknown) => void,
 ): { readonly generation: RuntimeCapabilityGeneration; readonly descriptorDigest: string } {
   const catalog = buildCapabilityCatalog([candidate()], EVALUATED_AT);
   const descriptor = catalog.descriptors[0]!;
@@ -124,10 +130,13 @@ function preparedGeneration(
     implementationReference,
     toolName: "web_search",
     tool: deferredTool(),
-    executor: async (input) => {
-      selectedExecutor?.(input);
-      return { output: "selected search result", isError: false, metadata: {} };
-    },
+    port: createLocalFunctionPortableInvocationPort({
+      handler: async (input, context) => {
+        selectedExecutor?.({ ...input }, context.trustedContext);
+        return { output: "selected search result", isError: false, metadata: {} };
+      },
+      requireTrustedContext: true,
+    }),
     requirements: {
       data: descriptor.data,
       network: descriptor.network,
@@ -385,6 +394,27 @@ describe("Runtime session capability deferred search", () => {
       "web_search",
     ]);
     expect(selectedExecutor).toHaveBeenCalledTimes(1);
+    expect(selectedExecutor).toHaveBeenCalledWith(
+      { query: "web" },
+      expect.objectContaining({
+        toolCallScopeId: expect.any(String),
+        toolCall: expect.objectContaining({ id: "web-search-1", name: "web_search" }),
+        authority: expect.objectContaining({ allowed: true }),
+        resolvedEffect: expect.objectContaining({ operation: "observe" }),
+      }),
+    );
+    expect(result.toolExecutions?.[2]?.capabilitySettlement).toMatchObject({
+      schema: "kiln.portable-invocation-settlement/v1",
+      port: "local-function",
+      status: "completed",
+      dispatch: "terminally-observed",
+      capabilityId: "web.search",
+      toolName: "web_search",
+      toolCallId: "web-search-1",
+      sanitized: true,
+    });
+    expect(result.toolExecutions?.[2]?.capabilitySettlement?.settlementId).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(result.toolExecutions?.[2]?.output).not.toContain("capabilitySettlement");
     expect(fallbackExecutor).not.toHaveBeenCalled();
   });
 

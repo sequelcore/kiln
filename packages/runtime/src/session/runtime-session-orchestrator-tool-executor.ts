@@ -36,6 +36,10 @@ import {
   RuntimeToolActionPreDispatchCancellationError,
 } from "../execution-kernel/runtime-tool-action-claim.js";
 import {
+  isRuntimeOwnedPortableInvocationSettlement,
+  type PortableInvocationSettlement,
+} from "../capabilities/portable-execution.js";
+import {
   collectRuntimeFormalVerificationObservations,
   type RuntimeFormalVerificationObservation,
   type RuntimeFormalVerificationObservationExecution,
@@ -169,6 +173,32 @@ function extractToolResultMetadata(resultValue: unknown): Record<string, unknown
   return resultRecord?.metadata && typeof resultRecord.metadata === "object" && !Array.isArray(resultRecord.metadata)
     ? (resultRecord.metadata as Record<string, unknown>)
     : undefined;
+}
+
+function extractCapabilitySettlement(
+  resultValue: unknown,
+  expected: {
+    readonly toolCallScopeId: string;
+    readonly toolCallId: string;
+    readonly toolName: string;
+  },
+): PortableInvocationSettlement | undefined {
+  if (!resultValue || typeof resultValue !== "object" || Array.isArray(resultValue)) return undefined;
+  const settlement = (resultValue as { readonly capabilitySettlement?: unknown }).capabilitySettlement;
+  return isRuntimeOwnedPortableInvocationSettlement(settlement)
+    && settlement.toolCallScopeId === expected.toolCallScopeId
+    && settlement.toolCallId === expected.toolCallId
+    && settlement.toolName === expected.toolName
+    ? settlement
+    : undefined;
+}
+
+function omitCapabilitySettlement(resultValue: unknown): unknown {
+  if (!resultValue || typeof resultValue !== "object" || Array.isArray(resultValue)) return resultValue;
+  const record = resultValue as Readonly<Record<string, unknown>>;
+  if (!isRuntimeOwnedPortableInvocationSettlement(record.capabilitySettlement)) return resultValue;
+  const { capabilitySettlement: _settlement, ...producerResult } = record;
+  return producerResult;
 }
 
 function extractExecutionScopeTransition(
@@ -941,6 +971,11 @@ export class RuntimeSessionToolExecutor {
           const isError = envelopeIsError === true;
           const success = !isError;
           const isExternalFailure = isMcpToolName(normalizedToolCall.name) && isError;
+          const capabilitySettlement = extractCapabilitySettlement(execution.resultValueRaw, {
+            toolCallScopeId,
+            toolCallId: normalizedToolCall.id,
+            toolName: normalizedToolCall.name,
+          });
 
           let sanitized: { readonly resultValue: string; readonly resultSummary: string; readonly sanitized: boolean };
           let metadata: Record<string, unknown> | undefined;
@@ -972,7 +1007,11 @@ export class RuntimeSessionToolExecutor {
             resultOutput = undefined;
             contentParts = undefined;
           } else {
-            sanitized = await this.sanitizeToolResult(execution.resultValue);
+            sanitized = await this.sanitizeToolResult(
+              capabilitySettlement === undefined
+                ? execution.resultValue
+                : omitCapabilitySettlement(execution.resultValueRaw),
+            );
             metadata = extractToolResultMetadata(execution.resultValueRaw);
             resourceLinks = extractToolResultResourceLinks(metadata);
             resultOutput = extractToolResultOutput(execution.resultValueRaw);
@@ -1004,6 +1043,7 @@ export class RuntimeSessionToolExecutor {
             this.recordToolUsage(normalizedToolCall.name),
             resolvedEffect,
             executionAuthority,
+            capabilitySettlement,
           );
           if (executionScopeTransition?.action === "exit") {
             this.activeExecutionScope = undefined;
@@ -1016,6 +1056,7 @@ export class RuntimeSessionToolExecutor {
             toolName: normalizedToolCall.name,
             input: normalizedToolCall.input,
             ...(metadata ? { metadata } : {}),
+            ...(capabilitySettlement ? { capabilitySettlement } : {}),
             resolvedEffect,
             authority: executionAuthority,
             durationMs,
@@ -1040,7 +1081,7 @@ export class RuntimeSessionToolExecutor {
             isError,
           });
 
-          if (!consequential && cacheTtl && this.deps.toolCache) {
+          if (!consequential && capabilitySettlement === undefined && cacheTtl && this.deps.toolCache) {
             try {
               this.deps.toolCache.set(
                 normalizedToolCall.name,
@@ -1937,6 +1978,7 @@ export class RuntimeSessionToolExecutor {
           session,
           ...(turnId ? { turnId } : {}),
           toolCall,
+          toolCallScopeId: this.requireCurrentToolCallScopeId(),
           ...(this.currentExecutionScope ? { executionScope: this.currentExecutionScope } : {}),
           ...(formalVerificationObservations.length > 0 ? { formalVerificationObservations } : {}),
           ...(perCallConfig?.abortSignal ? { abortSignal: perCallConfig.abortSignal } : {}),
@@ -2103,6 +2145,7 @@ export class RuntimeSessionToolExecutor {
     toolUsage?: SessionToolUsageSnapshot,
     resolvedEffect?: ResolvedInvocationEffect,
     authority?: AuthorityDescriptor,
+    capabilitySettlement?: PortableInvocationSettlement,
   ): void {
     const toolCallScopeId = this.requireCurrentToolCallScopeId();
     const event: ToolResultEvent = {
@@ -2123,6 +2166,9 @@ export class RuntimeSessionToolExecutor {
       ...(toolUsage ? { toolUsage } : {}),
       ...(resolvedEffect ? { resolvedEffect } : {}),
       ...(authority ? { authority } : {}),
+      ...(capabilitySettlement
+        ? { capabilitySettlement: capabilitySettlement as unknown as Readonly<Record<string, unknown>> }
+        : {}),
       ...(this.currentExecutionScope ? { executionScope: this.currentExecutionScope } : {}),
     };
     this.eventBus?.emit(event);

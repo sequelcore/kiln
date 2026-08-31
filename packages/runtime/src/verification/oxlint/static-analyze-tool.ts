@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   type CommandProcessRunner,
+  type DevToolExecutionContext,
   type DevTool,
   getBuiltinEffectEnvelope,
   getSandboxContext,
@@ -52,7 +53,7 @@ export function createStaticAnalyzeTool(options: StaticAnalyzeToolOptions): DevT
     ...(getBuiltinEffectEnvelope(schema.name) === undefined
       ? {}
       : { effectEnvelope: getBuiltinEffectEnvelope(schema.name) }),
-    async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
+    async execute(input: ToolInput, sandbox?: unknown, context?: DevToolExecutionContext): Promise<ToolResult> {
       const file = requireString(input, "file");
       if (!file.ok) return file.result;
       if (typeof options.analyzerVersion !== "string" || options.analyzerVersion.trim().length === 0) {
@@ -112,7 +113,10 @@ export function createStaticAnalyzeTool(options: StaticAnalyzeToolOptions): DevT
           cwd: snapshotRoot,
           timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
         });
-        const run = await analyzer.analyze({ file: toPlatformPath(subjectPath) });
+        const run = await analyzer.analyze({
+          file: toPlatformPath(subjectPath),
+          ...(context?.abortSignal === undefined ? {} : { signal: context.abortSignal }),
+        });
         if (run.status !== "completed") {
           result = toErrorResult(`static analysis did not complete (${run.status}): ${run.failure ?? "no detail"}`);
         } else if ((await digestFile(snapshotPath)) !== contentDigest) {

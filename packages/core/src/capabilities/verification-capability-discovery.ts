@@ -12,7 +12,7 @@ import {
   type CapabilityProvenanceSource,
   type Sha256Digest,
 } from "./capability-catalog.js";
-import { DEV_TOOL_OUTPUT_SCHEMA, TOOL_SCHEMAS, type DevToolName } from "../tools/domain/tool.js";
+import { TOOL_SCHEMAS, type DevToolName } from "../tools/domain/tool.js";
 import { getBuiltinEffectEnvelope } from "../tools/domain/tool-effect-envelopes.js";
 import {
   FORMAL_VERIFICATION_OBSERVATION_SCHEMA,
@@ -32,7 +32,10 @@ import {
   STATIC_ANALYSIS_OBSERVATION_SCHEMA,
   STATIC_ANALYSIS_PROFILE,
 } from "../verification/static/observation.js";
-import { normalizeAndDigestCapabilityJsonSchema } from "./capability-json-schema-safety.js";
+import {
+  JSON_SCHEMA_2020_12,
+  normalizeAndDigestCapabilityJsonSchema,
+} from "./capability-json-schema-safety.js";
 
 /**
  * Provider-neutral identities frozen for Roadmap 11 Slice 2.
@@ -135,6 +138,8 @@ export interface VerificationCapabilityToolSchema {
   readonly capabilityId: VerificationCapabilityId;
   readonly revision: "v1";
   readonly toolName: VerificationProducerName;
+  /** Exact implementation selected by the inert resolution boundary. */
+  readonly implementationIdentityDigest: Sha256Digest;
   readonly inputSchema: Readonly<Record<string, unknown>>;
   readonly outputSchema: Readonly<Record<string, unknown>>;
 }
@@ -178,6 +183,31 @@ const MAX_STATIC_INPUT_BYTES = 5 * 1024 * 1024;
 const MAX_QUALITY_INPUT_BYTES = 5 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 2_000_000;
 const MAX_QUALITY_OUTPUT_BYTES = 16 * 1024 * 1024;
+
+const SHA256_SCHEMA = (): Record<string, unknown> => ({
+  type: "string",
+  pattern: "^sha256:[0-9a-f]{64}$",
+});
+const VERSION_SCHEMA = (): Record<string, unknown> => ({
+  type: "string",
+  pattern: "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+});
+const TEXT_SCHEMA = (): Record<string, unknown> => ({
+  type: "string",
+  minLength: 1,
+  maxLength: 4_000,
+  pattern: "^\\S(?:[\\s\\S]*\\S)?$",
+});
+const PORTABLE_PATH_SCHEMA = (): Record<string, unknown> => ({
+  type: "string",
+  minLength: 1,
+  maxLength: 4_096,
+  pattern: "^(?!\\s)(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*//)(?!.*(?:^|/)\\.(?:/|$))(?!.*(?:^|/)\\.\\.(?:/|$))[\\s\\S]*\\S$",
+});
+const EMPTY_ARRAY_SCHEMA = (): Record<string, unknown> => ({
+  type: "array",
+  maxItems: 0,
+});
 
 interface VerificationProducerSpec {
   readonly name: VerificationProducerName;
@@ -309,6 +339,7 @@ export function discoverVerificationCapabilities(
       capabilityId: spec.capabilityId,
       revision: REVISION,
       toolName: spec.name,
+      implementationIdentityDigest: parsedResolution.implementationDigest,
       inputSchema: spec.inputSchema,
       outputSchema: outputSchemaDescriptor(spec, parsedResolution.profile),
     }));
@@ -508,7 +539,7 @@ function buildCandidate(
     owner: { kind: spec.ownerKind, identityDigest: ownerIdentityDigest },
     inputSchemaDigest,
     outputSchemaDigest,
-    artifacts: [{ mediaType: "application/json", schemaDigest: outputSchemaDigest }],
+    artifacts: [],
     effect,
     permissions: [...spec.permissions],
     approval: "none",
@@ -539,22 +570,400 @@ function outputSchemaDescriptor(
   spec: VerificationProducerSpec,
   profile: string | readonly string[],
 ): Record<string, unknown> {
+  return toolResultSchema(observationSchemaDescriptor(spec.name, profile));
+}
+
+/**
+ * The four verification tools return the Core ToolResult envelope directly.
+ * A successful result must carry the producer's exact observation; failures
+ * are deliberately metadata-free because they did not produce an observation.
+ */
+function toolResultSchema(observation: Record<string, unknown>): Record<string, unknown> {
   return {
-    toolResult: DEV_TOOL_OUTPUT_SCHEMA,
-    verificationObservation: {
-      schema: spec.observationSchema,
-      kind: spec.observationKind,
-      profile,
-      ...(spec.name === "gentle_review"
-        ? {
-            contract: GENTLE_REVIEW_CONTRACT,
-            protocol: { major: 2, minor: 2 },
-            capabilitiesSchema: GENTLE_REVIEW_CAPABILITIES_SCHEMA,
-            statusSchema: GENTLE_REVIEW_STATUS_SCHEMA,
-          }
-        : {}),
-      establishes: [],
+    $schema: JSON_SCHEMA_2020_12,
+    type: "object",
+    oneOf: [
+      {
+        type: "object",
+        properties: {
+          output: { type: "string" },
+          isError: { const: false },
+          metadata: observation,
+        },
+        required: ["output", "isError", "metadata"],
+        additionalProperties: false,
+      },
+      {
+        type: "object",
+        properties: {
+          output: { type: "string" },
+          isError: { const: true },
+        },
+        required: ["output", "isError"],
+        additionalProperties: false,
+      },
+    ],
+  };
+}
+
+function observationSchemaDescriptor(
+  producer: VerificationProducerName,
+  profile: string | readonly string[],
+): Record<string, unknown> {
+  if (producer === "formal_verify") return formalObservationSchema();
+  if (producer === "static_analyze") return staticObservationSchema();
+  if (producer === "quality_analyze") return qualityObservationSchema(profile);
+  return gentleObservationSchema();
+}
+
+function formalObservationSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    properties: {
+      schema: { const: FORMAL_VERIFICATION_OBSERVATION_SCHEMA },
+      toolName: { const: "formal_verify" },
+      kind: { const: "formal_verification" },
+      verifier: {
+        type: "object",
+        properties: { name: { const: "dafny" }, version: VERSION_SCHEMA() },
+        required: ["name", "version"],
+        additionalProperties: false,
+      },
+      artifact: {
+        type: "object",
+        properties: { contentDigest: SHA256_SCHEMA() },
+        required: ["contentDigest"],
+        additionalProperties: false,
+      },
+      subjects: {
+        type: "array",
+        minItems: 1,
+        items: {
+          type: "object",
+          properties: { path: PORTABLE_PATH_SCHEMA(), contentDigest: SHA256_SCHEMA() },
+          required: ["path", "contentDigest"],
+          additionalProperties: false,
+        },
+      },
+      checks: {
+        type: "array",
+        minItems: 1,
+        maxItems: 1_000,
+        items: formalCheckSchema(),
+      },
+      establishes: EMPTY_ARRAY_SCHEMA(),
     },
+    required: ["schema", "toolName", "kind", "verifier", "artifact", "subjects", "checks", "establishes"],
+    additionalProperties: false,
+  };
+}
+
+function formalCheckSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    properties: {
+      symbol: TEXT_SCHEMA(),
+      check: { const: "correctness" },
+      outcome: { enum: ["proved", "refuted", "unresolved"] },
+      detail: TEXT_SCHEMA(),
+      durationMs: { type: "integer", minimum: 0 },
+      resourceCount: { type: "integer", minimum: 0 },
+    },
+    required: ["symbol", "check", "outcome", "durationMs", "resourceCount"],
+    additionalProperties: false,
+    allOf: [
+      {
+        if: { properties: { outcome: { const: "proved" } } },
+        then: { not: { required: ["detail"] } },
+      },
+      {
+        if: { properties: { outcome: { enum: ["refuted", "unresolved"] } } },
+        then: { required: ["detail"] },
+      },
+    ],
+  };
+}
+
+function staticObservationSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    properties: {
+      schema: { const: STATIC_ANALYSIS_OBSERVATION_SCHEMA },
+      toolName: { const: "static_analyze" },
+      kind: { const: "static_analysis" },
+      analyzer: {
+        type: "object",
+        properties: { name: { const: "oxlint" }, version: VERSION_SCHEMA() },
+        required: ["name", "version"],
+        additionalProperties: false,
+      },
+      profile: {
+        type: "object",
+        properties: {
+          id: { const: STATIC_ANALYSIS_PROFILE },
+          rulesAnalyzed: { type: "integer", minimum: 1 },
+        },
+        required: ["id", "rulesAnalyzed"],
+        additionalProperties: false,
+      },
+      outcome: { enum: ["clean", "violations"] },
+      subjects: {
+        type: "array",
+        minItems: 1,
+        maxItems: 1,
+        items: {
+          type: "object",
+          properties: { path: PORTABLE_PATH_SCHEMA(), contentDigest: SHA256_SCHEMA() },
+          required: ["path", "contentDigest"],
+          additionalProperties: false,
+        },
+      },
+      diagnostics: {
+        type: "array",
+        maxItems: 1_000,
+        items: staticDiagnosticSchema(),
+      },
+      establishes: EMPTY_ARRAY_SCHEMA(),
+    },
+    required: ["schema", "toolName", "kind", "analyzer", "profile", "outcome", "subjects", "diagnostics", "establishes"],
+    additionalProperties: false,
+    allOf: [
+      {
+        if: { properties: { outcome: { const: "clean" } } },
+        then: { properties: { diagnostics: { maxItems: 0 } } },
+      },
+      {
+        if: { properties: { outcome: { const: "violations" } } },
+        then: { properties: { diagnostics: { minItems: 1 } } },
+      },
+    ],
+  };
+}
+
+function staticDiagnosticSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    properties: {
+      rule: TEXT_SCHEMA(),
+      severity: { enum: ["error", "warning"] },
+      message: TEXT_SCHEMA(),
+      file: PORTABLE_PATH_SCHEMA(),
+      line: { type: "integer", minimum: 1 },
+      column: { type: "integer", minimum: 1 },
+    },
+    required: ["severity", "message", "file"],
+    additionalProperties: false,
+    allOf: [
+      {
+        if: { required: ["column"] },
+        then: { required: ["line"] },
+      },
+    ],
+  };
+}
+
+function qualityObservationSchema(profile: string | readonly string[]): Record<string, unknown> {
+  const profiles = Array.isArray(profile)
+    ? profile.filter((name): name is QualityProfileName => QUALITY_PROFILE_ORDER.includes(name as QualityProfileName))
+    : [...QUALITY_PROFILE_ORDER];
+  const profileSchemas = profiles.map((name) => qualityProfileSchema(name));
+  return {
+    type: "object",
+    properties: {
+      schema: { const: QUALITY_ANALYSIS_OBSERVATION_SCHEMA },
+      toolName: { const: "quality_analyze" },
+      kind: { const: "static_quality_analysis" },
+      analyzer: {
+        type: "object",
+        properties: {
+          name: { const: "kiln-quality" },
+          version: VERSION_SCHEMA(),
+          parser: {
+            type: "object",
+            properties: { name: { const: "@typescript/typescript6" }, version: VERSION_SCHEMA() },
+            required: ["name", "version"],
+            additionalProperties: false,
+          },
+        },
+        required: ["name", "version", "parser"],
+        additionalProperties: false,
+      },
+      artifact: {
+        type: "object",
+        properties: { kind: { const: "typescript" }, path: PORTABLE_PATH_SCHEMA(), contentDigest: SHA256_SCHEMA() },
+        required: ["kind", "path", "contentDigest"],
+        additionalProperties: false,
+      },
+      outcome: { enum: ["no_diagnostics", "diagnostics"] },
+      profiles: {
+        type: "array",
+        minItems: profileSchemas.length,
+        maxItems: profileSchemas.length,
+        prefixItems: profileSchemas,
+        items: false,
+      },
+      establishes: EMPTY_ARRAY_SCHEMA(),
+    },
+    required: ["schema", "toolName", "kind", "analyzer", "artifact", "outcome", "profiles", "establishes"],
+    additionalProperties: false,
+    allOf: [
+      {
+        if: { properties: { outcome: { const: "no_diagnostics" } } },
+        then: {
+          properties: {
+            profiles: {
+              not: {
+                contains: {
+                  type: "object",
+                  properties: { diagnostics: { minItems: 1 } },
+                  required: ["diagnostics"],
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        if: { properties: { outcome: { const: "diagnostics" } } },
+        then: { properties: { profiles: { contains: { properties: { diagnostics: { minItems: 1 } }, required: ["diagnostics"] } } } },
+      },
+    ],
+  };
+}
+
+function qualityProfileSchema(name: QualityProfileName): Record<string, unknown> {
+  const expectedRules = rulesForQualityProfileSchema(name);
+  const ruleSchema = (): Record<string, unknown> => ({
+    type: "object",
+    properties: {
+      name: { enum: expectedRules.map((rule) => rule.name) },
+      revision: { const: "v1" },
+    },
+    required: ["name", "revision"],
+    additionalProperties: false,
+  });
+  return {
+    type: "object",
+    properties: {
+      name: { const: name },
+      revision: { const: "v1" },
+      rules: {
+        type: "array",
+        minItems: expectedRules.length,
+        maxItems: expectedRules.length,
+        prefixItems: expectedRules.map((rule) => ({
+          type: "object",
+          properties: {
+            name: { const: rule.name },
+            revision: { const: "v1" },
+          },
+          required: ["name", "revision"],
+          additionalProperties: false,
+        })),
+        items: false,
+      },
+      diagnostics: {
+        type: "array",
+        maxItems: 1_000,
+        items: {
+          type: "object",
+          properties: { rule: ruleSchema(), message: TEXT_SCHEMA(), line: { type: "integer", minimum: 1 }, column: { type: "integer", minimum: 1 } },
+          required: ["rule", "message", "line", "column"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["name", "revision", "rules", "diagnostics"],
+    additionalProperties: false,
+  };
+}
+
+function rulesForQualityProfileSchema(name: QualityProfileName): readonly { readonly name: string; readonly revision: "v1" }[] {
+  if (name === "type-integrity") return [
+    { name: "chained-type-assertion", revision: "v1" },
+    { name: "widen-then-assert", revision: "v1" },
+  ];
+  if (name === "complexity") return [{ name: "high-cyclomatic-complexity", revision: "v1" }];
+  return [
+    { name: "focused-test", revision: "v1" },
+    { name: "empty-test-body", revision: "v1" },
+  ];
+}
+
+function gentleObservationSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    properties: {
+      schema: { const: GENTLE_REVIEW_OBSERVATION_SCHEMA },
+      toolName: { const: "gentle_review" },
+      kind: { const: "inferential_review" },
+      engine: {
+        type: "object",
+        properties: {
+          name: { const: "gentle-ai" },
+          version: VERSION_SCHEMA(),
+          releaseChannel: { enum: ["stable", "prerelease"] },
+          executableDigest: SHA256_SCHEMA(),
+        },
+        required: ["name", "version", "releaseChannel", "executableDigest"],
+        additionalProperties: false,
+      },
+      contract: {
+        type: "object",
+        properties: {
+          id: { const: GENTLE_REVIEW_CONTRACT },
+          protocol: {
+            type: "object",
+            properties: { major: { const: 2 }, minor: { const: 2 } },
+            required: ["major", "minor"],
+            additionalProperties: false,
+          },
+          capabilitiesSchema: { const: GENTLE_REVIEW_CAPABILITIES_SCHEMA },
+          statusSchema: { const: GENTLE_REVIEW_STATUS_SCHEMA },
+        },
+        required: ["id", "protocol", "capabilitiesSchema", "statusSchema"],
+        additionalProperties: false,
+      },
+      candidate: {
+        type: "object",
+        properties: {
+          targetIdentity: SHA256_SCHEMA(),
+          projection: { const: "workspace" },
+          baseTree: { type: "string", pattern: "^[a-f0-9]{40,64}$" },
+          candidateTree: { type: "string", pattern: "^[a-f0-9]{40,64}$" },
+          pathsDigest: SHA256_SCHEMA(),
+          paths: { type: "array", maxItems: 1_000, items: PORTABLE_PATH_SCHEMA() },
+        },
+        required: ["targetIdentity", "projection", "baseTree", "candidateTree", "pathsDigest", "paths"],
+        additionalProperties: false,
+      },
+      authority: {
+        type: "object",
+        properties: { lineageId: TEXT_SCHEMA(), state: TEXT_SCHEMA(), generation: { type: "integer", minimum: 1 }, revision: SHA256_SCHEMA() },
+        required: ["lineageId", "state", "generation", "revision"],
+        additionalProperties: false,
+      },
+      outcome: {
+        type: "object",
+        properties: {
+          applicability: TEXT_SCHEMA(),
+          action: TEXT_SCHEMA(),
+          replayability: TEXT_SCHEMA(),
+          nextTransition: {
+            type: "object",
+            properties: { kind: { enum: ["execute", "collect", "stop"] }, reasonCode: { type: "string", pattern: "^[a-z0-9_]+$" } },
+            required: ["kind", "reasonCode"],
+            additionalProperties: false,
+          },
+        },
+        required: ["applicability", "action", "replayability"],
+        additionalProperties: false,
+      },
+      findings: EMPTY_ARRAY_SCHEMA(),
+      establishes: EMPTY_ARRAY_SCHEMA(),
+    },
+    required: ["schema", "toolName", "kind", "engine", "contract", "candidate", "authority", "outcome", "findings", "establishes"],
+    additionalProperties: false,
   };
 }
 

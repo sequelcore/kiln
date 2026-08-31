@@ -269,6 +269,64 @@ export {
   parseCodexProviderUsage,
 } from "./agents/provider-usage/index.js";
 export { projectCapabilityCatalog } from "./capabilities/capability-catalog-projector.js";
+export {
+  PORTABLE_INVOCATION_SETTLEMENT_SCHEMA,
+  PortableInvocationReplayCache,
+  assertPortableCliArguments,
+  canReplayPortableInvocation,
+  clipPortableOutput,
+  createPortableInvocationBinding,
+  digestPortable,
+  isRuntimeOwnedPortableInvocationSettlement,
+  normalizePortableEnvironment,
+  portableInvocationReplayKey,
+  preparePortableInvocationInput,
+  preparePortableInvocationOutput,
+  sanitizeTerminalText,
+  settlePortableInvocation,
+} from "./capabilities/portable-execution.js";
+export type {
+  PortableInvocationBinding,
+  PortableInvocationBindingInput,
+  PortableInvocationContext,
+  PortableInvocationDiagnosticCode,
+  PortableInvocationDispatchDisposition,
+  PortableInvocationInputPreparation,
+  PortableInvocationInputValidation,
+  PortableInvocationOutputEvent,
+  PortableInvocationOutputPreparation,
+  PortableInvocationPort,
+  PortableInvocationPortKind,
+  PortableInvocationRequest,
+  PortableInvocationResult,
+  PortableInvocationSettlement,
+  PortableInvocationSettlementInput,
+  PortableInvocationSettlementStatus,
+} from "./capabilities/portable-execution.js";
+export {
+  PortableCliInvocationPort,
+  createCliPortableInvocationPort,
+  createPortableCliInvocationPort,
+} from "./capabilities/portable-cli.js";
+export type {
+  PortableCliArgumentBuilder,
+  PortableCliInvocationPortOptions,
+  PortableCliOutputParser,
+} from "./capabilities/portable-cli.js";
+export {
+  PortableLocalFunctionInvocationPort,
+  createLocalFunctionPortableInvocationPort,
+  createPortableLocalFunctionInvocationPort,
+  createTrustedHandlerPortableInvocationPort,
+  createTrustedRuntimeBuiltinPortableInvocationPort,
+} from "./capabilities/portable-local-function.js";
+export type {
+  PortableLocalFunction,
+  PortableLocalFunctionContext,
+  PortableLocalFunctionInvocationPortOptions,
+  PortableRuntimeBuiltinInvocationPortOptions,
+  PortableTrustedHandlerPortKind,
+} from "./capabilities/portable-local-function.js";
 export type {
   ChannelEgressActionClaim,
   ChannelEgressActionClaimContext,

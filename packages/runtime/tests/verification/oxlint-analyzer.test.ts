@@ -9,6 +9,7 @@ import { OxlintAnalyzer } from "../../src/verification/oxlint/oxlint-analyzer.js
 
 class ScriptedRunner implements CommandProcessRunner {
   request?: CommandProcessRequest;
+  readonly stopReasons: string[] = [];
 
   constructor(
     private readonly stdout: string,
@@ -21,7 +22,11 @@ class ScriptedRunner implements CommandProcessRunner {
     if (this.stdout.length > 0) sink.output({ stream: "stdout", text: this.stdout });
     if (this.stderr.length > 0) sink.output({ stream: "stderr", text: this.stderr });
     sink.finish(this.result);
-    return { stop: async () => {} };
+    return {
+      stop: async (reason: "cancelled" | "timeout" | "stopped") => {
+        this.stopReasons.push(reason);
+      },
+    };
   }
 }
 
@@ -41,6 +46,9 @@ describe("OxlintAnalyzer", () => {
     const analyzer = new OxlintAnalyzer(runner, { executable: "oxlint", cwd: "/snapshot" });
 
     await analyzer.analyze({ file: "src/solution.ts" });
+
+    expect(runner.request?.env).toEqual({});
+    expect(runner.request?.shell).toBe(false);
 
     expect(runner.request?.args).toEqual([
       "--format",
@@ -140,6 +148,28 @@ describe("OxlintAnalyzer", () => {
 
     expect(timedOut.status).toBe("timed_out");
     expect(cancelled.status).toBe("cancelled");
+  });
+
+  it("propagates cancellation to the process request", async () => {
+    const controller = new AbortController();
+    const runner = new ScriptedRunner(output(), { exitCode: 0 });
+
+    await new OxlintAnalyzer(runner, { executable: "oxlint", cwd: "/snapshot" }).analyze({
+      file: "src/solution.ts",
+      signal: controller.signal,
+    });
+
+    expect(runner.request?.signal).toBe(controller.signal);
+  });
+
+  it("stops the child when machine-readable output exceeds its bound", async () => {
+    const runner = new ScriptedRunner("x".repeat(2_000_001), { exitCode: 0 });
+    const run = await new OxlintAnalyzer(runner, { executable: "oxlint", cwd: "/snapshot" }).analyze({
+      file: "src/solution.ts",
+    });
+
+    expect(run.status).toBe("failed_to_run");
+    expect(runner.stopReasons).toEqual(["stopped"]);
   });
 
   it("fails closed when the analyzer is terminated by a signal", async () => {

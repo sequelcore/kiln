@@ -226,7 +226,20 @@ export class OxlintAnalyzer {
       let stdout = "";
       let stderr = "";
       let overflow = false;
-      this.runner.start(
+      let stopRequested = false;
+      let stopInvoked = false;
+      let handle: ReturnType<CommandProcessRunner["start"]> | undefined;
+      const invokeStop = (): void => {
+        if (stopInvoked || handle === undefined) return;
+        stopInvoked = true;
+        void Promise.resolve(handle.stop("stopped")).catch(() => undefined);
+      };
+      const stopOnOverflow = (): void => {
+        if (stopRequested) return;
+        stopRequested = true;
+        invokeStop();
+      };
+      handle = this.runner.start(
         {
           executable: this.options.executable,
           args: [
@@ -241,6 +254,8 @@ export class OxlintAnalyzer {
             request.file,
           ],
           cwd: this.options.cwd,
+          env: {},
+          shell: false,
           ...(this.options.timeoutMs === undefined ? {} : { timeoutMs: this.options.timeoutMs }),
           ...(request.signal === undefined ? {} : { signal: request.signal }),
         },
@@ -249,18 +264,23 @@ export class OxlintAnalyzer {
             if (chunk.stream === "stdout") {
               if (stdout.length + chunk.text.length > MAX_OUTPUT_CHARACTERS) {
                 overflow = true;
+                stopOnOverflow();
                 return;
               }
               stdout += chunk.text;
               return;
             }
-            if (stderr.length < MAX_OUTPUT_CHARACTERS) {
-              stderr += chunk.text.slice(0, MAX_OUTPUT_CHARACTERS - stderr.length);
+            if (stderr.length + chunk.text.length > MAX_OUTPUT_CHARACTERS) {
+              overflow = true;
+              stopOnOverflow();
+              return;
             }
+            stderr += chunk.text;
           },
           finish: (result) => resolve({ stdout, stderr, overflow, result }),
         },
       );
+      if (stopRequested) invokeStop();
     });
   }
 }

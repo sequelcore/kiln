@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -29,7 +29,10 @@ class ScriptedRunner implements CommandProcessRunner {
   request?: CommandProcessRequest;
   isolatedConfig?: string;
 
-  constructor(private readonly diagnostics: readonly unknown[] = []) {}
+  constructor(
+    private readonly diagnostics: readonly unknown[] = [],
+    private readonly beforeFinish?: (request: CommandProcessRequest) => void,
+  ) {}
 
   start(request: CommandProcessRequest, sink: CommandProcessSink) {
     this.request = request;
@@ -44,6 +47,7 @@ class ScriptedRunner implements CommandProcessRunner {
         start_time: 0.001,
       }),
     });
+    this.beforeFinish?.(request);
     sink.finish({ exitCode: this.diagnostics.length === 0 ? 0 : 1 });
     return { stop: async () => {} };
   }
@@ -127,14 +131,22 @@ describe("static_analyze execution", () => {
     const source = "export const answer = 42;\n";
     await writeFile(join(dir, "solution.ts"), source);
     const runner = new ScriptedRunner();
+    const controller = new AbortController();
     const result = await createStaticAnalyzeTool({
       executable: "oxlint",
       analyzerVersion: "1.80.0",
       runner,
-    }).execute({ name: "static_analyze", input: { file: "solution.ts" } }, makeSandbox(dir));
+    }).execute(
+      { name: "static_analyze", input: { file: "solution.ts" } },
+      makeSandbox(dir),
+      { abortSignal: controller.signal },
+    );
 
     expect(result.isError).toBe(false);
     expect(runner.request?.cwd).not.toBe(dir);
+    expect(runner.request?.signal).toBe(controller.signal);
+    expect(runner.request?.env).toEqual({});
+    expect(runner.request?.shell).toBe(false);
     expect(runner.request?.args).toEqual([
       "--format",
       "json",
@@ -186,6 +198,27 @@ describe("static_analyze execution", () => {
       diagnostics: [{ rule: "eslint(no-debugger)", severity: "error", line: 1, column: 1 }],
       establishes: [],
     });
+  });
+
+  it("fails closed when Oxlint mutates the isolated snapshot before finish", async () => {
+    dir = await makeTempDir("kiln-static-analysis-");
+    await writeFile(join(dir, "solution.ts"), "export const answer = 42;\n");
+    const runner = new ScriptedRunner([], (request) => {
+      const subject = request.args.at(-1);
+      if (subject === undefined) throw new Error("scripted runner did not receive a subject path");
+      chmodSync(join(request.cwd, subject), 0o644);
+      writeFileSync(join(request.cwd, subject), "export const answer = 43;\n");
+    });
+
+    const result = await createStaticAnalyzeTool({
+      executable: "oxlint",
+      analyzerVersion: "1.80.0",
+      runner,
+    }).execute({ name: "static_analyze", input: { file: "solution.ts" } }, makeSandbox(dir));
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("snapshot changed during analysis");
+    expect(result.metadata).toBeUndefined();
   });
 
   it("reports structural and TypeScript safety diagnostics from the fixed profile", async () => {

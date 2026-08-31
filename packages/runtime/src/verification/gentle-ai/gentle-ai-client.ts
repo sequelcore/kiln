@@ -117,11 +117,26 @@ export class GentleAiClient {
       let stdout = "";
       let stderr = "";
       let overflow = false;
-      this.runner.start(
+      let stopRequested = false;
+      let stopInvoked = false;
+      let handle: ReturnType<CommandProcessRunner["start"]> | undefined;
+      const invokeStop = (): void => {
+        if (stopInvoked || handle === undefined) return;
+        stopInvoked = true;
+        void Promise.resolve(handle.stop("stopped")).catch(() => undefined);
+      };
+      const stopOnOverflow = (): void => {
+        if (stopRequested) return;
+        stopRequested = true;
+        invokeStop();
+      };
+      handle = this.runner.start(
         {
           executable: this.options.executable,
           args,
           cwd,
+          env: {},
+          shell: false,
           timeoutMs: this.options.timeoutMs,
           ...(signal === undefined ? {} : { signal }),
         },
@@ -131,6 +146,7 @@ export class GentleAiClient {
               chunk.stream === "stdout" ? stdout.length + chunk.text.length : stderr.length + chunk.text.length;
             if (next > MAX_OUTPUT_CHARACTERS) {
               overflow = true;
+              stopOnOverflow();
               return;
             }
             if (chunk.stream === "stdout") stdout += chunk.text;
@@ -159,6 +175,7 @@ export class GentleAiClient {
           },
         },
       );
+      if (stopRequested) invokeStop();
     });
   }
 }

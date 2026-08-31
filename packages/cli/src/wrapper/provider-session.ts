@@ -72,6 +72,7 @@ import type { ConfiguredExecutionCredential } from "@kilnai/runtime";
 import type { AttachedRuntimeBuiltinToolSurfaceOptions } from "@kilnai/runtime";
 import {
   createRuntimeCapabilityCompositionFactory,
+  createTrustedRuntimeBuiltinPortableInvocationPort,
   type RuntimeCapabilityGeneration,
   type RuntimeCapabilityMaterializationRecord,
 } from "@kilnai/runtime";
@@ -1082,7 +1083,9 @@ function createConfiguredCapabilityGeneration(
       && candidate.revision === descriptor.revision
       && candidate.toolName === toolName);
     const executor = surface.callBuiltinTools.get(toolName);
-    const implementationReference = descriptor.implementationReferences[0];
+    const implementationReference = descriptor.implementationReferences.find(
+      (candidate) => candidate.identityDigest === schemas?.implementationIdentityDigest,
+    );
     if (!tool || !schemas || !executor || !implementationReference) continue;
     const materializedTool: ToolDefinition = {
       ...tool,
@@ -1099,7 +1102,11 @@ function createConfiguredCapabilityGeneration(
       implementationReference,
       toolName,
       tool: materializedTool,
-      executor: async (input) => normalizeCapabilityToolResult(await executor(input)),
+      port: createTrustedRuntimeBuiltinPortableInvocationPort({
+        executor: async (input, context) => normalizeCapabilityToolResult(await executor(input, context)),
+        kind: toolName === "quality_analyze" ? "local-function" : "cli",
+        implementationIdentityDigest: implementationReference.identityDigest,
+      }),
       requirements: { data: descriptor.data, network: descriptor.network, artifacts: descriptor.artifacts },
       freshness: descriptor.freshness,
     });
@@ -1119,18 +1126,19 @@ function createConfiguredCapabilityGeneration(
 function normalizeCapabilityToolResult(value: unknown): {
   readonly output: string;
   readonly isError: boolean;
-  readonly metadata: Readonly<Record<string, unknown>>;
+  readonly metadata?: Readonly<Record<string, unknown>>;
 } {
   if (value && typeof value === "object" && "output" in value && typeof value.output === "string") {
+    const metadata = "metadata" in value && value.metadata && typeof value.metadata === "object"
+      ? value.metadata as Readonly<Record<string, unknown>>
+      : undefined;
     return {
       output: value.output,
       isError: "isError" in value && value.isError === true,
-      metadata: "metadata" in value && value.metadata && typeof value.metadata === "object"
-        ? value.metadata as Readonly<Record<string, unknown>>
-        : {},
+      ...(metadata === undefined ? {} : { metadata }),
     };
   }
-  return { output: typeof value === "string" ? value : JSON.stringify(value), isError: false, metadata: {} };
+  return { output: typeof value === "string" ? value : JSON.stringify(value), isError: false };
 }
 
 function projectRuntimeTerminalDisposition(result: OrchestrateResult): RuntimeTurnTerminalDisposition {

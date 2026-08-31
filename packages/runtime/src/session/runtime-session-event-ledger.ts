@@ -27,6 +27,7 @@ import type {
   CanonicalTurnId,
 } from "@kilnai/core";
 import type { RuntimeTurnTerminalDisposition } from "@kilnai/core/agents";
+import { isRuntimeOwnedPortableInvocationSettlement } from "../capabilities/portable-execution.js";
 import {
   canonicalTurnId,
   createOperatorAdoptionDecisionAuthority,
@@ -401,6 +402,12 @@ function buildCanonicalTurnEvents(
           output: runtimeEvent.output,
           outputSummary: runtimeEvent.resultSummary,
           ...(runtimeEvent.metadata ? { metadata: runtimeEvent.metadata } : {}),
+          ...(isRuntimeOwnedPortableInvocationSettlement(runtimeEvent.capabilitySettlement)
+            && runtimeEvent.capabilitySettlement.toolCallScopeId === runtimeEvent.toolCallScopeId
+            && runtimeEvent.capabilitySettlement.toolCallId === runtimeEvent.toolCallId
+            && runtimeEvent.capabilitySettlement.toolName === runtimeEvent.toolName
+            ? { capabilitySettlement: runtimeEvent.capabilitySettlement }
+            : {}),
           ...(runtimeEvent.resourceLinks ? { resourceLinks: runtimeEvent.resourceLinks } : {}),
           ...(runtimeEvent.toolUsage ? { toolUsage: runtimeEvent.toolUsage } : {}),
           source: makeSource("tool", "runtime", "orchestrator"),
