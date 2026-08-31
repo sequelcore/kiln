@@ -23,12 +23,13 @@ context into another harness. Kiln must resolve that request to a portable
 tool, a harness-native tool, an API, or a governed specialist agent while
 preserving permissions, effects, cost, evidence, and result identity.
 
-The intended operator experience is continuous: a planning model may produce a
-typed slide specification, an image-capable worker may render its visual, and
-the original model may review the result in the same workflow. The evidence
-must still identify which model, harness, service, and tool performed each
-effect. Capability composition must not become a claim that every model
-natively possesses every modality or tool.
+The intended operator experience is continuous: a text-only parent may pass an
+existing image artifact to a vision-capable worker, receive a typed analysis,
+and continue in the same workflow without asking the operator to upload the
+image again or reconstruct the prompt. The evidence must still identify which
+model, harness, service, and tool performed each effect. Capability composition
+must not become a claim that every model natively possesses every modality or
+tool.
 
 ## Current Position
 
@@ -97,8 +98,8 @@ result-contract evidence. Adapter availability alone is never authority.
 ## Goals
 
 - Define stable provider-neutral capability identities such as `web.search`,
-  `vision.analyze`, `image.generate`, `presentation.render`, and
-  `workspace.shell`.
+  `vision.analyze`, `image.generate`, and `workspace.shell` only when an
+  admitted implementation and current consumer justify them.
 - Discover capabilities from Codex, Claude, OpenCode V2, Kiln surfaces, MCP,
   OpenAPI, GraphQL, admitted CLIs, and local services without duplicating
   execution policy in adapters.
@@ -162,8 +163,10 @@ No adapter may become a second capability-selection or policy authority.
   projection.
 - Bounded operator-question requests and responses for single choice, multiple
   choice, freeform, optional, conditional, and resumable clarification flows.
-- Vertical proofs for web search, vision, image generation, and presentation
-  rendering.
+- Vertical proofs for web search, vision analysis, image generation, and
+  cross-harness artifact handoff. Each proof must use an admitted implementation
+  and a current workflow rather than creating a product feature only to exercise
+  the fabric.
 
 ## Non-Goals
 
@@ -582,24 +585,30 @@ provenance are explicit; failed, partial, cancelled, and unknown outcomes do
 not become successful capability results; the parent cannot inherit the
 child's broader permissions.
 
-### Slice 6 - Artifact Continuity
+### Slice 6 - Cross-Harness Artifact Continuity
 
-Status: Blocked on Slices 4 and 5.
+Status: Blocked on Slice 5.
 
-Define reusable artifact contracts such as `VisionAnalysis`, `SlidePlan`,
-`SlideSpec`, `GeneratedImage`, and `PresentationArtifact`. Preserve artifact
-identity, content digest, media type, dimensions, lineage, storage authority,
-and safe preview metadata across model and harness boundaries. Pass structured
-artifacts instead of asking the operator to restate prompts.
+Extend capability invocation and result contracts to carry references to
+artifacts already owned by the context resource plane. Preserve canonical
+artifact identity, content digest, media type, lineage, storage authority,
+retention, and safe preview metadata across model and harness boundaries. Do
+not create capability-specific artifact types until an admitted implementation
+and current consumer require their distinct semantics.
 
-The vertical proof is a presentation workflow: a planning model creates a
-`SlideSpec`, an image-capable implementation produces a `GeneratedImage`, a
-renderer produces a presentation artifact, and the original model reviews the
-result.
+The first proof extends `vision.analyze`: a text-only parent passes an existing
+image through its canonical artifact reference to a vision-capable route,
+receives a correlated `VisionAnalysis`, and continues without duplicating the
+payload or asking the operator to reconstruct context. Additional transform or
+generated-artifact contracts remain deferred until a second real workflow
+proves that the shared semantics are reusable.
 
-Acceptance: no manual context reconstruction is required; artifacts remain
-content-addressed and access-controlled; provenance identifies every producer
-and transform; unsupported surface presentation never changes execution truth.
+Acceptance: no manual context reconstruction or payload duplication is
+required; artifact access is bounded to the admitted child; identity and
+content digest survive the handoff; provenance identifies the caller,
+executor, and any produced result; cancellation or failed access cannot become
+a successful result; unsupported surface presentation never changes execution
+truth.
 
 ### Slice 7 - Cross-Surface Promotion
 
@@ -637,7 +646,7 @@ cancel, validation, error, and correlation behavior passes the shared
 conformance fixtures. TUI and native adapters then reuse those fixtures while
 presenting interaction appropriate to their environment.
 
-Acceptance: verification, web search, vision analysis, and presentation
+Acceptance: verification, web search, vision analysis, and artifact-handoff
 workflows pass cross-surface conformance fixtures; a fresh Codex, Claude, and
 OpenCode session can request admitted verification without knowing a binary
 path or provider tool name; no surface recomputes capability policy;
