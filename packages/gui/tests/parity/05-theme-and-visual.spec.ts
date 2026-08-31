@@ -47,7 +47,7 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     await page.reload();
     await expect(page.locator("#composer-input")).toBeEnabled({ timeout: COMPOSER_READY_TIMEOUT_MS });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-    await expect(page.getByRole("button", { name: /Execution target selector/ })).toBeVisible({ timeout: 2_000 });
+    await expect(page.getByRole("button", { name: /Model selector/ })).toBeVisible({ timeout: 2_000 });
     const visualRoles = await page.locator("html").evaluate((root) => {
       const style = getComputedStyle(root);
       return {
@@ -71,6 +71,14 @@ test.describe("parity category 5 - theming and visual behavior", () => {
 
     const assistant = page.locator('[data-role="assistant"]', { hasText: "Provider discovery" });
     await expect(assistant.getByText("Provider discovery")).toBeVisible({ timeout: 5_000 });
+    const disposition = assistant.locator('[data-role="turn-disposition"]');
+    await expect(disposition).toHaveAttribute("data-framing", "none");
+    await expect(disposition).toContainText("Turn completed");
+    await expect(disposition).not.toContainText("Completion eligible");
+    await expect(assistant.locator('[data-slot="message-header"]')).toHaveCount(0);
+    const routeFooter = assistant.locator('[data-slot="message-footer"]');
+    await expect(routeFooter).toContainText("Claude");
+    await expect(routeFooter.locator('[data-slot="badge"]')).toHaveCount(0);
     const list = assistant.locator(".markdown-body ul").first();
     await expect(list).toHaveCSS("list-style-type", "disc");
     const table = assistant.locator(".markdown-body table").first();

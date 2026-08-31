@@ -18,7 +18,7 @@ import {
   type WorkflowToolCallActivity,
   type WorkflowWorkItemActivity,
 } from "@kilnai/gateway-contracts";
-import { CheckCircle2, ChevronDown, ChevronUp, CircleAlert, ExternalLink, FileText, Folder, LoaderCircle, Terminal as TerminalIcon } from "lucide-react";
+import { CheckCircle2, ChevronDown, CircleAlert, ExternalLink, FileText, Folder, LoaderCircle, Terminal as TerminalIcon } from "lucide-react";
 import { collapseAllNested, JsonView } from "react-json-view-lite";
 import type { ActivityPhase, TimelineEntry, TimelineEventEntry } from "../lib/session-store/index.js";
 import { MarkdownMessageContent, MessageRow } from "./message-row.js";
@@ -34,6 +34,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   MessageScroller,
   MessageScrollerButton,
@@ -62,7 +63,7 @@ interface TranscriptProps {
 function OperationalTranscriptSurface(props: {
   readonly children: ReactNode;
   readonly dataRole?: string;
-  readonly kind: "tool" | "workflow";
+  readonly kind: "event" | "tool" | "workflow";
 }) {
   return (
     <TranscriptSurface data-role={props.dataRole} kind={props.kind} className="flex justify-start px-1">
@@ -92,13 +93,6 @@ const USD_FORMATTER = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 4,
   maximumFractionDigits: 4,
 });
-const TIMELINE_TONE_CLASSES: Record<TimelineEventEntry["tone"], string> = {
-  info: "border-border bg-card text-foreground",
-  running: "border-border bg-card text-foreground",
-  success: "border-border bg-card text-foreground",
-  warning: "border-border bg-card text-foreground",
-  error: "border-destructive/60 bg-card text-foreground",
-};
 const KILN_JSON_VIEW_STYLE = {
   container: "kiln-json-view",
   childFieldsContainer: "kiln-json-view__children",
@@ -1122,16 +1116,6 @@ function eventIcon(entry: TimelineEventEntry) {
   }[entry.tone];
 }
 
-function eventBadgeVariant(entry: TimelineEventEntry): "outline" | "secondary" | "destructive" {
-  return {
-    info: "outline",
-    running: "secondary",
-    success: "secondary",
-    warning: "outline",
-    error: "destructive",
-  }[entry.tone] as "outline" | "secondary" | "destructive";
-}
-
 function ToolEventCard(props: {
   readonly entry: TimelineEventEntry;
   readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
@@ -1209,47 +1193,92 @@ function TimelineEventRow(props: {
   readonly entry: TimelineEventEntry;
   readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
 }) {
+  return (
+    <OperationalTranscriptSurface kind="event">
+      <TimelineEventTrace entry={props.entry} loadResourceDataUrl={props.loadResourceDataUrl} />
+    </OperationalTranscriptSurface>
+  );
+}
+
+function TimelineEventTrace(props: {
+  readonly entry: TimelineEventEntry;
+  readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
+}) {
   const [open, setOpen] = useState(false);
   const Icon = eventIcon(props.entry);
   const hasDetails = canRenderEventDetails(props.entry);
   const summary = eventSummaryText(props.entry);
+  const stateLabel = {
+    info: "Recorded",
+    running: "Running",
+    success: "Completed",
+    warning: "Paused",
+    error: "Failed",
+  }[props.entry.tone];
+  const showSummary = summary && !(props.entry.eventKind === "turn_completed" && props.entry.tone === "success");
+  const headerClassName = "group/event-trace flex w-full min-w-0 items-center gap-2 rounded-sm py-1 text-left text-xs text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/70";
+  const header = (
+    <>
+      <span
+        aria-hidden="true"
+        className="flex size-5 shrink-0 items-center justify-center"
+        data-slot="transcript-activity-identity"
+      >
+        <Icon className={cn(
+          "size-3.5",
+          props.entry.tone === "running" ? "motion-safe:animate-spin text-primary" : null,
+          props.entry.tone === "success" ? "text-success" : null,
+          props.entry.tone === "warning" ? "text-warning" : null,
+          props.entry.tone === "error" ? "text-destructive" : null,
+        )} />
+      </span>
+      <span className="min-w-0 truncate font-medium text-foreground">{props.entry.title}</span>
+      {showSummary ? (
+        <span className="min-w-0 flex-1 truncate text-muted-foreground">{summary}</span>
+      ) : (
+        <span className="flex-1" />
+      )}
+      <time className="sr-only" dateTime={props.entry.createdAt}>
+        {new Date(props.entry.createdAt).toLocaleTimeString()}
+      </time>
+      {hasDetails ? (
+        <ChevronDown
+          aria-hidden="true"
+          className="size-3.5 shrink-0 transition-transform group-data-[panel-open]/event-trace:rotate-180"
+        />
+      ) : null}
+    </>
+  );
 
   return (
-    <TranscriptSurface kind="event" className={cn("rounded-lg border px-3 py-2 shadow-sm", TIMELINE_TONE_CLASSES[props.entry.tone])}>
-      <header className="flex min-w-0 items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-1 items-start gap-2.5">
-          <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-md border border-border bg-background text-muted-foreground" aria-hidden="true">
-            <Icon className={props.entry.tone === "running" ? "animate-spin" : ""} />
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <Badge variant={eventBadgeVariant(props.entry)} className="max-w-full truncate">
-                {props.entry.title}
-              </Badge>
-              <time dateTime={props.entry.createdAt} className="shrink-0 font-mono text-[10px] text-muted-foreground" title={props.entry.createdAt}>
-                {new Date(props.entry.createdAt).toLocaleTimeString()}
-              </time>
-            </div>
-            {summary ? (
-              <p className="mt-1 max-w-full truncate text-sm leading-5 text-muted-foreground">{summary}</p>
-            ) : null}
-          </div>
+    <Collapsible
+      className="w-full min-w-0"
+      data-framing="none"
+      data-presentation="trace"
+      data-role={props.entry.eventKind === "turn_completed" ? "turn-disposition" : "timeline-event"}
+      onOpenChange={setOpen}
+      open={hasDetails && open}
+    >
+      {hasDetails ? (
+        <CollapsibleTrigger
+          aria-label={`${props.entry.title}. ${stateLabel}. ${open ? "Hide" : "Show"} details`}
+          className={headerClassName}
+          data-slot="transcript-activity-header"
+          type="button"
+        >
+          {header}
+        </CollapsibleTrigger>
+      ) : (
+        <div className={headerClassName} data-slot="transcript-activity-header" role="status">
+          {header}
         </div>
-        {hasDetails ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            aria-label={open ? "Hide details" : "Show details"}
-            aria-expanded={open}
-            onClick={() => setOpen((value) => !value)}
-          >
-            {open ? <ChevronUp data-icon="inline-start" /> : <ChevronDown data-icon="inline-start" />}
-          </Button>
-        ) : null}
-      </header>
-      <EventDetails entry={props.entry} open={open} loadResourceDataUrl={props.loadResourceDataUrl} />
-    </TranscriptSurface>
+      )}
+      {hasDetails ? (
+        <CollapsibleContent className="ml-2 min-w-0 border-l border-border/55 py-2 pl-5 text-popover-foreground outline-none data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 motion-safe:transition-opacity">
+          <EventDetails entry={props.entry} open loadResourceDataUrl={props.loadResourceDataUrl} />
+        </CollapsibleContent>
+      ) : null}
+    </Collapsible>
   );
 }
 
@@ -1843,6 +1872,9 @@ function renderTranscriptEntries(
     }
     const entry = entriesById.get(item.entryId);
     if (entry?.type !== "message") return null;
+    const afterEvents = item.afterEventIds
+      .map((entryId) => entriesById.get(entryId))
+      .filter((candidate): candidate is TimelineEventEntry => candidate?.type === "event");
     return (
       <MessageScrollerItem
         key={entry.id}
@@ -1851,6 +1883,13 @@ function renderTranscriptEntries(
         scrollAnchor={entry.message.role === "user"}
       >
         <MessageRow
+          afterContent={afterEvents.length > 0 ? (
+            <div className="flex min-w-0 flex-col gap-1">
+              {afterEvents.map((event) => (
+                <TimelineEventTrace entry={event} key={event.id} loadResourceDataUrl={loadResourceDataUrl} />
+              ))}
+            </div>
+          ) : undefined}
           message={entry.message}
           loadResourceDataUrl={loadResourceDataUrl}
         />

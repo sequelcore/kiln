@@ -69,6 +69,7 @@ export function projectConversationTurnItems<TPhase extends string = string>(
 ): readonly ConversationProjectionItem<TPhase>[] {
   const items: ConversationProjectionItem<TPhase>[] = [];
   const pendingToolEvents: ConversationProjectionEventInput[] = [];
+  const pendingTerminalEvents: ConversationProjectionEventInput[] = [];
   const anchorToolEventsToAssistant = options.anchorToolEventsToAssistant !== false;
   let lastAssistantItem: MutableProjectedMessageItem | null = null;
   const visibleEntries = options.collapseCompletedToolStarts === false
@@ -94,6 +95,13 @@ export function projectConversationTurnItems<TPhase extends string = string>(
     pendingToolEvents.length = 0;
   };
 
+  const flushPendingTerminalEvents = (): void => {
+    for (const entry of pendingTerminalEvents) {
+      items.push({ kind: "event", entryId: entry.id });
+    }
+    pendingTerminalEvents.length = 0;
+  };
+
   for (const entry of visibleEntries) {
     if (entry.kind === "event" && operatorEventAnchorsAssistantTurn(entry.eventKind)) {
       if (!anchorToolEventsToAssistant) {
@@ -114,6 +122,16 @@ export function projectConversationTurnItems<TPhase extends string = string>(
       continue;
     }
 
+    if (entry.kind === "event" && entry.eventKind === "turn_completed") {
+      flushPendingToolEvents();
+      if (lastAssistantItem && turnIdsCompatible(entry.turnId, turnIdForItem(lastAssistantItem, visibleEntries))) {
+        lastAssistantItem.afterEventIds = [...lastAssistantItem.afterEventIds, entry.id];
+      } else {
+        pendingTerminalEvents.push(entry);
+      }
+      continue;
+    }
+
     if (entry.kind === "message") {
       if (entry.role === "assistant") {
         const compatiblePending = pendingToolEvents.filter((event) => turnIdsCompatible(event.turnId, entry.turnId));
@@ -121,11 +139,16 @@ export function projectConversationTurnItems<TPhase extends string = string>(
         pendingToolEvents.length = 0;
         pendingToolEvents.push(...incompatiblePending);
         flushPendingToolEvents();
+        const compatibleTerminalEvents = pendingTerminalEvents.filter((event) => turnIdsCompatible(event.turnId, entry.turnId));
+        const incompatibleTerminalEvents = pendingTerminalEvents.filter((event) => !turnIdsCompatible(event.turnId, entry.turnId));
+        pendingTerminalEvents.length = 0;
+        pendingTerminalEvents.push(...incompatibleTerminalEvents);
+        flushPendingTerminalEvents();
         const item: MutableProjectedMessageItem = {
           kind: "message",
           entryId: entry.id,
           beforeEventIds: compatiblePending.map((event) => event.id),
-          afterEventIds: [],
+          afterEventIds: compatibleTerminalEvents.map((event) => event.id),
         };
         items.push(item);
         lastAssistantItem = item;
@@ -133,20 +156,23 @@ export function projectConversationTurnItems<TPhase extends string = string>(
       }
 
       flushPendingToolEvents();
+      flushPendingTerminalEvents();
       items.push({ kind: "message", entryId: entry.id, beforeEventIds: [], afterEventIds: [] });
       lastAssistantItem = null;
       continue;
     }
 
     flushPendingToolEvents();
+    flushPendingTerminalEvents();
     items.push({ kind: "event", entryId: entry.id });
     lastAssistantItem = null;
   }
 
   flushPendingToolEvents(options.activity ? "activity" : "standalone");
+  flushPendingTerminalEvents();
   if (options.activity) {
     const lastItem = items[items.length - 1];
-    if (!lastItem || lastItem.kind !== "activity") {
+    if (lastItem?.kind !== "activity") {
       items.push({
         kind: "activity",
         phase: options.activity.phase,

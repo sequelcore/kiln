@@ -165,6 +165,44 @@ describe("Transcript", () => {
     expect(screen.getByRole("status", { name: "Assistant activity: Thinking" })).toBeVisible();
   });
 
+  it("composes a terminal disposition after its assistant response without a status card", () => {
+    const { container } = render(
+      <Transcript
+        entries={[
+          { ...messageEntry("user-1", "user", "Say hello"), turnId: "turn-1" },
+          {
+            id: "timeline:turn-completed",
+            type: "event",
+            eventKind: "turn_completed",
+            createdAt: "2026-08-31T20:09:22.000Z",
+            turnId: "turn-1",
+            title: "Turn completed",
+            summary: "Completed Â· Completion eligible (completion_eligible)",
+            tone: "success",
+            details: {
+              outcome: "completed",
+              dispositionReason: "completion_eligible",
+              routedProvider: "codex-oauth",
+              routedModel: "gpt-5.6-luna",
+            },
+          },
+          { ...messageEntry("assistant-1", "assistant", "Hi, Ricardo! How can I help?"), turnId: "turn-1" },
+        ]}
+      />,
+    );
+
+    const rows = container.querySelectorAll('[data-slot="message-scroller-item"]');
+    expect(rows).toHaveLength(2);
+    expect(rows[1]).toHaveTextContent("Hi, Ricardo! How can I help?");
+    const disposition = rows[1]?.querySelector('[data-role="turn-disposition"]');
+    expect(disposition).toBeInTheDocument();
+    expect(disposition).toHaveAttribute("data-framing", "none");
+    expect(disposition).not.toHaveClass("border", "shadow-sm");
+    expect(within(rows[1] as HTMLElement).queryByText(/Completion eligible/u)).not.toBeInTheDocument();
+    fireEvent.click(within(rows[1] as HTMLElement).getByRole("button", { name: /Turn completed\. Completed\. Show details/u }));
+    expect(within(rows[1] as HTMLElement).getByText("gpt-5.6-luna")).toBeVisible();
+  });
+
   it("renders formal verification obligations, proof effort, candidate identity, and the Assurance boundary", () => {
     const digest = `sha256:${"a".repeat(64)}`;
     render(<ToolEvidence presentation={{

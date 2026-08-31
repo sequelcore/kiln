@@ -78,6 +78,24 @@ describe("conversation turn projection", () => {
     ]);
   });
 
+  it.each([
+    ["after", [
+      { id: "assistant-1", kind: "message" as const, role: "assistant" as const, turnId: "turn-1" },
+      { id: "turn-completed", kind: "event" as const, eventKind: "turn_completed", turnId: "turn-1" },
+    ]],
+    ["before", [
+      { id: "turn-completed", kind: "event" as const, eventKind: "turn_completed", turnId: "turn-1" },
+      { id: "assistant-1", kind: "message" as const, role: "assistant" as const, turnId: "turn-1" },
+    ]],
+  ] as const)("anchors a terminal disposition %s its assistant response", (_order, entries) => {
+    expect(projectConversationTurnItems(entries)).toEqual([{
+      kind: "message",
+      entryId: "assistant-1",
+      beforeEventIds: [],
+      afterEventIds: ["turn-completed"],
+    }]);
+  });
+
   it("declares which operator events start an assistant turn shell", () => {
     expect(operatorEventAnchorsAssistantTurn("tool_call_started")).toBe(true);
     expect(operatorEventAnchorsAssistantTurn("tool_call_completed")).toBe(true);
