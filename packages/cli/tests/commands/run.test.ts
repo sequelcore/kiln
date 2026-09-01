@@ -191,6 +191,34 @@ describe("run command", () => {
       );
     });
 
+    it("forwards an advanced Runtime execution envelope path", async () => {
+      process.argv = [
+        process.argv[0] ?? "bun",
+        process.argv[1] ?? "kiln",
+        "run",
+        "bounded task",
+        "--target",
+        "test-route",
+        "--execution-envelope",
+        "C:/private/execution-envelope.json",
+        "--disable-tools",
+        "--disable-mcp",
+      ];
+
+      await createCli(MOCK_APP_CONFIG);
+
+      expect(runCommandMock).toHaveBeenCalledWith(
+        MOCK_APP_CONFIG,
+        "bounded task",
+        expect.objectContaining({
+          target: "test-route",
+          executionEnvelopePath: "C:/private/execution-envelope.json",
+          disableTools: true,
+          disableMcp: true,
+        }),
+      );
+    });
+
     it("forwards --skip-git-repo-check to runCommand flags", async () => {
       process.argv = [
         process.argv[0] ?? "bun",

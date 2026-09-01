@@ -5,7 +5,7 @@ import {
   readGlobalConfigSnapshot,
   readGlobalExecutionTargetAuthority,
 } from "../config/global-config.js";
-import { resolveKilnHomePath } from "../config/global-config/path.js";
+import { resolveGlobalConfigPath, resolveKilnHomePath } from "../config/global-config/path.js";
 import {
   executionTargetWizardDiscoveryEvidence,
   projectGuiProviderModelDiscovery,
@@ -23,9 +23,15 @@ import type {
   ExecutionTargetCatalogIntent,
   ExecutionTargetEvidenceSnapshot,
 } from "../config/execution-target-evidence-store.js";
+import {
+  executionTargetEvidenceRevision,
+  readExecutionTargetEvidenceSnapshot,
+} from "../config/execution-target-evidence-store.js";
 import { projectAvailableModelDiagnostic } from "../application/available-model-diagnostic.js";
 import { runExecutionTargetWizardCommand } from "../application/execution-target-wizard-command.js";
 import { createCurrentExecutionTarget } from "../application/current-execution-target-creation.js";
+import { renewExecutionTargetEvidence } from "../application/execution-target-evidence-renewal.js";
+import { refreshExecutionTargetEvidence } from "../application/execution-target-evidence-refresh.js";
 import { createOperatorExecutionTargetSelectionPort } from "../application/operator-execution-target-selection.js";
 import { createDefaultRegistry, getRuntimeProviderAvailability } from "../wrapper/session-registry.js";
 import { applyConfigMutation, approveConfigMutation, proposeConfigMutation } from "../application/config-mutation-authority.js";
@@ -63,6 +69,10 @@ export async function targetCommand(args: readonly string[] = []): Promise<void>
     await selectTarget(args[1], args.includes("--approve"));
     return;
   }
+  if (args[0] === "refresh-evidence") {
+    await targetRefreshEvidenceCommand(args.slice(1));
+    return;
+  }
   const config = readGlobalConfig() ?? defaultGlobalConfig();
   const targets = config.targetCatalog?.targets ?? [];
   console.log("Execution Targets:");
@@ -74,6 +84,71 @@ export async function targetCommand(args: readonly string[] = []): Promise<void>
     const selected = config.targetRouting?.defaultTargetId === target.id ? " *" : "";
     console.log(`  ${target.id} [${target.kind}] ${target.providerId}/${target.providerModelId}${selected}`);
   }
+}
+
+async function targetRefreshEvidenceCommand(args: readonly string[]): Promise<void> {
+  const unknown = args.filter((argument) => argument !== "--approve");
+  if (unknown.length > 0) throw new Error(`Unknown target refresh-evidence flag '${unknown[0]}'.`);
+  const operatorApproved = args.includes("--approve");
+  const snapshot = readGlobalConfigSnapshot();
+  const intent = snapshot.config?.targetCatalog as ExecutionTargetCatalogIntent | undefined;
+  if (!intent) throw new Error("Execution-target evidence refresh requires a configured target catalog.");
+  const currentEvidence = readExecutionTargetEvidenceSnapshot({
+    globalConfigPath: resolveGlobalConfigPath(),
+    revision: intent.evidenceRevision,
+  });
+  const { registry } = createDefaultRegistry({ kilnHome: resolveKilnHomePath() });
+  const discovery = projectGuiProviderModelDiscovery(await resolveGuiOperatorDiscoveryResults(
+    getRuntimeProviderAvailability(registry),
+    undefined,
+    resolveKilnHomePath(),
+  ));
+  const catalog = projectAvailableModelDiagnostic({ discovery, configuredTargets: [] });
+  const currentById = new Map(currentEvidence.targets.map((target) => [target.targetId, target]));
+  const discoveryByTargetId = new Map<string, ReturnType<typeof executionTargetWizardDiscoveryEvidence>>();
+  for (const target of intent.targets) {
+    const current = currentById.get(target.id);
+    if (!current) throw new Error(`Configured target '${target.id}' has no managed evidence.`);
+    const entry = catalog.models.find((candidate) => candidate.providerId === target.providerId
+      && candidate.providerModelId === target.providerModelId);
+    if (!entry || entry.discovery !== "observed" || entry.eligibility !== "eligible") {
+      throw new Error(`Configured target '${target.id}' has no fresh observed and eligible discovery identity.`);
+    }
+    discoveryByTargetId.set(target.id, executionTargetWizardDiscoveryEvidence(discovery, entry));
+  }
+  const renewedEvidence = renewExecutionTargetEvidence({
+    intent,
+    currentEvidence,
+    configurationRevision: snapshot.revision,
+    discoveryByTargetId,
+  });
+  const nextEvidenceRevision = executionTargetEvidenceRevision(renewedEvidence);
+  const expiries = renewedEvidence.targets.flatMap((target) => [
+    target.discovery.expiresAt,
+    target.dataPolicyEvidence.expiresAt,
+    ...(target.kind === "direct" ? [target.economics.priceEvidence.evidence.validUntil] : []),
+  ]).sort();
+  console.log([
+    "Execution-target evidence refresh:",
+    `  targets: ${renewedEvidence.targets.length}`,
+    "  authority material: unchanged",
+    `  current evidence: ${intent.evidenceRevision}`,
+    `  renewed evidence: ${nextEvidenceRevision}`,
+    `  earliest expiry: ${expiries[0] ?? "unknown"}`,
+  ].join("\n"));
+  if (!operatorApproved) {
+    console.log("  status: previewed; repeat with --approve to publish and bind this renewal.");
+    return;
+  }
+  const result = await refreshExecutionTargetEvidence({
+    projectPath: process.cwd(),
+    expectedConfigurationRevision: snapshot.revision,
+    priorEvidenceRevision: intent.evidenceRevision,
+    renewedEvidence,
+    approvalSurface: "cli",
+    operatorApproved: true,
+  });
+  console.log(`  status: ${result.outcome}; activation: next-session; configuration: ${result.committedConfigurationRevision}`);
 }
 
 async function selectTarget(targetId: string | undefined, operatorApproved: boolean): Promise<void> {

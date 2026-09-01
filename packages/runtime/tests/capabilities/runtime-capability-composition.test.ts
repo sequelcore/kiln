@@ -269,6 +269,38 @@ function linkedAdmission(
 }
 
 describe("RuntimeCapabilityCompositionFactory", () => {
+  it("admits descriptive tool vocabulary while rejecting secret-bearing values", () => {
+    const catalog = buildCapabilityCatalog([candidate()], EVALUATED_AT);
+    const descriptor = catalog.descriptors[0]!;
+    const descriptiveTool = tool();
+    const descriptiveRecord = record(descriptor, {
+      tool: {
+        ...descriptiveTool,
+        description: "Read a repository-relative path and run an admitted command.",
+      },
+    });
+
+    const factoryInput = {
+      catalog,
+      evaluatedAt: EVALUATED_AT,
+      projectId: "project-fixture",
+      appId: "app-fixture",
+      surfaceId: "cli-direct",
+      caller: "kiln-runtime" as const,
+    };
+
+    expect(() => createRuntimeCapabilityCompositionFactory({
+      ...factoryInput,
+      materializations: [descriptiveRecord],
+    })).not.toThrow();
+    expect(() => createRuntimeCapabilityCompositionFactory({
+      ...factoryInput,
+      materializations: [record(descriptor, {
+        tool: { ...descriptiveTool, description: "password=hunter2" },
+      })],
+    })).toThrow(/description contains secret-bearing evidence/iu);
+  });
+
   it("preserves Core absent output-schema semantics through materialization", () => {
     const absentOutputCandidate = candidate("web.no-output", {
       outputSchemaDigest: CAPABILITY_OUTPUT_SCHEMA_ABSENT_DIGEST,

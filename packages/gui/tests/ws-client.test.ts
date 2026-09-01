@@ -203,6 +203,7 @@ describe("GuiWsClient", () => {
         },
       }));
       expect(onFrame).not.toHaveBeenCalled();
+
     });
 
     it("accepts live context-usage evidence instead of dropping it during frame validation", () => {
@@ -238,6 +239,108 @@ describe("GuiWsClient", () => {
         type: "session_event",
         event: expect.objectContaining({ kind: "context_usage_observed" }),
       }));
+    });
+
+    it("accepts content-free provider-request observations and rejects raw region hashes", () => {
+      client = createClient();
+      client.connect();
+      const wsInstance = lastWebSocket();
+      const request = {
+        version: "v1",
+        requestIndex: 0,
+        providerId: "codex-oauth",
+        modelId: "gpt-5.6-sol",
+        routeId: "codex-primary",
+        deliberation: { state: "observed", status: "exact", selectedLevel: "high" },
+        authority: {
+          state: "observed",
+          requestedAuthority: "read_only",
+          admittedAuthority: "read_only",
+          completeness: "authoritative",
+        },
+        dispatch: {
+          attempt: { state: "unknown" },
+          retry: { state: "unknown" },
+          fallback: { state: "unknown" },
+        },
+        usage: {
+          input: { tokens: 24_049, measurement: "provider_reported" },
+          output: { tokens: 13, measurement: "provider_reported" },
+          cacheRead: { tokens: 0, measurement: "provider_reported" },
+          cacheWrite: { tokens: 0, measurement: "provider_reported" },
+        },
+        physicalRegions: [
+          { source: "system", bytes: 10_000, measurement: "measured" },
+          { source: "messages", bytes: 100, measurement: "measured" },
+          { source: "tool_schema", bytes: 45_000, measurement: "measured" },
+        ],
+        reconciliation: {
+          state: "unknown",
+          providerInputTokens: 24_049,
+          reason: "regional_token_attribution_unavailable",
+        },
+        capacity: {
+          state: "capacity_unknown",
+          contextWindowTokens: 272_000,
+          contextWindowAuthority: "runtime_observed",
+          reason: "request_token_estimate_unavailable",
+        },
+        cache: {
+          partitionIdentity: { state: "unknown" },
+          regions: [],
+          readTokens: 0,
+          writeTokens: 0,
+          measurement: "provider_reported",
+        },
+        toolCount: 0,
+      };
+      const frame = {
+        type: "session_event",
+        event: {
+          eventId: "provider-request-1",
+          kilnSessionId: "session-1",
+          sequence: 1,
+          timestamp: "2026-08-31T20:09:22.648Z",
+          kind: "provider_request_observed",
+          payload: { request },
+        },
+      };
+
+      wsInstance.simulateMessage(JSON.stringify(frame));
+      expect(onFrame).toHaveBeenCalledWith(expect.objectContaining({
+        type: "session_event",
+        event: expect.objectContaining({ kind: "provider_request_observed" }),
+      }));
+
+      onFrame.mockClear();
+      wsInstance.simulateMessage(JSON.stringify({
+        ...frame,
+        event: {
+          ...frame.event,
+          eventId: "provider-request-private",
+          payload: { request: { ...request, systemHash: "sha256:private-content-correlation" } },
+        },
+      }));
+      expect(onFrame).not.toHaveBeenCalled();
+
+      wsInstance.simulateMessage(JSON.stringify({
+        ...frame,
+        event: {
+          ...frame.event,
+          eventId: "provider-request-invalid-dispatch",
+          payload: {
+            request: {
+              ...request,
+              dispatch: {
+                ...request.dispatch,
+                attempt: { state: "observed", value: true },
+                retry: { state: "observed", value: 2 },
+              },
+            },
+          },
+        },
+      }));
+      expect(onFrame).not.toHaveBeenCalled();
     });
 
     it("accepts managed_economic_lifecycle events instead of dropping them during frame validation", () => {
@@ -517,10 +620,7 @@ describe("GuiWsClient", () => {
       wsInstance.simulateMessage("not valid json {{{");
 
       // Should have logged warning
-      expect(consoleWarnSpy).toHaveBeenCalledWith(
-        "[GuiWsClient] Invalid inbound frame:",
-        "not valid json {{{"
-      );
+      expect(consoleWarnSpy).toHaveBeenCalledWith("[GuiWsClient] Invalid inbound frame rejected.");
 
       // Reset mock to track next call
       consoleWarnSpy.mockClear();
@@ -550,14 +650,7 @@ describe("GuiWsClient", () => {
       }));
 
       expect(onFrame).not.toHaveBeenCalled();
-      expect(consoleWarnSpy).toHaveBeenCalledWith(
-        "[GuiWsClient] Invalid inbound frame:",
-        JSON.stringify({
-          type: "welcome",
-          providers: ["claude"],
-          models: { claude: ["claude-sonnet-4-6"] },
-        }),
-      );
+      expect(consoleWarnSpy).toHaveBeenCalledWith("[GuiWsClient] Invalid inbound frame rejected.");
 
       consoleWarnSpy.mockRestore();
     });

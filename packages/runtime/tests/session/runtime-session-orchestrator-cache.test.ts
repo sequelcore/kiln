@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createHash } from "node:crypto";
 import {
   type ProviderAdapter,
+  defineDeliberationLevelId,
   resolveCommunicationIntent,
   ToolCache,
   type ToolDefinition,
@@ -128,6 +129,7 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
     const orchestrator = new RuntimeSessionOrchestrator({
       provider,
       model: "unknown",
+      maxTokens: 1_024,
       tools: [TOOL_DEF],
       builtinTools: new Map([["get_weather", toolFn]]),
       capabilityMap: makeCapabilityMap(60),
@@ -175,6 +177,21 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
     ]);
     expect(result.providerRequests?.[0]?.messageBytes).toBeGreaterThan(0);
     expect(result.providerRequests?.[0]?.toolSchemaBytes).toBeGreaterThan(0);
+    expect(result.providerRequests?.[0]?.outputReserveTokens).toBe(1_024);
+    expect(result.providerRequests?.[0]?.tokenAttributionEstimate).toMatchObject({
+      measurement: "estimated",
+      governedContextTokens: expect.any(Number),
+      toolResultTokens: 0,
+    });
+    const firstAttribution = result.providerRequests?.[0]?.tokenAttributionEstimate;
+    expect(firstAttribution?.totalInputTokens).toBe(
+      (firstAttribution?.requiredPromptTokens ?? 0)
+      + (firstAttribution?.governedContextTokens ?? 0)
+      + (firstAttribution?.toolSchemaTokens ?? 0)
+      + (firstAttribution?.conversationTokens ?? 0)
+      + (firstAttribution?.toolResultTokens ?? 0),
+    );
+    expect(result.providerRequests?.[1]?.tokenAttributionEstimate?.toolResultTokens).toBeGreaterThan(0);
     expect(result.providerRequests?.[0]?.systemHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
     expect(result.providerRequests?.[0]?.effectivePrompt?.finalPromptHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
     const sentSystem = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[0]![0].system;
@@ -274,6 +291,36 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
       policyB.cachePartition.hash,
       authorityB.cachePartition.hash,
     ])).toHaveLength(5);
+  });
+
+  it("retains the selected deliberation level as content-free request evidence", () => {
+    const low = defineDeliberationLevelId("low");
+    const evidence = measureProviderRequestRegions({
+      system: "stable system",
+      messages: [],
+      tools: [],
+      toolCount: 0,
+      cachePartition: {
+        deliberationResolution: {
+          status: "exact",
+          selectedLevel: low,
+          requested: { mode: "fixed", preferredLevel: low, onUnsupported: "deny" },
+          source: "operator",
+        },
+        authority: {
+          requestedAuthority: "read_only",
+          admittedAuthority: "read_only",
+          completeness: "authoritative",
+        },
+      },
+    });
+
+    expect(evidence.deliberation).toEqual({ status: "exact", selectedLevel: "low" });
+    expect(evidence.authority).toEqual({
+      requestedAuthority: "read_only",
+      admittedAuthority: "read_only",
+      completeness: "authoritative",
+    });
   });
 
   it("partitions provider requests by the approved context policy selection", async () => {

@@ -565,6 +565,24 @@ export function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
       continue;
     }
 
+    if (event.kind === "provider_request_observed") {
+      const presentation = presentOperatorEventPayload(event.kind, payload);
+      timelineEntries.push({
+        id: `timeline:${event.eventId}`,
+        type: "event",
+        eventKind: event.kind,
+        createdAt: event.timestamp,
+        sequence: event.sequence,
+        ...(event.turnId ? { turnId: event.turnId } : {}),
+        title: presentation.title,
+        summary: presentation.summary,
+        tone: presentation.tone,
+        presentationDetails: presentation.details,
+        details: payload.request,
+      });
+      continue;
+    }
+
     if (event.kind === "approval_requested") {
       timelineEntries.push({
         id: `timeline:${event.eventId}`,

@@ -1,7 +1,6 @@
 import type { CommunicationResolution } from "../agents/communication-policy.js";
 import type { ProviderRequestEvidence } from "../events/execution-session-event.js";
 import { sha256ContentIdentity } from "../content-addressing/content-identity.js";
-import type { EffectivePromptEvidence } from "./effective-prompt-manifest.js";
 import { buildEffectivePromptManifest, toEffectivePromptEvidence } from "./effective-prompt-manifest.js";
 
 export interface EffectivePromptObservation {
@@ -9,11 +8,9 @@ export interface EffectivePromptObservation {
   readonly requestIndex: number;
   readonly providerId: string;
   readonly modelId: string;
-  readonly finalPromptHash: string;
   readonly estimatedTokens: number;
   readonly componentCount: number;
   readonly componentScopeCounts: Readonly<Record<"static" | "dynamic" | "deferred", number>>;
-  readonly effectivePrompt: EffectivePromptEvidence;
   readonly communicationResolution?: CommunicationResolution;
   readonly evidenceIdentity: string;
 }
@@ -37,11 +34,9 @@ export function projectFinalEffectivePromptObservation(
     requestIndex: request.requestIndex,
     providerId: request.providerId,
     modelId: request.modelId,
-    finalPromptHash: request.effectivePrompt.finalPromptHash,
     estimatedTokens: request.effectivePrompt.estimatedTokens,
     componentCount: request.effectivePrompt.components.length,
     componentScopeCounts,
-    effectivePrompt: request.effectivePrompt,
     communicationResolution: request.communicationResolution,
   };
 
@@ -78,11 +73,9 @@ export function observeStandaloneEffectivePrompt(input: {
     requestIndex: 0,
     providerId: input.providerId,
     modelId: input.modelId,
-    finalPromptHash: manifest.finalPromptHash,
     estimatedTokens: manifest.estimatedTokens,
     componentCount: effectivePrompt.components.length,
     componentScopeCounts: { static: 0, dynamic: effectivePrompt.components.length, deferred: 0 },
-    effectivePrompt,
     ...(input.communicationResolution ? { communicationResolution: input.communicationResolution } : {}),
   };
   return { ...evidence, evidenceIdentity: sha256ContentIdentity(JSON.stringify(evidence)) };

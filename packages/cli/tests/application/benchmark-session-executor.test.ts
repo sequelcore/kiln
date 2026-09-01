@@ -8,6 +8,7 @@ import {
   BENCHMARK_EXECUTION_ENVELOPE,
   captureBenchmarkConfigurationAdmission,
   createBenchmarkSessionExecutor,
+  isWriteBenchmarkProfile,
 } from "../../src/application/benchmark-session-executor.js";
 import type {
   PrivateFormalScreeningCaseFacts,
@@ -99,6 +100,7 @@ vi.mock("@kilnai/runtime", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@kilnai/runtime")>();
   return {
     deriveRuntimeConvergencePolicyInput: actual.deriveRuntimeConvergencePolicyInput,
+    projectProviderRequestObservation: actual.projectProviderRequestObservation,
     discoverClaudeCliModelDiscovery: benchmarkExecutorMocks.discoverClaudeCliModelDiscovery,
     discoverCodexCliModelDiscovery: benchmarkExecutorMocks.discoverCodexCliModelDiscovery,
     discoverGuiDirectProviderModelDiscovery: benchmarkExecutorMocks.discoverGuiDirectProviderModelDiscovery,
@@ -370,6 +372,11 @@ function makeBenchmarkContext(item: {
 }
 
 describe("createBenchmarkSessionExecutor", () => {
+  it("treats the canonical managed coding profile as approved-write", () => {
+    expect(isWriteBenchmarkProfile("kiln-managed-coding-agent")).toBe(true);
+    expect(isWriteBenchmarkProfile("kiln-managed-child-agent")).toBe(false);
+  });
+
   it("rejects when effective configuration changes while policy is captured", async () => {
     let reads = 0;
     benchmarkExecutorMocks.readRuntimeConfigurationRevision.mockImplementation(() => ({
@@ -626,13 +633,34 @@ describe("createBenchmarkSessionExecutor", () => {
           messageHash: "sha256:message",
           toolSchemaHash: "sha256:tools",
           stablePrefixHash: "sha256:prefix",
+          stablePrefixBytes: 100,
+          stablePrefixRegionCount: 1,
+          volatileRegionBytes: 50,
+          cacheRegions: [],
+          cachePartition: { hash: "sha256:partition", dimensions: [] },
           toolCount: 2,
           stopReason: "end_turn",
         }],
         sessionSucceeded: true,
         successfulModelId: "benchmark-model",
         successfulProviderId: "codex",
-        transcript: [],
+        transcript: [{
+          seq: 1,
+          ts: "2026-08-31T00:00:00.000Z",
+          event: {
+            type: "tool_result",
+            toolName: "managed_agent.invoke",
+            toolCallId: "call-1",
+            toolCallScopeId: "scope-1",
+            output: "private diagnostic text",
+            isError: true,
+            metadata: {
+              errorCode: "economic_commitment_unavailable",
+              status: "denied",
+              kind: "managed-invocation",
+            },
+          },
+        }],
       };
     });
   });
@@ -669,7 +697,25 @@ describe("createBenchmarkSessionExecutor", () => {
         toolSchemaBytes: 25,
         stablePrefixHash: "sha256:prefix",
       })],
+      providerRequestObservations: [expect.objectContaining({
+        version: "v1",
+        requestIndex: 0,
+        providerId: "unknown",
+        modelId: "unknown",
+        physicalRegions: expect.arrayContaining([
+          { source: "tool_schema", bytes: 25, measurement: "measured" },
+        ]),
+      })],
+      toolResultDiagnostics: [{
+        name: "managed_agent.invoke",
+        isError: true,
+        errorCode: "economic_commitment_unavailable",
+        status: "denied",
+        kind: "managed-invocation",
+      }],
     });
+    expect(JSON.stringify(result.metadata?.providerRequestObservations)).not.toContain("Hash");
+    expect(JSON.stringify(result.metadata?.toolResultDiagnostics)).not.toContain("private diagnostic text");
     expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledWith(expect.objectContaining({
       output: expect.objectContaining({ mode: "answer" }),
       operatorAdoption: expect.objectContaining({

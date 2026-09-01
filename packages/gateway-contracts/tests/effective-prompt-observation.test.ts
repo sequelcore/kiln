@@ -11,31 +11,9 @@ const observation: EffectivePromptObservation = {
   requestIndex: 1,
   providerId: "codex-oauth",
   modelId: "gpt-5.6-sol",
-  finalPromptHash: `sha256:${"a".repeat(64)}`,
   estimatedTokens: 120,
   componentCount: 2,
   componentScopeCounts: { static: 1, dynamic: 1, deferred: 0 },
-  effectivePrompt: {
-    version: "v1",
-    components: [
-      {
-        id: `sha256:${"b".repeat(64)}`,
-        revision: `sha256:${"c".repeat(64)}`,
-        scope: "static",
-        estimatedTokens: 80,
-        provenance: { source: `sha256:${"d".repeat(64)}` },
-      },
-      {
-        id: `sha256:${"e".repeat(64)}`,
-        revision: `sha256:${"f".repeat(64)}`,
-        scope: "dynamic",
-        estimatedTokens: 40,
-        provenance: { source: `sha256:${"1".repeat(64)}` },
-      },
-    ],
-    finalPromptHash: `sha256:${"a".repeat(64)}`,
-    estimatedTokens: 120,
-  },
   evidenceIdentity: `sha256:${"2".repeat(64)}`,
 };
 
@@ -101,7 +79,7 @@ describe("EffectivePromptObservationSchema", () => {
   it("rejects raw prompt text and inconsistent scope counts", () => {
     expect(EffectivePromptObservationSchema.safeParse({
       ...observation,
-      effectivePrompt: { ...observation.effectivePrompt, finalPrompt: "secret" },
+      rawPrompt: "secret",
     }).success).toBe(false);
     expect(EffectivePromptObservationSchema.safeParse({
       ...observation,

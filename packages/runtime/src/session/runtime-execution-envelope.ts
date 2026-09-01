@@ -65,6 +65,7 @@ export function deriveRuntimeConvergencePolicyInput(
 
 export interface RuntimeResolvedExecutionEnvelope {
   readonly convergence: ResolvedTurnConvergencePolicy;
+  readonly physicalProviderRequests?: number;
   readonly conversation?: RuntimeConversationExecutionEnvelope;
 }
 
@@ -77,10 +78,20 @@ export function resolveRuntimeExecutionEnvelope(
     convergence: value?.convergence === undefined
       ? RUNTIME_DEFAULT_TURN_CONVERGENCE_POLICY
       : resolveTurnConvergencePolicy(value.convergence),
+    ...(value?.physicalProviderRequests === undefined
+      ? {}
+      : { physicalProviderRequests: requirePositiveSafeInteger(value.physicalProviderRequests) }),
     ...(conversation !== undefined
       ? { conversation: resolveRuntimeConversationExecutionEnvelope(conversation) }
       : {}),
   });
+}
+
+function requirePositiveSafeInteger(value: number): number {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new KilnError("CONFIG_INVALID", "executionEnvelope.physicalProviderRequests must be a positive safe integer");
+  }
+  return value;
 }
 
 function resolveRuntimeConversationExecutionEnvelope(

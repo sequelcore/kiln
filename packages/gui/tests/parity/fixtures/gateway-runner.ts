@@ -161,6 +161,15 @@ const sessionSummaries: OperatorSessionSummary[] = [
     updatedAt: new Date(Date.now() - 300_000).toISOString(),
     costUsd: 0.001,
   },
+  {
+    sessionId: "structured-diagnostic-session",
+    title: "Inspect structured tool diagnostic",
+    tags: [],
+    routesUsed: ["claude-default"],
+    lastRoute: { routeId: "claude-default", provider: "claude" },
+    updatedAt: new Date(Date.now() - 360_000).toISOString(),
+    costUsd: 0.001,
+  },
 ];
 
 const operatorDiscovery: readonly GuiProviderDiscoveryResult[] = buildGuiOperatorDiscoveryResults({
@@ -297,6 +306,77 @@ const restoredSessionDetail: GuiSessionDetail = {
 };
 
 const contextSessionDetails: Record<string, GuiSessionDetail> = {
+  "structured-diagnostic-session": {
+    id: "structured-diagnostic-session",
+    meta: {
+      kilnSessionId: "structured-diagnostic-session",
+      title: "Inspect structured tool diagnostic",
+      task: "Inspect structured tool diagnostic",
+      startedAt: "2026-07-03T12:10:00.000Z",
+      completedAt: "2026-07-03T12:10:03.000Z",
+    },
+    events: [
+      {
+        eventId: "parity-diagnostic-user",
+        kilnSessionId: "structured-diagnostic-session",
+        sequence: 1,
+        timestamp: "2026-07-03T12:10:00.000Z",
+        kind: "user_message",
+        turnId: "parity-diagnostic-turn",
+        payload: { content: "Create the review goal" },
+      },
+      {
+        eventId: "parity-diagnostic-tool-start",
+        kilnSessionId: "structured-diagnostic-session",
+        sequence: 2,
+        timestamp: "2026-07-03T12:10:01.000Z",
+        kind: "tool_call_started",
+        turnId: "parity-diagnostic-turn",
+        payload: {
+          toolCallId: "parity-goal-create-diagnostic",
+          toolCallScopeId: "parity-diagnostic-turn",
+          toolName: "goal.create",
+          input: { objective: "Review the GUI" },
+        },
+      },
+      {
+        eventId: "parity-diagnostic-tool-complete",
+        kilnSessionId: "structured-diagnostic-session",
+        sequence: 3,
+        timestamp: "2026-07-03T12:10:02.000Z",
+        kind: "tool_call_completed",
+        turnId: "parity-diagnostic-turn",
+        payload: {
+          toolCallId: "parity-goal-create-diagnostic",
+          toolCallScopeId: "parity-diagnostic-turn",
+          toolName: "goal.create",
+          output: JSON.stringify({
+            error: {
+              code: "invalid_input",
+              message: "goal.create cannot combine preferredRouteId and managedAgentProfile.",
+              recoverable: true,
+              suggestedNextTool: "goal.create",
+              requiredInputShape: {
+                objective: "string",
+                workItemIds: ["existing work item id"],
+              },
+            },
+          }),
+          outputSummary: "Goal input is invalid",
+          status: { state: "succeeded" },
+        },
+      },
+      {
+        eventId: "parity-diagnostic-assistant",
+        kilnSessionId: "structured-diagnostic-session",
+        sequence: 4,
+        timestamp: "2026-07-03T12:10:03.000Z",
+        kind: "assistant_message",
+        turnId: "parity-diagnostic-turn",
+        payload: { content: "The goal input needs correction." },
+      },
+    ],
+  },
   "context-partial-session": {
     id: "context-partial-session",
     meta: { kilnSessionId: "context-partial-session", title: "Inspect partial context evidence", task: "Inspect partial context evidence", startedAt: "2026-07-03T12:00:00.000Z" },

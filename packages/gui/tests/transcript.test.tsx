@@ -165,7 +165,7 @@ describe("Transcript", () => {
     expect(screen.getByRole("status", { name: "Assistant activity: Thinking" })).toBeVisible();
   });
 
-  it("composes a terminal disposition after its assistant response without a status card", () => {
+  it("keeps successful terminal evidence out of the conversational transcript", () => {
     const { container } = render(
       <Transcript
         entries={[
@@ -195,12 +195,9 @@ describe("Transcript", () => {
     expect(rows).toHaveLength(2);
     expect(rows[1]).toHaveTextContent("Hi, Ricardo! How can I help?");
     const disposition = rows[1]?.querySelector('[data-role="turn-disposition"]');
-    expect(disposition).toBeInTheDocument();
-    expect(disposition).toHaveAttribute("data-framing", "none");
-    expect(disposition).not.toHaveClass("border", "shadow-sm");
+    expect(disposition).not.toBeInTheDocument();
+    expect(within(rows[1] as HTMLElement).queryByText("Turn completed")).not.toBeInTheDocument();
     expect(within(rows[1] as HTMLElement).queryByText(/Completion eligible/u)).not.toBeInTheDocument();
-    fireEvent.click(within(rows[1] as HTMLElement).getByRole("button", { name: /Turn completed\. Completed\. Show details/u }));
-    expect(within(rows[1] as HTMLElement).getByText("gpt-5.6-luna")).toBeVisible();
   });
 
   it("renders formal verification obligations, proof effort, candidate identity, and the Assurance boundary", () => {
@@ -369,11 +366,11 @@ describe("Transcript", () => {
     expect(document.querySelector('[data-role="workflow-activity"] [class*="animate-spin"]')).not.toBeInTheDocument();
     expect(screen.getByText("Inspect transcript ownership")).toBeVisible();
     expect(screen.getByText("2 / 2")).toBeVisible();
-    const scopedActions = screen.getByRole("button", { name: "Inspected repository. 1 action. Show details" });
-    expect(scopedActions).toBeVisible();
-    expect(screen.queryByText(/Read transcript\.tsx/u)).not.toBeInTheDocument();
-    fireEvent.click(scopedActions);
+    const scopedActions = screen.getByRole("list", { name: "Workflow tool activity" });
+    expect(scopedActions).toHaveAttribute("data-presentation", "task-stream");
+    expect(scopedActions).toHaveAttribute("data-framing", "none");
     expect(screen.getByText(/Read transcript\.tsx/u)).toBeVisible();
+    expect(screen.queryByRole("button", { name: /1 action/u })).not.toBeInTheDocument();
     expect(document.querySelector('[data-role="workflow-activity"]')?.closest('[data-slot="transcript-operational-content"]'))
       .toHaveClass("min-w-0", "max-w-[min(42rem,94%)]", "flex-1", "pl-5", "sm:pl-8");
   });
@@ -536,7 +533,7 @@ describe("Transcript", () => {
     expect(screen.getByRole("progressbar", { name: "Evidence completion for work-1" })).toBeVisible();
   });
 
-  it("groups consecutive routine tool calls into one progressive disclosure", () => {
+  it("renders consecutive routine tool calls as one visible task stream", () => {
     const createdAt = "2026-07-15T08:21:00.000Z";
     render(
       <Transcript
@@ -558,18 +555,15 @@ describe("Transcript", () => {
 
     expect(document.querySelectorAll('[data-slot="ai-tool-group"]')).toHaveLength(1);
     const group = document.querySelector('[data-slot="ai-tool-group"]');
-    expect(group).toHaveAttribute("data-presentation", "trace");
+    expect(group).toHaveAttribute("data-presentation", "task-stream");
     expect(group).toHaveAttribute("data-framing", "none");
-    const activitySummary = screen.getByRole("button", { name: "Inspecting repository. 3 actions. Show details" });
-    expect(activitySummary).toBeVisible();
-    expect(screen.queryByRole("list", { name: "Tool activity" })).not.toBeInTheDocument();
-    fireEvent.click(activitySummary);
     expect(within(screen.getByRole("list", { name: "Tool activity" })).getAllByRole("listitem")).toHaveLength(3);
     expect(document.querySelectorAll('[data-slot="ai-tool"]')).toHaveLength(3);
+    expect(screen.queryByRole("button", { name: /3 actions/u })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("JSON output")).not.toBeInTheDocument();
   });
 
-  it("keeps a completed trailing tool group collapsed even while the turn remains active", () => {
+  it("keeps completed trailing tool steps visible while the turn remains active", () => {
     render(
       <Transcript
         entries={[
@@ -588,9 +582,10 @@ describe("Transcript", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Inspected repository. 2 actions. Show details" })).toBeVisible();
-    expect(screen.queryByText("Completed")).not.toBeInTheDocument();
-    expect(screen.queryByRole("list", { name: "Tool activity" })).not.toBeInTheDocument();
+    const activity = screen.getByRole("list", { name: "Tool activity" });
+    expect(within(activity).getAllByRole("listitem")).toHaveLength(2);
+    expect(activity).toHaveTextContent("Completed read");
+    expect(activity).toHaveTextContent("Completed grep");
   });
 
   it("uses one trace-header anatomy for completed work and live thinking", () => {
@@ -613,16 +608,16 @@ describe("Transcript", () => {
       />,
     );
 
-    const headers = container.querySelectorAll('[data-slot="transcript-activity-header"]');
-    expect(headers).toHaveLength(2);
-    for (const header of headers) {
-      expect(header).toHaveClass("gap-2", "py-1", "text-xs");
-      expect(header.querySelector('[data-slot="transcript-activity-identity"]')).toHaveClass("size-5");
-    }
+    const activityHeader = container.querySelector('[data-slot="transcript-activity-header"]');
+    expect(activityHeader).toHaveClass("gap-2", "py-1", "text-xs");
+    expect(activityHeader?.querySelector('[data-slot="transcript-activity-identity"]')).toHaveClass("size-5");
+    const toolHeaders = container.querySelectorAll('[data-slot="ai-tool-header"]');
+    expect(toolHeaders).toHaveLength(2);
+    for (const header of toolHeaders) expect(header).toHaveClass("gap-2", "py-1", "text-xs");
     expect(container.querySelector('[data-slot="marker"]')).not.toBeInTheDocument();
   });
 
-  it("groups consecutive non-governance failures into one compact disclosure", () => {
+  it("renders consecutive non-governance failures as visible compact steps", () => {
     render(
       <Transcript
         entries={[
@@ -642,8 +637,10 @@ describe("Transcript", () => {
     );
 
     expect(document.querySelectorAll('[data-slot="ai-tool-group"]')).toHaveLength(1);
-    expect(screen.getByRole("button", { name: "Repository inspection needs attention. 2 actions. Show details" })).toBeVisible();
-    expect(document.querySelectorAll('[data-role="tool"]')).toHaveLength(0);
+    const activity = screen.getByRole("list", { name: "Tool activity" });
+    expect(within(activity).getAllByRole("listitem")).toHaveLength(2);
+    expect(activity).toHaveTextContent("ENOENT: one.ts");
+    expect(activity).toHaveTextContent("ENOENT: two.ts");
   });
 
   it("uses one Tool anatomy for running, completed, paused, and failed presentations", () => {
@@ -696,15 +693,15 @@ describe("Transcript", () => {
     );
 
     expect(document.querySelectorAll('[data-slot="ai-tool-group"]')).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: "Inspecting repository. 2 actions. Show details" }));
     const tools = document.querySelectorAll('[data-slot="ai-tool"]');
     expect(tools).toHaveLength(4);
     expect(document.querySelectorAll('[data-slot="ai-tool-header"]')).toHaveLength(4);
     expect(document.querySelectorAll('[data-slot="ai-tool-status"]')).toHaveLength(4);
-    expect(screen.getByRole("button", { name: /Using read\. Running\. Show details/u })).toBeVisible();
-    expect(screen.getByRole("button", { name: /Completed read\. Completed\. Show details/u })).toBeVisible();
-    expect(screen.getByRole("button", { name: /Execution paused\. Paused\. Show details/u })).toBeVisible();
-    expect(screen.getByRole("button", { name: /Failed goal\.create\. Failed\. Hide details/u })).toBeVisible();
+    expect(screen.getByText("Using read", { exact: true })).toBeVisible();
+    expect(screen.getByText("Completed read", { exact: true })).toBeVisible();
+    expect(screen.getByText("Execution paused", { exact: true })).toBeVisible();
+    expect(screen.getByText("Failed goal.create", { exact: true })).toBeVisible();
+    expect(document.querySelectorAll('[data-slot="ai-tool-header"][role="status"]')).toHaveLength(0);
   });
 
   it("renders structured tool diagnostics without a JSON dump", () => {
@@ -752,12 +749,15 @@ describe("Transcript", () => {
 
     const tool = document.querySelector('[data-slot="ai-tool"]')!;
     expect(tool).toHaveAttribute("data-state", "failed");
+    expect(within(tool as HTMLElement).queryByText("Invalid input")).not.toBeInTheDocument();
+    fireEvent.click(within(tool as HTMLElement).getByRole("button", { name: /Failed goal\.create\. Failed\. Show details/u }));
     expect(within(tool as HTMLElement).getByText("Invalid input")).toBeVisible();
     expect(within(tool as HTMLElement).getAllByText("goal.create cannot combine preferredRouteId and managedAgentProfile.")).not.toHaveLength(0);
     expect(within(tool as HTMLElement).getByText("objective")).toBeVisible();
     expect(within(tool as HTMLElement).getByText("existing work item id[]")).toBeVisible();
     expect(within(tool as HTMLElement).queryByLabelText("JSON output")).not.toBeInTheDocument();
     expect(within(tool as HTMLElement).queryByRole("region", { name: "Text output" })).not.toBeInTheDocument();
+    expect(within(tool as HTMLElement).queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("renders one stable task prompt without redundant branding", () => {
@@ -877,7 +877,7 @@ describe("Transcript", () => {
     expect(within(rows[2]!).queryByTestId("assistant-tool-events")).not.toBeInTheDocument();
   });
 
-  it("summarizes multiple assistant tool events until details are requested", () => {
+  it("shows multiple assistant tool events and discloses each detail independently", () => {
     render(
       <Transcript
         entries={[
@@ -919,9 +919,9 @@ describe("Transcript", () => {
       .toHaveClass("min-w-0", "max-w-[min(42rem,94%)]", "flex-1", "pl-5", "sm:pl-8");
     expect(within(rows[2]!).queryByTestId("assistant-tool-events")).not.toBeInTheDocument();
 
-    fireEvent.click(within(rows[1]!).getByRole("button", { name: "Work completed. 2 actions. Show details" }));
-    expect(rows[1]).toHaveTextContent("read");
-    expect(rows[1]).toHaveTextContent("patch");
+    expect(within(rows[1]!).getByRole("list", { name: "Tool activity" })).toBeVisible();
+    expect(rows[1]).toHaveTextContent("Completed read");
+    expect(rows[1]).toHaveTextContent("Completed patch");
     fireEvent.click(within(rows[1]!).getByRole("button", { name: /read\. Completed\. Show details/u }));
     expect(within(rows[1]!).getByText("# Session Model")).toBeInTheDocument();
     expect(rows[1]).toHaveTextContent("1 file changed");
@@ -1297,7 +1297,7 @@ describe("Transcript", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: /Hide details$/u })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
 
     const table = screen.getByRole("table");
     expect(within(table).getByRole("columnheader", { name: "Route" })).toBeInTheDocument();
@@ -1385,7 +1385,7 @@ describe("Transcript", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: /Hide details$/u })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
 
     const table = screen.getByRole("table");
     expect(within(table).getByRole("columnheader", { name: "Route" })).toBeInTheDocument();
@@ -1902,7 +1902,6 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Work completed. 2 actions. Show details" }));
     expect(screen.getByText("# Session Model")).toBeInTheDocument();
     expect(screen.getAllByText("55 entries under C:\\workspace\\kiln").length).toBeGreaterThan(0);
 
@@ -2366,7 +2365,8 @@ describe("Transcript", () => {
     expect(toolRow.querySelector('[data-slot="ai-tool-status"]')).toHaveTextContent("Running");
     expect(toolRow.querySelector('[data-slot="ai-tool-status"]')).not.toHaveAttribute("data-slot", "badge");
     expect(tool?.querySelector('[data-slot="badge"]')).toBeNull();
-    expect(toolRow.querySelector('[data-slot="ai-tool-status"] svg')).toHaveClass("motion-safe:animate-spin");
+    expect(toolRow.querySelector('[data-slot="ai-tool-status"] [data-role="activity-orb"]'))
+      .toHaveAttribute("data-orb-state", "working");
     expect(toolRow.querySelector('[data-role="active-tool-beam"]')).not.toBeInTheDocument();
   });
 

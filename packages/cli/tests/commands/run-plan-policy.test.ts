@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { PLAN_POLICY, resolveRunBuiltinToolProjection } from "../../src/commands/run.js";
+import {
+  createRunHostToolSandbox,
+  PLAN_POLICY,
+  projectRunBuiltinToolOptions,
+  resolveRunBuiltinToolProjection,
+} from "../../src/commands/run.js";
+import { assertBoundHostToolSandbox } from "@kilnai/core/sandbox";
 import { createPermissionEvaluator } from "../../src/wrapper/permission-evaluator.js";
 
 describe("run plan permission policy", () => {
@@ -17,6 +23,29 @@ describe("run plan permission policy", () => {
     expect(plan.alwaysOnTools).not.toContain("bash");
     expect(plan.alwaysOnTools).not.toContain("write");
     expect(resolveRunBuiltinToolProjection(false)).toEqual({ profile: "execute", alwaysOnTools: [] });
+  });
+
+  it("projects an explicit no-tool run as a strict empty tool surface", () => {
+    expect(projectRunBuiltinToolOptions({ additionalTools: [] }, false, true).toolProjection).toEqual({
+      mode: "strict",
+      alwaysOnTools: [],
+    });
+  });
+
+  it("binds host-tool enforcement to the exact CLI policy and read-only authority", () => {
+    const permissionPolicy = { approval: "never", sandbox: "danger-full-access" } as const;
+    const sandbox = assertBoundHostToolSandbox(createRunHostToolSandbox({
+      cwd: "C:/workspace",
+      sessionId: "session-1",
+      configurationRevisionId: `sha256:${"1".repeat(64)}`,
+      permissionPolicy,
+      requestedAuthority: "read_only",
+    }));
+
+    expect(sandbox.policy.config).toMatchObject({ fsPolicy: "read-only", netPolicy: "none" });
+    expect(sandbox.policy.canRead("C:/workspace/README.md")).toBe(true);
+    expect(sandbox.policy.canRead("C:/outside/private.txt")).toBe(false);
+    expect(sandbox.policy.canWrite("C:/workspace/README.md")).toBe(false);
   });
 
   it("admits governed control-plane tools while keeping plan mode read-only", () => {

@@ -30,7 +30,7 @@ import { normalizeMcpSelector } from "../wrapper/mcp-selector.js";
 import { createPermissionEvaluator } from "../wrapper/permission-evaluator.js";
 import { digestKilnPermissionPolicy } from "../config/model-facing-permission-policy.js";
 import { assertConfiguredInvocationAdmission } from "../config/builtin-tool-surface-config.js";
-import { ProviderSession } from "../wrapper/provider-session.js";
+import { admitToolAuthorityForRequestedAuthority, ProviderSession } from "../wrapper/provider-session.js";
 import { isDirectApiProvider, type ProviderId } from "../wrapper/session-registry.js";
 import { createOperatorTurnDispatchComposition } from "./operator-turn-dispatch-composition.js";
 import type { RunSessionOptions, RunSessionResult, RunSessionRouteCandidate } from "./run-session.js";
@@ -249,8 +249,17 @@ export function createCanonicalRunSessionDispatcher(input: {
         }
         for (const candidate of capabilityGeneration.authorityCandidates) {
           if (candidate.toolName === undefined || candidate.materializationStatus !== "materializable") continue;
+          const requestedAuthority = payload.sessionConfig.requestedAuthority;
+          if (requestedAuthority === undefined || requestedAuthority === "auto") continue;
+          const admittedCandidateAuthority = admitToolAuthorityForRequestedAuthority({
+            toolName: candidate.toolName,
+            effect: candidate.effect,
+            authority: candidate.candidateAuthority,
+            requestedAuthority,
+          });
+          if (!admittedCandidateAuthority) continue;
           toolAllowlist.add(candidate.toolName);
-          toolAuthority.set(candidate.toolName, candidate.candidateAuthority);
+          toolAuthority.set(candidate.toolName, admittedCandidateAuthority);
           perCallCapabilities.set(candidate.toolName, {
             name: candidate.toolName,
             description: `Deferred capability ${candidate.capabilityId}`,
@@ -264,13 +273,6 @@ export function createCanonicalRunSessionDispatcher(input: {
           toolAllowlist,
           toolAuthority,
           perCallCapabilities,
-          effectiveTurnAuthority: perCallConfig.effectiveTurnAuthority === undefined
-            ? undefined
-            : {
-                ...perCallConfig.effectiveTurnAuthority,
-                toolCount: toolAllowlist.size,
-                deniedToolCount: 0,
-              },
         };
       }
       const candidateToolNames = [...new Set([
@@ -279,6 +281,17 @@ export function createCanonicalRunSessionDispatcher(input: {
         ...(capabilityCandidateProjection?.discoveryToolNames ?? []),
         ...(capabilityGeneration?.authorityCandidates.flatMap((candidate) => candidate.toolName ?? []) ?? []),
       ])];
+      if (perCallConfig.effectiveTurnAuthority !== undefined) {
+        const admittedToolNames = perCallConfig.toolAllowlist ?? new Set<string>();
+        perCallConfig = {
+          ...perCallConfig,
+          effectiveTurnAuthority: {
+            ...perCallConfig.effectiveTurnAuthority,
+            toolCount: admittedToolNames.size,
+            deniedToolCount: candidateToolNames.filter((name) => !admittedToolNames.has(name)).length,
+          },
+        };
+      }
       const projectedAuthority = perCallConfig.effectiveTurnAuthority;
       const authority =
         projectedAuthority && isCanonicalAuthorityAdmissible(projectedAuthority)

@@ -10,6 +10,7 @@ import {
   resolveExecutionIdentity,
   textPart,
   type AgentMessage,
+  type ActionEffectEnvelope,
   type AuthorityDescriptor,
   type Capability,
   type DirectProviderExecutionMode,
@@ -132,6 +133,7 @@ export interface ProviderSessionConfig {
   readonly runtimeExecutionMode?: "execute" | "plan";
   readonly sessionTurnBudget?: RuntimeSessionTurnBudgetAuthority;
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
+  readonly providerTransportAdmission?: import("@kilnai/core").ProviderTransportAdmission;
   readonly mcpClients?: readonly KilnMcpClient[];
   readonly mcpToolAllowlist?: ReadonlySet<string>;
   /** Durable transcript sink and canonical replay binding for this surface. */
@@ -181,11 +183,6 @@ function authorityDescriptorFromCapability(
   return deriveAuthorityFromEffect(effect);
 }
 
-function isReadOnlyCapability(toolName: string, capability: Capability | undefined): boolean {
-  const effect = capability?.effectEnvelope ?? getBuiltinEffectEnvelope(toolName) ?? CONSERVATIVE_UNKNOWN_ENVELOPE;
-  return effect.operation !== "mutate";
-}
-
 /**
  * Managed invocation delegation tools whose destructiveness is in the child,
  * not the parent. These are admitted under read_only authority because the
@@ -217,8 +214,44 @@ function communicationPerCallProjection(
   };
 }
 
-function isDelegatableManagedInvocationTool(toolName: string): boolean {
+export function isDelegatableManagedInvocationTool(toolName: string): boolean {
   return MANAGED_DELEGATION_TOOL_NAMES.has(toolName);
+}
+
+export function admitToolAuthorityForRequestedAuthority(input: {
+  readonly toolName: string;
+  readonly effect: ActionEffectEnvelope;
+  readonly authority: AuthorityDescriptor;
+  readonly requestedAuthority: Exclude<OperatorTurnRequestedAuthority, "auto">;
+}): AuthorityDescriptor | undefined {
+  if (input.requestedAuthority === "read_only") {
+    if (input.authority.allowed && !input.authority.requiresApproval
+      && input.effect.operation !== "mutate" && input.authority.level <= 1) {
+      return input.authority;
+    }
+    if (isDelegatableManagedInvocationTool(input.toolName)) {
+      return {
+        level: 1,
+        allowed: true,
+        requiresApproval: false,
+        reason: "Read-only parent authority admits delegation; child effects remain separately bounded.",
+      };
+    }
+    return undefined;
+  }
+  if (input.requestedAuthority === "destructive") {
+    return {
+      level: input.authority.level,
+      allowed: true,
+      requiresApproval: false,
+      reason: "Destructive authority was admitted by the parent runtime turn.",
+    };
+  }
+  if ((input.authority.allowed && !input.authority.requiresApproval && input.authority.level <= 2)
+    || input.authority.requiresApproval) {
+    return input.authority;
+  }
+  return undefined;
 }
 
 function resolveExecutionMode(config: ProviderSessionConfig): DirectProviderExecutionMode {
@@ -687,7 +720,13 @@ export class ProviderSession implements IKilnSession {
       if (!authority) {
         continue;
       }
-      if (effectiveRequestedAuthority === "read_only") {
+      const admittedAuthority = admitToolAuthorityForRequestedAuthority({
+        toolName: tool.name,
+        effect: capability?.effectEnvelope ?? getBuiltinEffectEnvelope(tool.name) ?? CONSERVATIVE_UNKNOWN_ENVELOPE,
+        authority,
+        requestedAuthority: effectiveRequestedAuthority,
+      });
+      if (admittedAuthority) {
         // Managed delegation tools (invoke/start/orchestrate) are admitted
         // under read_only even though their effect envelope is destructive,
         // because the actual mutating work is delegated to the child agent.
@@ -695,29 +734,8 @@ export class ProviderSession implements IKilnSession {
         // caller-capability policy at execution time.
         // managed_agent.cancel is NOT a delegation tool — it modifies local
         // state directly (stops a running agent) and is denied under read_only.
-        if ((authority.allowed && !authority.requiresApproval && isReadOnlyCapability(tool.name, capability) && authority.level <= 1)
-          || isDelegatableManagedInvocationTool(tool.name)) {
-          admittedToolNames.add(tool.name);
-          toolAuthority.set(tool.name, authority);
-        }
-        continue;
-      }
-      if (effectiveRequestedAuthority === "destructive" && capability) {
         admittedToolNames.add(tool.name);
-        toolAuthority.set(tool.name, {
-          level: authority.level,
-          allowed: true,
-          requiresApproval: false,
-          reason: "Destructive authority was admitted by the parent runtime turn.",
-        });
-        continue;
-      }
-      if (authority.allowed && !authority.requiresApproval && authority.level <= 2) {
-        admittedToolNames.add(tool.name);
-        toolAuthority.set(tool.name, authority);
-      } else if (authority.requiresApproval) {
-        admittedToolNames.add(tool.name);
-        toolAuthority.set(tool.name, authority);
+        toolAuthority.set(tool.name, admittedAuthority);
       }
     }
 
@@ -853,6 +871,9 @@ export class ProviderSession implements IKilnSession {
       // credential resolution; forwarding the authority's source here would
       // perform a second, post-fence budget admission.
       ...(this.config.executionEnvelope ? { executionEnvelope: this.config.executionEnvelope } : {}),
+      ...(this.config.providerTransportAdmission
+        ? { providerTransportAdmission: this.config.providerTransportAdmission }
+        : {}),
     });
 
     if (options.messages && options.messages.length > 0) {
@@ -982,6 +1003,25 @@ export class ProviderSession implements IKilnSession {
     if (processError) {
       const state = perCallConfig.runtimeModelRoundDispatch?.state;
       this.syncRuntimeModelRoundState(state);
+      const usage = orchestrator.usageSnapshot();
+      const providerRequests = orchestrator.providerRequestSnapshot();
+      if (providerRequests.length > 0) {
+        this.contextTracker.update(usage.inputTokens, usage.outputTokens);
+        yield {
+          type: "cost_update",
+          usd: 0,
+          mode: "computed",
+          provider: this.config.provider,
+          model: orchestrator.model ?? this.resolvedModel,
+          canonicalModel: orchestrator.model ?? this.resolvedModel,
+          billingMode: resolveProviderDefaultBillingMode(this.config.provider),
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          cacheReadTokens: usage.cacheReadTokens,
+          cacheWriteTokens: usage.cacheWriteTokens,
+          providerRequests,
+        };
+      }
       throw processError;
     }
     if (!result) {
@@ -1255,9 +1295,45 @@ function isRuntimeModelRoundCommittedError(error: unknown): error is Error {
   return error instanceof Error && error.name === "RuntimeModelRoundCommittedError";
 }
 
+function isRuntimeToolActionCommittedError(error: unknown): error is Error {
+  return error instanceof Error && error.name === "RuntimeToolActionCommittedError";
+}
+
+function formatClassifiedCommittedToolCause(cause: unknown): string | undefined {
+  if (isRuntimeToolActionCommittedError(cause)) {
+    return formatClassifiedCommittedToolCause(cause.cause);
+  }
+  if (
+    cause instanceof Error
+    && cause.name === "AgentTaskApplicationError"
+    && "code" in cause
+    && typeof cause.code === "string"
+    && "operatorAction" in cause
+    && typeof cause.operatorAction === "string"
+  ) {
+    return `${cause.code}. ${cause.operatorAction}`;
+  }
+  if (
+    cause instanceof Error
+    && cause.name === "AgentTaskExecutionFailure"
+    && "evidence" in cause
+    && typeof cause.evidence === "object"
+    && cause.evidence !== null
+    && "classification" in cause.evidence
+    && typeof cause.evidence.classification === "string"
+  ) {
+    return `${cause.evidence.classification}.`;
+  }
+  return undefined;
+}
+
 function formatExecutableSessionError(error: unknown): string {
   if (isRuntimeModelRoundCommittedError(error) && error.cause !== undefined) {
     return `${error.message} Cause: ${formatExecutableSessionError(error.cause)}`;
+  }
+  if (isRuntimeToolActionCommittedError(error) && error.cause !== undefined) {
+    const classifiedCause = formatClassifiedCommittedToolCause(error.cause);
+    if (classifiedCause) return `${error.message} Cause: ${classifiedCause}`;
   }
   if (error instanceof AllCredentialsExhaustedError) {
     return formatCredentialPoolExhaustion(error);

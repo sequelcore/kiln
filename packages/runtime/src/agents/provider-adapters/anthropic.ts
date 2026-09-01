@@ -6,6 +6,7 @@ import type {
   AgentStreamEvent,
   ToolCall,
   RetryOptions,
+  ProviderTransportEvent,
 } from "@kilnai/core/agents";
 import {
   assertValidToolCallIds,
@@ -40,7 +41,7 @@ export class AnthropicAdapter implements ProviderAdapter {
   private readonly internalRetry: boolean;
 
   constructor(config: AnthropicAdapterConfig) {
-    this.client = new Anthropic({ apiKey: config.apiKey, ...(config.internalRetry === false ? { maxRetries: 0 } : {}) });
+    this.client = new Anthropic({ apiKey: config.apiKey, maxRetries: 0 });
     this.model = config.defaultModel ?? CLAUDE_SONNET;
     this.internalRetry = config.internalRetry ?? true;
   }
@@ -48,10 +49,10 @@ export class AnthropicAdapter implements ProviderAdapter {
   async createMessage(options: CreateMessageOptions): Promise<AgentResponse> {
     const params = this.buildParams(options);
     const response = await withRetry(
-      () => this.client.messages.create(params, {
-        headers: { "anthropic-beta": BETA_HEADER },
-        signal: options.signal,
-      }),
+      () => this.observeRequest(options, () => this.client.messages.create(params, {
+          headers: { "anthropic-beta": BETA_HEADER },
+          signal: options.signal,
+        })),
       this.retryOptions(),
       options.signal,
     );
@@ -64,10 +65,10 @@ export class AnthropicAdapter implements ProviderAdapter {
   ): AsyncGenerator<AgentStreamEvent> {
     const params = this.buildParams(options);
     const stream = await withRetry(
-      () => this.client.messages.create(
+      () => this.observeRequest(options, () => this.client.messages.create(
         { ...params, stream: true },
         { headers: { "anthropic-beta": BETA_HEADER }, signal: options.signal },
-      ),
+      )),
       this.retryOptions(),
       options.signal,
     );
@@ -360,6 +361,31 @@ export class AnthropicAdapter implements ProviderAdapter {
           RETRYABLE_STATUSES.has(error.status ?? 0);
       },
     };
+  }
+
+  private async observeRequest<T>(options: CreateMessageOptions, operation: () => Promise<T>): Promise<T> {
+    options.transportAdmission?.admit(options.requestIdentity);
+    this.emitTransport(options, { type: "request_started", identity: options.requestIdentity });
+    try {
+      const result = await operation();
+      this.emitTransport(options, { type: "request_completed", identity: options.requestIdentity });
+      return result;
+    } catch (error) {
+      this.emitTransport(options, {
+        type: "request_failed",
+        identity: options.requestIdentity,
+        phase: "transport",
+      });
+      throw error;
+    }
+  }
+
+  private emitTransport(options: CreateMessageOptions, event: ProviderTransportEvent): void {
+    try {
+      options.transportObserver?.onEvent(event);
+    } catch {
+      // Diagnostic observers cannot affect provider execution.
+    }
   }
 }
 

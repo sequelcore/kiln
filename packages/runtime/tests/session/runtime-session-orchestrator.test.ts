@@ -290,8 +290,20 @@ describe("RuntimeSessionOrchestrator", () => {
           requestId: "invocation-digest:response:1",
         },
         transportWatchdog: watchdog,
-        transportObserver: observer,
+        transportObserver: expect.objectContaining({ onEvent: expect.any(Function) }),
       }));
+      const request = vi.mocked(provider.createMessage).mock.calls[0]?.[0];
+      request?.transportObserver?.onEvent({
+        type: "request_started",
+        identity: request.requestIdentity,
+      });
+      expect(observer.onEvent).toHaveBeenCalledWith({
+        type: "request_started",
+        identity: {
+          projectId: "project-digest",
+          requestId: "invocation-digest:response:1",
+        },
+      });
     });
 
     it("appends canonical turn-local time after the stable session prompt", async () => {

@@ -399,7 +399,6 @@ describe("createWsRoutes", () => {
       expect(done.effectivePromptObservation).toMatchObject({
         providerId: "codex-oauth",
         modelId: "gpt-5.6-sol",
-        finalPromptHash: hash("8"),
         componentCount: 1,
       });
       expect(JSON.stringify(done.effectivePromptObservation)).not.toContain("private request");

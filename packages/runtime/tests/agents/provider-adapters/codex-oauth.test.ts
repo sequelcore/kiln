@@ -3,6 +3,7 @@ import type {
   AgentResponse,
   AgentStreamEvent,
   CreateMessageOptions,
+  ProviderTransportEvent,
 } from "@kilnai/core/agents";
 import {
   KNOWN_DELIBERATION_LEVEL_IDS,
@@ -263,6 +264,17 @@ describe("CodexOAuthAdapter", () => {
   });
 
   describe("createMessage", () => {
+    it("checks physical transport admission before fetch", async () => {
+      const { adapter } = await createAdapter();
+      const denied = new Error("physical request budget exhausted");
+
+      await expect(adapter.createMessage(createOptions({
+        transportAdmission: { admit: () => { throw denied; } },
+      }))).rejects.toBe(denied);
+
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
     it("sends POST to https://chatgpt.com/backend-api/codex/responses with Authorization Bearer token", async () => {
       mockFetch.mockResolvedValueOnce(sseResponse([
         {
@@ -2448,10 +2460,20 @@ describe("CodexOAuthAdapter", () => {
         ]));
 
       const { adapter, auth } = await createAdapter();
-      await adapter.createMessage(createOptions());
+      const transportEvents: ProviderTransportEvent[] = [];
+      await adapter.createMessage(createOptions({
+        transportObserver: { onEvent: (event) => transportEvents.push(event) },
+      }));
 
       expect(auth.getValidAccessToken).toHaveBeenCalledTimes(2);
       expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(transportEvents.map((event) => event.type)).toEqual([
+        "request_started",
+        "response_headers",
+        "request_started",
+        "response_headers",
+        "request_completed",
+      ]);
 
       const firstHeaders = (mockFetch.mock.calls[0]?.[1] as RequestInit).headers;
       const secondHeaders = (mockFetch.mock.calls[1]?.[1] as RequestInit).headers;

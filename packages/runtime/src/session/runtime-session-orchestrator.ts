@@ -58,6 +58,8 @@ import {
   buildProviderRequestToolProjectionEvidence,
   measureProviderRequestRegions,
   type ProviderRequestCachePartitionInput,
+  type OrchestratorUsageSnapshot,
+  RuntimeProviderRequestAttemptTracker,
   RuntimeSessionExecutionTelemetry,
 } from "./runtime-session-orchestrator-telemetry.js";
 import {
@@ -92,6 +94,7 @@ import type {
   ToolExecutionSummary,
   EffectiveTurnAuthoritySnapshot,
 } from "./runtime-session-orchestrator.types.js";
+import { RuntimeProviderTransportBudgetAuthority } from "./provider-transport-admission.js";
 import type { EscalationSignal } from "./support/escalation/escalation-detector.js";
 import type {
   CompletionEligibility,
@@ -194,6 +197,7 @@ export type {
 
 export class RuntimeSessionOrchestrator {
   private readonly executionEnvelope: RuntimeResolvedExecutionEnvelope;
+  private readonly providerTransportAdmission?: import("@kilnai/core").ProviderTransportAdmission;
   private _tools: readonly ToolDefinition[] | undefined;
   private readonly approvalGate: RuntimeSessionApprovalGate;
   private readonly telemetry: RuntimeSessionExecutionTelemetry;
@@ -203,6 +207,10 @@ export class RuntimeSessionOrchestrator {
     approvalGate?: RuntimeSessionApprovalGate,
   ) {
     this.executionEnvelope = resolveRuntimeExecutionEnvelope(deps.executionEnvelope);
+    this.providerTransportAdmission = deps.providerTransportAdmission
+      ?? (this.executionEnvelope.physicalProviderRequests === undefined
+        ? undefined
+        : new RuntimeProviderTransportBudgetAuthority(this.executionEnvelope.physicalProviderRequests));
     this._tools = deps.tools;
     this.approvalGate = approvalGate ?? new RuntimeSessionApprovalGate(deps.eventBus);
     this.telemetry = new RuntimeSessionExecutionTelemetry(
@@ -220,6 +228,16 @@ export class RuntimeSessionOrchestrator {
 
   get eventBus(): EventBus | undefined {
     return this.deps.eventBus;
+  }
+
+  /** Returns the usage already observed by Runtime, including terminal failure paths. */
+  usageSnapshot(): OrchestratorUsageSnapshot {
+    return this.telemetry.snapshot();
+  }
+
+  /** Returns the provider requests already observed by Runtime, including terminal failure paths. */
+  providerRequestSnapshot(): readonly ProviderRequestEvidence[] {
+    return this.telemetry.requestSnapshot();
   }
 
   /** Rebinds the same execution surface to the exact post-fence provider selected by admission. */
@@ -590,6 +608,9 @@ export class RuntimeSessionOrchestrator {
           `Provider adapter '${routing.effectiveProvider.name}' cannot transport the resolved communication control.`,
         );
       }
+      const requestAttemptTracker = new RuntimeProviderRequestAttemptTracker(
+        perCallConfig?.providerTransport?.observer,
+      );
       const providerRequest: CreateMessageOptions = {
         sessionId: session.id,
         ...(perCallConfig?.providerTransport?.projectId || perCallConfig?.providerTransport?.requestIdPrefix
@@ -621,8 +642,9 @@ export class RuntimeSessionOrchestrator {
         ...(perCallConfig?.providerTransport?.watchdog
           ? { transportWatchdog: perCallConfig.providerTransport.watchdog }
           : {}),
-        ...(perCallConfig?.providerTransport?.observer
-          ? { transportObserver: perCallConfig.providerTransport.observer }
+        transportObserver: requestAttemptTracker,
+        ...(this.providerTransportAdmission
+          ? { transportAdmission: this.providerTransportAdmission }
           : {}),
         ...(providerExecutionContext ? { executionContext: providerExecutionContext } : {}),
       };
@@ -692,6 +714,27 @@ export class RuntimeSessionOrchestrator {
         const correction = formatManagedInvocationTransitionReserveCorrection(pendingTransitionForRound!);
         session.addUserMessage(textParts(correction));
       }
+      const measureCurrentRequest = (stopReason?: string) => measureProviderRequestRegions({
+        system: invocationPromptManifest.finalPrompt,
+        effectivePrompt: invocationPromptManifest,
+        messages: conversationProjection.messages,
+        tools: toolsForRound,
+        toolCount: toolsForRound?.length ?? 0,
+        outputReserveTokens: this.deps.maxTokens,
+        physicalAttempts: requestAttemptTracker.snapshot(),
+        toolProjection: buildProviderRequestToolProjectionEvidence({
+          projectedTools: toolsForRound,
+          materializableTools: materializableToolsForEvidence(
+            this.deps.materializableTools,
+            readExecutionToolAllowlist(perCallConfig),
+          ),
+          materializationDecisions: pendingMaterializationDecisions,
+        }),
+        cachePartition,
+        conversationProjection: conversationProjection.evidence,
+        communicationResolution: routing.communicationResolution,
+        ...(stopReason ? { stopReason } : {}),
+      });
       const providerStartedAt = turnObservation.recordProviderRequestStarted();
       let response: AgentResponse;
       try {
@@ -704,7 +747,13 @@ export class RuntimeSessionOrchestrator {
           perCallConfig,
         });
       } catch (error) {
-        turnObservation.recordProviderRequestCompleted(providerStartedAt, undefined);
+        const providerCompletion = turnObservation.recordProviderRequestCompleted(providerStartedAt, undefined);
+        this.telemetry.recordFailedRequest(
+          session.id,
+          measureCurrentRequest(),
+          providerCompletion.durationMs,
+          session.activeAgentId ?? undefined,
+        );
         throw error;
       }
       const providerCompletion = turnObservation.recordProviderRequestCompleted(
@@ -729,25 +778,7 @@ export class RuntimeSessionOrchestrator {
           durationMs: providerCompletion.durationMs,
         },
         session.activeAgentId ?? undefined,
-        measureProviderRequestRegions({
-          system: invocationPromptManifest.finalPrompt,
-          effectivePrompt: invocationPromptManifest,
-          messages: conversationProjection.messages,
-          tools: toolsForRound,
-          toolCount: toolsForRound?.length ?? 0,
-          toolProjection: buildProviderRequestToolProjectionEvidence({
-            projectedTools: toolsForRound,
-            materializableTools: materializableToolsForEvidence(
-              this.deps.materializableTools,
-          readExecutionToolAllowlist(perCallConfig),
-            ),
-            materializationDecisions: pendingMaterializationDecisions,
-          }),
-          cachePartition,
-          conversationProjection: conversationProjection.evidence,
-          communicationResolution: routing.communicationResolution,
-          ...(response.stopReason ? { stopReason: response.stopReason } : {}),
-        }),
+        measureCurrentRequest(response.stopReason),
       );
       pendingMaterializationDecisions = [];
 
@@ -2657,6 +2688,7 @@ function buildRuntimeProviderRequestCachePartition(
   perCallConfig: PerCallToolConfig | undefined,
   executionEnvelope: RuntimeResolvedExecutionEnvelope,
 ): ProviderRequestCachePartitionInput {
+  const authority = readExecutionTurnAuthority(perCallConfig);
   return {
     tenantId: perCallConfig?.tenantId ?? session.tenantId,
     provider: routing.routingDecision?.provider
@@ -2674,7 +2706,16 @@ function buildRuntimeProviderRequestCachePartition(
       toolAllowlist: [...readExecutionToolAllowlist(perCallConfig)].sort(),
       contextPolicy: perCallConfig?.contextPolicy,
     },
-    authority: { admissionId: perCallConfig!.authorityAdmission!.admissionId },
+    authority: {
+      admissionId: perCallConfig!.authorityAdmission!.admissionId,
+      ...(authority
+        ? {
+            requestedAuthority: authority.requestedAuthority,
+            admittedAuthority: authority.admittedAuthority,
+            completeness: authority.completeness,
+          }
+        : {}),
+    },
   };
 }
 

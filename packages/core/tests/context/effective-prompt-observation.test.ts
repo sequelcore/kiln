@@ -63,7 +63,7 @@ function request(
 }
 
 describe("projectFinalEffectivePromptObservation", () => {
-  it("attributes the observation to the last provider request with exact redacted evidence", () => {
+  it("attributes the content-free summary to the last provider request", () => {
     const observation = projectFinalEffectivePromptObservation([
       request(0, "sha256:primary"),
       request(1, "sha256:fallback"),
@@ -74,7 +74,6 @@ describe("projectFinalEffectivePromptObservation", () => {
       requestIndex: 1,
       providerId: "fallback",
       modelId: "model-b",
-      finalPromptHash: "sha256:fallback",
       estimatedTokens: 3,
       componentCount: 2,
       componentScopeCounts: { static: 1, dynamic: 0, deferred: 1 },
@@ -106,7 +105,7 @@ describe("observeStandaloneEffectivePrompt", () => {
     });
 
     expect(observation.componentCount).toBe(3);
-    expect(observation.effectivePrompt.components[1]?.id).toMatch(/^sha256:/);
+    expect(observation.componentScopeCounts).toEqual({ static: 0, dynamic: 3, deferred: 0 });
     expect(JSON.stringify(observation)).not.toContain("communication-contract");
   });
 });

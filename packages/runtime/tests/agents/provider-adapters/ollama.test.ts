@@ -102,6 +102,7 @@ describe("OllamaAdapter", () => {
     });
 
     it("maps response correctly (content, tokens)", async () => {
+      const onEvent = vi.fn();
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
@@ -113,7 +114,7 @@ describe("OllamaAdapter", () => {
       });
 
       const adapter = new OllamaAdapter();
-      const response = await adapter.createMessage(makeOptions());
+      const response = await adapter.createMessage(makeOptions({ transportObserver: { onEvent } }));
 
       expect(extractText(response.parts)).toBe("Hello there!");
       expect(response.inputTokens).toBe(100);
@@ -121,6 +122,11 @@ describe("OllamaAdapter", () => {
       expect(response.cacheReadTokens).toBe(0);
       expect(response.cacheWriteTokens).toBe(0);
       expect(response.toolCalls).toEqual([]);
+      expect(onEvent.mock.calls.map(([event]) => event.type)).toEqual([
+        "request_started",
+        "response_headers",
+        "request_completed",
+      ]);
     });
 
     it("handles tool calls", async () => {

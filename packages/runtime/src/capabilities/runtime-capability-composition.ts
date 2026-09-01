@@ -1548,10 +1548,16 @@ function discloseDescriptor(descriptor: CapabilityDescriptor): CapabilityDescrip
 }
 
 function normalizeToolDefinition(input: RuntimeToolDefinitionInput): ToolDefinition {
-  if (!isPlainRecord(input) || typeof input.name !== "string" || input.name.trim().length === 0
-    || typeof input.description !== "string" || input.description.length > 16_384
-    || containsSecret(input.name) || containsSecret(input.description)) {
-    throw new TypeError("Capability materialization must contain a safe canonical ToolDefinition.");
+  if (!isPlainRecord(input)) throw new TypeError("Capability ToolDefinition must be a plain record.");
+  if (typeof input.name !== "string" || input.name.trim().length === 0) {
+    throw new TypeError("Capability ToolDefinition name must be a non-empty string.");
+  }
+  if (typeof input.description !== "string" || input.description.length > 16_384) {
+    throw new TypeError("Capability ToolDefinition description must be a bounded string.");
+  }
+  if (containsSecret(input.name)) throw new TypeError("Capability ToolDefinition name contains secret-bearing evidence.");
+  if (containsSecret(input.description)) {
+    throw new TypeError("Capability ToolDefinition description contains secret-bearing evidence.");
   }
   const inputSchema = normalizeAndDigestCapabilityJsonSchema(input.inputSchema, "input", {
     requireObjectType: true,
@@ -1805,8 +1811,17 @@ function isPortableInvocationPort(value: unknown): value is PortableInvocationPo
 }
 
 function containsSecret(value: string): boolean {
-  return /(?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret|credential|private[_-]?key|authorization|cookie|command|endpoint|environment|path)/iu.test(value)
-    || /(?:^|[._:/+\-])Bearer\s+\S+/iu.test(value);
+  return /(?:^|[._:/+\-])Bearer\s+\S+/iu.test(value)
+    || /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/u.test(value)
+    || /(?:^|[._:/+\-])[a-z][a-z0-9+.-]*:\/\/[^/@\s]+:[^/@\s]+@/iu.test(value)
+    || /(?:^|[._:/+\-])(?:sk|pk|ghp|github_pat|xox[baprs])_[A-Za-z0-9_-]{8,}(?=$|[.:/+])/u.test(value)
+    || /(?:^|[._:/+\-])sk-(?:proj-)?[A-Za-z0-9_-]{8,}(?=$|[.:/+])/u.test(value)
+    || /(?:^|[._:/+\-])AIza[0-9A-Za-z_-]{20,}(?=$|[.:/+])/u.test(value)
+    || /(?:^|[._:/+\-])glpat-[0-9A-Za-z_-]{10,}(?=$|[.:/+])/u.test(value)
+    || /(?:^|[._:/+\-])xox[baprs]-[0-9A-Za-z-]{10,}(?=$|[.:/+])/u.test(value)
+    || /(?:^|[._:/+\-])AKIA[0-9A-Z]{16}(?=$|[.:/+])/u.test(value)
+    || /(?:^|[._:/+\-])eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+(?=$|[.:/+])/u.test(value)
+    || /(?:password|passwd|secret|token|api[_-]?key)\s*[=:]\s*\S+/iu.test(value);
 }
 
 function readTags(value: unknown): readonly string[] {

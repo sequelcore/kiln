@@ -5,6 +5,7 @@ import type {
   AgentResponse,
   AgentStreamEvent,
   ToolCall,
+  ProviderTransportEvent,
 } from "@kilnai/core/agents";
 import {
   admitDeliberationForExecution,
@@ -67,7 +68,7 @@ export class OllamaAdapter implements ProviderAdapter {
     rejectExecutableDeliberation(options);
     const body = this.buildRequest(options, false);
 
-    const response = await fetch(`${this.baseUrl}/api/chat`, {
+    const response = await this.fetchObserved(options, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -79,6 +80,7 @@ export class OllamaAdapter implements ProviderAdapter {
     }
 
     const data = (await response.json()) as OllamaChatResponse;
+    this.emitTransport(options, { type: "request_completed", identity: options.requestIdentity });
 
     const toolCalls: ToolCall[] = [];
     if (data.message.tool_calls) {
@@ -111,7 +113,7 @@ export class OllamaAdapter implements ProviderAdapter {
     rejectExecutableDeliberation(options);
     const body = this.buildRequest(options, true);
 
-    const response = await fetch(`${this.baseUrl}/api/chat`, {
+    const response = await this.fetchObserved(options, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -163,6 +165,36 @@ export class OllamaAdapter implements ProviderAdapter {
       }
     } finally {
       reader.releaseLock();
+    }
+    this.emitTransport(options, { type: "request_completed", identity: options.requestIdentity });
+  }
+
+  private async fetchObserved(options: CreateMessageOptions, init: RequestInit): Promise<Response> {
+    options.transportAdmission?.admit(options.requestIdentity);
+    this.emitTransport(options, { type: "request_started", identity: options.requestIdentity });
+    try {
+      const response = await fetch(`${this.baseUrl}/api/chat`, init);
+      this.emitTransport(options, {
+        type: "response_headers",
+        identity: options.requestIdentity,
+        status: response.status,
+      });
+      return response;
+    } catch (error) {
+      this.emitTransport(options, {
+        type: "request_failed",
+        identity: options.requestIdentity,
+        phase: "transport",
+      });
+      throw error;
+    }
+  }
+
+  private emitTransport(options: CreateMessageOptions, event: ProviderTransportEvent): void {
+    try {
+      options.transportObserver?.onEvent(event);
+    } catch {
+      // Diagnostic observers cannot affect provider execution.
     }
   }
 

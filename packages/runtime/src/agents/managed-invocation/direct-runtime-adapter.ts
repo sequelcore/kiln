@@ -91,6 +91,7 @@ export interface ManagedDirectProviderRuntimeAdapterConfig {
   readonly toolAuthority?: ReadonlyMap<string, AuthorityDescriptor>;
   readonly writeAuthority?: ManagedAgentAdapterWriteAuthorityDescriptor;
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
+  readonly providerTransportAdmission?: import("@kilnai/core").ProviderTransportAdmission;
   readonly economicIdentity?: ManagedEconomicExecutionIdentity;
   readonly executionBinding?: Extract<ExecutionSessionBindingEvidence, { readonly status: "bound" }>;
   readonly deliberationCapabilities?: ModelDeliberationCapabilities;
@@ -469,6 +470,9 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         provider: this.provider,
         ...(this.model ? { model: this.model } : {}),
         executionEnvelope: boundedExecutionEnvelope(this.executionEnvelope, input.workLimits?.maxTurns),
+        ...(this.config.providerTransportAdmission
+          ? { providerTransportAdmission: this.config.providerTransportAdmission }
+          : {}),
         tools: tools.filter((tool) => executionToolAllowlist.has(tool.name)),
         builtinTools,
         eventBus,

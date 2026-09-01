@@ -36,4 +36,5 @@ describe("model-facing permission policy", () => {
       auditLog: true,
     });
   });
+
 });

@@ -72,6 +72,57 @@ describe("buildRunJsonOutputEnvelope", () => {
     expect(envelope.telemetry.sessionSucceeded).toBe(true);
   });
 
+  it("emits canonical content-free provider-request observations without reinterpretation", () => {
+    const providerRequests = [{
+      version: "v1",
+      requestIndex: 0,
+      providerId: "codex-oauth",
+      modelId: "gpt-5.6-luna",
+      deliberation: { state: "observed", status: "exact", selectedLevel: "low" },
+      authority: {
+        state: "observed",
+        requestedAuthority: "read_only",
+        admittedAuthority: "read_only",
+        completeness: "authoritative",
+      },
+      dispatch: {
+        attempt: { state: "observed", value: 1 },
+        retry: { state: "observed", value: false },
+        fallback: { state: "unknown" },
+        outcome: "completed",
+      },
+      usage: {
+        input: { tokens: 10, measurement: "provider_reported" },
+        output: { tokens: 2, measurement: "provider_reported" },
+        cacheRead: { tokens: 0, measurement: "provider_reported" },
+        cacheWrite: { tokens: 0, measurement: "provider_reported" },
+      },
+      physicalRegions: [],
+      reconciliation: {
+        state: "unknown",
+        providerInputTokens: 10,
+        reason: "regional_token_attribution_unavailable",
+      },
+      capacity: {
+        state: "capacity_unknown",
+        contextWindowAuthority: "unknown",
+        reason: "context_capacity_unavailable",
+      },
+      cache: {
+        partitionIdentity: { state: "unknown" },
+        regions: [],
+        readTokens: 0,
+        writeTokens: 0,
+        measurement: "provider_reported",
+      },
+      toolCount: 0,
+    }] as const;
+
+    const envelope = buildRunJsonOutputEnvelope({ ...base, providerRequests });
+    expect(envelope.telemetry.providerRequests).toBe(providerRequests);
+    expect(JSON.stringify(envelope.telemetry.providerRequests)).not.toContain("Hash");
+  });
+
   it("exposes canonical communication evidence in JSON diagnostics without recomputing it", () => {
     const communicationResolution = {
       version: "v1",

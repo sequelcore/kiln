@@ -24,6 +24,8 @@ import type {
   ContextUsageProjection,
   VerifiedEfficiencyPolicyIdentity,
   ProviderRequestEvidence,
+  ProviderRequestPhysicalAttemptEvidence,
+  ProviderRequestObservation,
   CanonicalTurnId,
 } from "@kilnai/core";
 import type { RuntimeTurnTerminalDisposition } from "@kilnai/core/agents";
@@ -37,7 +39,6 @@ import {
   projectCostUpdatedEventToLifecycleLedger,
   projectVerifiedEfficiencyEvidence,
   reconcileLifecycleAttributionLedger,
-  projectFinalEffectivePromptObservation,
 } from "@kilnai/core";
 import type {
   CanonicalSessionEventBuilder,
@@ -506,6 +507,41 @@ function buildCanonicalTurnEvents(
             timestamp: runtimeEvent.timestamp,
           });
         events.push(costEvent);
+        for (const request of runtimeEvent.providerRequests?.filter(
+          (candidate) => candidate.providerResponseObserved === false,
+        ) ?? []) {
+          const physicalAttempts = request.physicalAttempts?.length ? request.physicalAttempts : [undefined];
+          for (const attempt of physicalAttempts) {
+            const attemptNumber = attempt?.attempt;
+            const alreadyObserved = [...existingEvents, ...events].some((candidate) =>
+              candidate.kind === "provider_request_observed"
+              && candidate.turnId === turnId
+              && candidate.request.requestIndex === request.requestIndex
+              && (
+                attemptNumber === undefined
+                  ? candidate.request.dispatch.attempt.state === "unknown"
+                  : candidate.request.dispatch.attempt.state === "observed"
+                    && candidate.request.dispatch.attempt.value === attemptNumber
+              )
+            );
+            if (alreadyObserved) continue;
+            events.push(createSessionEvent<"provider_request_observed">({
+              kilnSessionId: session.id,
+              sequence: nextSequence(),
+              kind: "provider_request_observed",
+              turnId,
+              request: projectProviderRequestObservation(
+                request,
+                input.executionRouteId,
+                undefined,
+                attempt,
+                false,
+              ),
+              source: runtimeSource,
+              timestamp: runtimeEvent.timestamp,
+            }));
+          }
+        }
         break;
       }
       case "error": {
@@ -687,17 +723,39 @@ function buildCanonicalTurnEvents(
     }));
   }
 
-  const effectivePrompt = projectFinalEffectivePromptObservation(input.providerRequests);
-  if (effectivePrompt) {
-    events.push(createSessionEvent<"effective_prompt_observed">({
-      kilnSessionId: session.id,
-      sequence: nextSequence(),
-      kind: "effective_prompt_observed",
-      turnId,
-      effectivePrompt,
-      source: runtimeSource,
-      timestamp: input.turnCompletedAt,
-    }));
+  for (const request of input.providerRequests ?? []) {
+    const physicalAttempts = request.physicalAttempts?.length ? request.physicalAttempts : [undefined];
+    for (const [attemptIndex, attempt] of physicalAttempts.entries()) {
+      const alreadyObserved = [...existingEvents, ...events].some((candidate) =>
+        candidate.kind === "provider_request_observed"
+        && candidate.turnId === turnId
+        && candidate.request.requestIndex === request.requestIndex
+        && (
+          attempt === undefined
+            ? candidate.request.dispatch.attempt.state === "unknown"
+            : candidate.request.dispatch.attempt.state === "observed"
+              && candidate.request.dispatch.attempt.value === attempt.attempt
+        )
+      );
+      if (alreadyObserved) continue;
+      const usageAvailable = request.providerResponseObserved !== false
+        && (attempt === undefined || attemptIndex === physicalAttempts.length - 1);
+      events.push(createSessionEvent<"provider_request_observed">({
+        kilnSessionId: session.id,
+        sequence: nextSequence(),
+        kind: "provider_request_observed",
+        turnId,
+        request: projectProviderRequestObservation(
+          request,
+          input.executionRouteId,
+          input.contextUsage,
+          attempt,
+          usageAvailable,
+        ),
+        source: runtimeSource,
+        timestamp: input.turnCompletedAt,
+      }));
+    }
   }
 
   if (assistantMessageContent && assistantMessageContent.length > 0) {
@@ -1752,4 +1810,184 @@ function mapFileChangeType(changeType: string | undefined): "created" | "updated
     default:
       return "updated";
   }
+}
+
+export function projectProviderRequestObservation(
+  request: ProviderRequestEvidence,
+  routeId: string | undefined,
+  contextUsage: ContextUsageProjection | undefined,
+  physicalAttempt: ProviderRequestPhysicalAttemptEvidence | undefined,
+  usageAvailable: boolean,
+): ProviderRequestObservation {
+  const providerReported = request.contextUsage?.measurement === "provider_reported"
+    || (
+      contextUsage?.measurement === "provider_reported"
+      && contextUsage.providerId === request.providerId
+      && contextUsage.modelId === request.modelId
+    );
+  const tokenMeasurement = providerReported ? "provider_reported" as const : "estimated" as const;
+  const matchingCapacity = contextUsage !== undefined
+    && contextUsage.providerId === request.providerId
+    && contextUsage.modelId === request.modelId
+    ? contextUsage
+    : undefined;
+  const effectivePrompt = request.effectivePrompt
+    ? {
+        version: request.effectivePrompt.version,
+        estimatedTokens: request.effectivePrompt.estimatedTokens,
+        componentCount: request.effectivePrompt.components.length,
+        componentScopeCounts: request.effectivePrompt.components.reduce(
+          (counts, component) => ({ ...counts, [component.scope]: counts[component.scope] + 1 }),
+          { static: 0, dynamic: 0, deferred: 0 },
+        ),
+      }
+    : undefined;
+  const conversationProjection = request.conversationProjection
+    ? {
+        policyId: request.conversationProjection.policyId,
+        originalToolResultCount: request.conversationProjection.originalToolResultCount,
+        projectedToolResultCount: request.conversationProjection.projectedToolResultCount,
+        originalToolResultTokens: request.conversationProjection.originalToolResultTokens,
+        projectedToolResultTokens: request.conversationProjection.projectedToolResultTokens,
+        clearedToolResultCount: request.conversationProjection.clearedToolResultCount,
+        overflow: request.conversationProjection.overflow,
+      }
+    : undefined;
+  const tokenAttribution = request.tokenAttributionEstimate;
+  const estimatedTotalTokens = tokenAttribution && request.outputReserveTokens !== undefined
+    ? tokenAttribution.totalInputTokens + request.outputReserveTokens
+    : undefined;
+  const capacity = matchingCapacity?.contextWindowTokens !== undefined
+    && request.outputReserveTokens !== undefined
+    && tokenAttribution
+    && estimatedTotalTokens !== undefined
+    ? {
+        state: estimatedTotalTokens > matchingCapacity.contextWindowTokens
+          ? "overflow" as const
+          : "within_capacity" as const,
+        measurement: "estimated" as const,
+        contextWindowTokens: matchingCapacity.contextWindowTokens,
+        contextWindowAuthority: matchingCapacity.contextWindowAuthority,
+        estimatedInputTokens: tokenAttribution.totalInputTokens,
+        outputReserveTokens: request.outputReserveTokens,
+        estimatedTotalTokens,
+        estimatedRemainingTokens: Math.max(0, matchingCapacity.contextWindowTokens - estimatedTotalTokens),
+        overflow: estimatedTotalTokens > matchingCapacity.contextWindowTokens,
+      }
+    : {
+        state: "capacity_unknown" as const,
+        ...(matchingCapacity?.contextWindowTokens === undefined
+          ? {}
+          : { contextWindowTokens: matchingCapacity.contextWindowTokens }),
+        contextWindowAuthority: matchingCapacity?.contextWindowAuthority ?? "unknown" as const,
+        reason: matchingCapacity?.contextWindowTokens === undefined
+          ? "context_capacity_unavailable" as const
+          : !tokenAttribution
+            ? "request_token_estimate_unavailable" as const
+            : "output_reserve_unavailable" as const,
+      };
+
+  return {
+    version: "v1",
+    requestIndex: request.requestIndex,
+    providerId: request.providerId ?? "unknown",
+    modelId: request.modelId ?? "unknown",
+    ...(routeId ? { routeId } : {}),
+    deliberation: request.deliberation
+      ? {
+          state: "observed",
+          status: request.deliberation.status,
+          selectedLevel: request.deliberation.selectedLevel,
+        }
+      : { state: "unknown" },
+    authority: request.authority
+      ? {
+          state: "observed",
+          requestedAuthority: request.authority.requestedAuthority,
+          admittedAuthority: request.authority.admittedAuthority,
+          completeness: request.authority.completeness,
+        }
+      : { state: "unknown" },
+    dispatch: physicalAttempt
+      ? {
+          attempt: { state: "observed", value: physicalAttempt.attempt },
+          retry: { state: "observed", value: physicalAttempt.retry },
+          fallback: { state: "unknown" },
+          outcome: physicalAttempt.outcome,
+          ...(physicalAttempt.responseStatus === undefined ? {} : { responseStatus: physicalAttempt.responseStatus }),
+          ...(physicalAttempt.failurePhase === undefined ? {} : { failurePhase: physicalAttempt.failurePhase }),
+        }
+      : {
+          attempt: { state: "unknown" },
+          retry: { state: "unknown" },
+          fallback: { state: "unknown" },
+        },
+    usage: usageAvailable
+      ? {
+          input: { tokens: request.inputTokens, measurement: tokenMeasurement },
+          output: { tokens: request.outputTokens, measurement: tokenMeasurement },
+          cacheRead: { tokens: request.cacheReadTokens, measurement: tokenMeasurement },
+          cacheWrite: { tokens: request.cacheWriteTokens, measurement: tokenMeasurement },
+        }
+      : {
+          input: { measurement: "unknown" },
+          output: { measurement: "unknown" },
+          cacheRead: { measurement: "unknown" },
+          cacheWrite: { measurement: "unknown" },
+        },
+    physicalRegions: [
+      { source: "system", bytes: request.systemBytes, measurement: "measured" },
+      { source: "messages", bytes: request.messageBytes, measurement: "measured" },
+      { source: "tool_schema", bytes: request.toolSchemaBytes, measurement: "measured" },
+    ],
+    ...(tokenAttribution
+      ? {
+          regionalTokenAttribution: [
+            { source: "required_prompt" as const, tokens: tokenAttribution.requiredPromptTokens, measurement: "estimated" as const },
+            { source: "governed_context" as const, tokens: tokenAttribution.governedContextTokens, measurement: "estimated" as const },
+            { source: "tool_schema" as const, tokens: tokenAttribution.toolSchemaTokens, measurement: "estimated" as const },
+            { source: "conversation" as const, tokens: tokenAttribution.conversationTokens, measurement: "estimated" as const },
+            { source: "tool_result" as const, tokens: tokenAttribution.toolResultTokens, measurement: "estimated" as const },
+          ],
+        }
+      : {}),
+    reconciliation: !usageAvailable
+      ? {
+          state: "unknown",
+          reason: "provider_usage_unavailable",
+        }
+      : tokenAttribution
+      ? {
+          state: "estimated",
+          providerInputTokens: request.inputTokens,
+          attributedInputTokens: tokenAttribution.totalInputTokens,
+          unresolvedRemainderTokens: Math.abs(request.inputTokens - tokenAttribution.totalInputTokens),
+          reason: "provider_total_not_regionally_measured",
+        }
+      : {
+          state: "unknown",
+          providerInputTokens: request.inputTokens,
+          reason: "regional_token_attribution_unavailable",
+        },
+    capacity,
+    cache: {
+      partitionIdentity: { state: "unknown" },
+      regions: (request.cacheRegions ?? []).map(({ source, stability, bytes, includedInStablePrefix }) => ({
+        source,
+        stability,
+        bytes,
+        includedInStablePrefix,
+      })),
+      ...(usageAvailable
+        ? {
+            readTokens: request.cacheReadTokens,
+            writeTokens: request.cacheWriteTokens,
+            measurement: tokenMeasurement,
+          }
+        : { measurement: "unknown" as const }),
+    },
+    toolCount: request.toolCount,
+    ...(effectivePrompt ? { effectivePrompt } : {}),
+    ...(conversationProjection ? { conversationProjection } : {}),
+  };
 }

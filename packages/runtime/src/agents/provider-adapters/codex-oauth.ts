@@ -4,6 +4,7 @@ import type {
   CreateMessageOptions,
   DeliberationLevelId,
   ProviderAdapter,
+  ProviderTransportEvent,
   ToolCall,
 } from "@kilnai/core/agents";
 import {
@@ -165,24 +166,27 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     const request = this.buildRequest(options);
     const shouldBufferText = (options.tools?.length ?? 0) > 0;
     try {
-      const response = await this.postWithTransientRetry(request.body, options.signal);
+      const response = await this.postWithTransientRetry(request.body, options);
       yield* this.streamResponseAttempt(request, response, shouldBufferText);
+      this.emitTransport(options, { type: "request_completed", identity: options.requestIdentity });
       return;
     } catch (error) {
       if (!this.internalRetry || !isEmptyTerminalStreamError(error)) {
         throw error;
       }
     }
-    const response = await this.postWithTransientRetry(request.body, options.signal);
+    const response = await this.postWithTransientRetry(request.body, options);
     yield* this.streamResponseAttempt(request, response, shouldBufferText);
+    this.emitTransport(options, { type: "request_completed", identity: options.requestIdentity });
   }
 
   private async createMessageAttempt(
     request: ResponsesRequest,
     options: CreateMessageOptions,
   ): Promise<AgentResponse> {
-    const response = await this.postWithTransientRetry(request.body, options.signal);
+    const response = await this.postWithTransientRetry(request.body, options);
     const completed = await this.consumeStreamingResponse(response, (options.tools?.length ?? 0) > 0);
+    this.emitTransport(options, { type: "request_completed", identity: options.requestIdentity });
     return this.mapResponse(completed, request.toolNames, request.toolSchemas);
   }
 
@@ -566,14 +570,14 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     return items;
   }
 
-  private async postWith401Retry(body: ResponsesRequestBody, signal?: AbortSignal): Promise<Response> {
-    const firstResponse = await this.post(body, signal);
+  private async postWith401Retry(body: ResponsesRequestBody, options: CreateMessageOptions): Promise<Response> {
+    const firstResponse = await this.post(body, options);
     if (firstResponse.status !== 401) {
       await this.ensureOk(firstResponse, body);
       return firstResponse;
     }
 
-    const retryResponse = await this.post(body, signal);
+    const retryResponse = await this.post(body, options);
     if (retryResponse.status === 401) {
       throw this.providerAuthError("Codex OAuth request unauthorized after token refresh", {
         status: retryResponse.status,
@@ -584,34 +588,59 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     return retryResponse;
   }
 
-  private async postWithTransientRetry(body: ResponsesRequestBody, signal?: AbortSignal): Promise<Response> {
+  private async postWithTransientRetry(body: ResponsesRequestBody, options: CreateMessageOptions): Promise<Response> {
     if (!this.internalRetry) {
-      const response = await this.post(body, signal);
+      const response = await this.post(body, options);
       await this.ensureOk(response, body);
       return response;
     }
     return await withRetry(
-      () => this.postWith401Retry(body, signal),
+      () => this.postWith401Retry(body, options),
       {
         maxRetries: 3,
         baseDelayMs: 250,
         isRetryable: isTransientCodexRequestError,
       },
-      signal,
+      options.signal,
     );
   }
 
-  private async post(body: ResponsesRequestBody, signal?: AbortSignal): Promise<Response> {
+  private async post(body: ResponsesRequestBody, options: CreateMessageOptions): Promise<Response> {
     const token = await this.auth.getValidAccessToken();
-    return await fetch(RESPONSES_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-      signal,
-    });
+    options.transportAdmission?.admit(options.requestIdentity);
+    this.emitTransport(options, { type: "request_started", identity: options.requestIdentity });
+    try {
+      const response = await fetch(RESPONSES_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+        signal: options.signal,
+      });
+      this.emitTransport(options, {
+        type: "response_headers",
+        identity: options.requestIdentity,
+        status: response.status,
+      });
+      return response;
+    } catch (error) {
+      this.emitTransport(options, {
+        type: "request_failed",
+        identity: options.requestIdentity,
+        phase: "transport",
+      });
+      throw error;
+    }
+  }
+
+  private emitTransport(options: CreateMessageOptions, event: ProviderTransportEvent): void {
+    try {
+      options.transportObserver?.onEvent(event);
+    } catch {
+      // Diagnostic observers cannot affect provider execution.
+    }
   }
 
   private async ensureOk(response: Response, requestBody?: ResponsesRequestBody): Promise<void> {

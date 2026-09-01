@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { createSessionBuiltinToolOptions } from "@kilnai/core/tools";
+import { withProgressiveRuntimeToolProjection } from "../config/builtin-tool-surface-config.js";
 import {
   canonicalizeOmittedAuthority,
   createCanonicalRunAttendedTrustedExecutionSessionAuthority,
@@ -11,6 +13,7 @@ import {
 const mocks = vi.hoisted(() => ({
   dispatchTurn: vi.fn(),
   close: vi.fn(),
+  authorityCoordinatorOptions: undefined as unknown,
 }));
 
 const authorityEvidenceStore = {
@@ -26,6 +29,16 @@ vi.mock("./operator-turn-dispatch-composition.js", () => ({
     close: mocks.close,
   })),
 }));
+
+vi.mock("@kilnai/runtime", async () => {
+  const actual = await vi.importActual<typeof import("@kilnai/runtime")>("@kilnai/runtime");
+  return {
+    ...actual,
+    OperatorAuthorityAdmissionCoordinator: class {
+      constructor(options: unknown) { mocks.authorityCoordinatorOptions = options; }
+    },
+  };
+});
 
 describe("createCanonicalRunSessionDispatcher", () => {
   it("binds attended trusted execution to a distinct process-local principal and exact CLI session", async () => {
@@ -110,6 +123,81 @@ describe("createCanonicalRunSessionDispatcher", () => {
         },
       }),
     );
+  });
+
+  it("prepares read-only repository tools without provider transport", async () => {
+    createCanonicalRunSessionDispatcher({
+      catalog: {} as never,
+      cwd: "C:/workspace",
+      executionId: "benchmark-trial-read-only",
+      targetId: "codex-sol",
+      authorityAdmissionEvidenceStore: authorityEvidenceStore,
+      captureCatalogSnapshot: () => ({
+        catalog: {} as never,
+        configurationRevision: { revisionSetId: "sha256:test", revisions: {} },
+      }),
+      configurationRevision: {
+        revisionSetId: "sha256:test",
+        revisions: { global: "global", project: "project" },
+      },
+    });
+
+    const coordinator = mocks.authorityCoordinatorOptions as {
+      prepare(input: unknown): Promise<{ facets: { turn: {
+        authority: { admittedAuthority: string; toolCount: number; deniedToolCount: number };
+        tools: {
+          allowedToolPermissions: readonly { authority: { level: number } }[];
+          deniedToolNames: readonly string[];
+        };
+      } } }>;
+    };
+    const { RuntimeSession } = await vi.importActual<typeof import("@kilnai/runtime")>("@kilnai/runtime");
+    const session = new RuntimeSession({ id: "benchmark-read-only-session" });
+    const configurationRevision = {
+      revisionSetId: "sha256:test",
+      revisions: { global: "global", project: "project" },
+    };
+    const result = await coordinator.prepare({
+      request: {
+        executionId: "benchmark-trial-read-only",
+        payload: {
+          sessionConfig: {
+            task: "Inspect repository files without mutation.",
+            cwd: "C:/workspace",
+            requestedAuthority: "read_only",
+            builtinToolOptions: createSessionBuiltinToolOptions(
+              withProgressiveRuntimeToolProjection({}, "execute"),
+            ),
+          },
+          permissionPolicy: {},
+          sessionId: "benchmark-read-only-session",
+          operatorAdoption: { persist: async () => undefined },
+        },
+      },
+      admission: {
+        targetId: "codex-sol",
+        providerId: "codex-oauth",
+        providerModelId: "gpt-5.6-luna",
+      },
+      snapshot: { catalog: {}, configurationRevision },
+      binding: {
+        status: "bound",
+        routeId: "codex-sol",
+        accountId: "account-1",
+        credentialId: "credential-1",
+        credentialRevision: "revision-1",
+      },
+      dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "test" } },
+      session,
+    });
+
+    expect(result.facets.turn.authority).toMatchObject({
+      admittedAuthority: "read_only",
+    });
+    expect(result.facets.turn.authority.toolCount).toBeGreaterThan(0);
+    expect(result.facets.turn.authority.toolCount).toBe(result.facets.turn.tools.allowedToolPermissions.length);
+    expect(result.facets.turn.authority.deniedToolCount).toBe(result.facets.turn.tools.deniedToolNames.length);
+    expect(result.facets.turn.tools.allowedToolPermissions.every(({ authority }) => authority.level <= 1)).toBe(true);
   });
 
   it("allows authoritative auto that admits no tools as model-only fail-closed execution", () => {

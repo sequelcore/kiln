@@ -11,6 +11,7 @@ import type {
   MultimodalCapability,
   MultimodalTransportModality,
   ProviderRequestEvidence,
+  ProviderRequestPhysicalAttemptEvidence,
   ProviderRequestToolMaterializationDecisionEvidence,
   ProviderRequestToolProjectionEvidence,
   ContextUsageRawEvidence,
@@ -18,12 +19,16 @@ import type {
   EffectivePromptEvidence,
   EffectivePromptManifest,
   CommunicationResolution,
+  ProviderTransportEvent,
+  ProviderTransportObserver,
+  DeliberationResolution,
 } from "@kilnai/core";
 import {
   computeUsageCostUsd,
   resolveExecutionCostEvidence,
   resolveExecutionPricing,
   toEffectivePromptEvidence,
+  estimateTextTokens,
 } from "@kilnai/core";
 import type { ModelPricing } from "@kilnai/core";
 
@@ -43,10 +48,63 @@ export interface OrchestratorResponseUsage {
   readonly durationMs?: number;
 }
 
+export class RuntimeProviderRequestAttemptTracker implements ProviderTransportObserver {
+  private readonly attempts: ProviderRequestPhysicalAttemptEvidence[] = [];
+
+  constructor(private readonly downstream?: ProviderTransportObserver) {}
+
+  onEvent(event: ProviderTransportEvent): void {
+    try {
+      this.downstream?.onEvent(event);
+    } catch {
+      // External diagnostic observers cannot suppress Runtime-owned evidence.
+    }
+    if (event.type === "request_started") {
+      this.attempts.push({
+        attempt: this.attempts.length + 1,
+        retry: this.attempts.length > 0,
+        outcome: "unknown",
+      });
+      return;
+    }
+    const index = this.attempts.length - 1;
+    const current = this.attempts[index];
+    if (!current) return;
+    if (event.type === "response_headers") {
+      this.attempts[index] = { ...current, outcome: "response_received", responseStatus: event.status };
+      return;
+    }
+    if (event.type === "request_completed") {
+      this.attempts[index] = { ...current, outcome: "completed" };
+      return;
+    }
+    if (event.type === "request_failed") {
+      this.attempts[index] = { ...current, outcome: "failed", failurePhase: event.phase };
+    }
+  }
+
+  snapshot(): readonly ProviderRequestPhysicalAttemptEvidence[] {
+    return this.attempts.map((attempt) => ({ ...attempt }));
+  }
+}
+
 export interface ProviderRequestRegionEvidence {
   readonly systemBytes: number;
   readonly messageBytes: number;
   readonly toolSchemaBytes: number;
+  readonly tokenAttributionEstimate: {
+    readonly measurement: "estimated";
+    readonly requiredPromptTokens: number;
+    readonly governedContextTokens: number;
+    readonly toolSchemaTokens: number;
+    readonly conversationTokens: number;
+    readonly toolResultTokens: number;
+    readonly totalInputTokens: number;
+  };
+  readonly outputReserveTokens?: number;
+  readonly physicalAttempts?: readonly ProviderRequestPhysicalAttemptEvidence[];
+  readonly deliberation?: NonNullable<ProviderRequestEvidence["deliberation"]>;
+  readonly authority?: NonNullable<ProviderRequestEvidence["authority"]>;
   readonly systemHash: string;
   readonly messageHash: string;
   readonly toolSchemaHash: string;
@@ -108,6 +166,8 @@ export function measureProviderRequestRegions(input: {
   readonly effectivePrompt?: EffectivePromptManifest;
   readonly communicationResolution?: CommunicationResolution;
   readonly stopReason?: string;
+  readonly outputReserveTokens?: number;
+  readonly physicalAttempts?: readonly ProviderRequestPhysicalAttemptEvidence[];
   readonly requestRegionOrder?: readonly ProviderRequestCacheRegionSource[];
   readonly cachePartition?: ProviderRequestCachePartitionInput;
 }): ProviderRequestRegionEvidence {
@@ -117,6 +177,20 @@ export function measureProviderRequestRegions(input: {
   const system = serializeForEvidence(input.system);
   const messages = serializeForEvidence(input.messages);
   const tools = serializeForEvidence(input.tools ?? []);
+  const systemEstimatedTokens = input.effectivePrompt?.estimatedTokens ?? estimateTextTokens(input.system);
+  const governedContextTokens = input.effectivePrompt?.components
+    .filter((component) => component.provenance.auditDecision === "admitted")
+    .reduce((total, component) => total + component.estimatedTokens, 0) ?? 0;
+  const requiredPromptTokens = Math.max(0, systemEstimatedTokens - governedContextTokens);
+  const messageEstimatedTokens = estimateTextTokens(messages);
+  const toolResultTokens = input.conversationProjection?.projectedToolResultTokens ?? 0;
+  const conversationTokens = Math.max(0, messageEstimatedTokens - toolResultTokens);
+  const toolSchemaTokens = estimateTextTokens(tools);
+  const totalInputTokens = requiredPromptTokens
+    + governedContextTokens
+    + toolSchemaTokens
+    + conversationTokens
+    + toolResultTokens;
   const regionsBySource: Record<ProviderRequestCacheRegionSource, InternalProviderRequestCacheRegion> = {
     system: createCacheRegion("system", "stable", system),
     messages: createCacheRegion("messages", "volatile", messages),
@@ -142,6 +216,39 @@ export function measureProviderRequestRegions(input: {
     systemBytes: byteLength(system),
     messageBytes: byteLength(messages),
     toolSchemaBytes: byteLength(tools),
+    tokenAttributionEstimate: {
+      measurement: "estimated",
+      requiredPromptTokens,
+      governedContextTokens,
+      toolSchemaTokens,
+      conversationTokens,
+      toolResultTokens,
+      totalInputTokens,
+    },
+    ...(input.outputReserveTokens === undefined ? {} : { outputReserveTokens: input.outputReserveTokens }),
+    ...(input.physicalAttempts?.length
+      ? { physicalAttempts: input.physicalAttempts.map((attempt) => ({ ...attempt })) }
+      : {}),
+    ...(input.cachePartition?.deliberationResolution
+      && "selectedLevel" in input.cachePartition.deliberationResolution
+      ? {
+          deliberation: {
+            status: input.cachePartition.deliberationResolution.status,
+            selectedLevel: input.cachePartition.deliberationResolution.selectedLevel,
+          },
+        }
+      : {}),
+    ...(input.cachePartition?.authority?.requestedAuthority
+      && input.cachePartition.authority.admittedAuthority
+      && input.cachePartition.authority.completeness
+      ? {
+          authority: {
+            requestedAuthority: input.cachePartition.authority.requestedAuthority,
+            admittedAuthority: input.cachePartition.authority.admittedAuthority,
+            completeness: input.cachePartition.authority.completeness,
+          },
+        }
+      : {}),
     systemHash: hashSerialized(system),
     messageHash: hashSerialized(messages),
     toolSchemaHash: hashSerialized(tools),
@@ -188,17 +295,17 @@ export interface ProviderRequestCachePartitionInput {
   readonly provider?: string;
   readonly model?: string;
   readonly canonicalModel?: string;
-  readonly deliberationResolution?: unknown;
+  readonly deliberationResolution?: DeliberationResolution;
   readonly communicationResolution?: unknown;
   readonly policyIdentity?: unknown;
   readonly authority?: {
     readonly admissionId?: `sha256:${string}`;
     readonly effectiveTurnAuthority?: unknown;
     readonly authorityContext?: unknown;
-    readonly requestedAuthority?: string;
-    readonly admittedAuthority?: string;
+    readonly requestedAuthority?: NonNullable<ProviderRequestEvidence["authority"]>["requestedAuthority"];
+    readonly admittedAuthority?: NonNullable<ProviderRequestEvidence["authority"]>["admittedAuthority"];
     readonly sourcePolicy?: string;
-    readonly completeness?: string;
+    readonly completeness?: "authoritative" | "partial";
     readonly sandboxProjection?: string;
     readonly policyInputs?: readonly unknown[];
   };
@@ -241,6 +348,7 @@ export class RuntimeSessionExecutionTelemetry {
     if (request) {
       this.providerRequests.push({
         requestIndex: this.providerRequests.length,
+        providerResponseObserved: true,
         providerId: this.executionIdentity?.provider ?? "unknown",
         modelId: this.executionIdentity?.model ?? "unknown",
         ...usage,
@@ -253,6 +361,41 @@ export class RuntimeSessionExecutionTelemetry {
     }
     this.emitCostUpdate(sessionId, agentId);
     return this.snapshot();
+  }
+
+  recordFailedRequest(
+    sessionId: string,
+    request: ProviderRequestRegionEvidence,
+    durationMs?: number,
+    agentId?: string,
+  ): void {
+    const physicalAttempts = request.physicalAttempts?.map((attempt, index, attempts) =>
+      index === attempts.length - 1 && attempt.outcome !== "completed"
+        ? {
+            ...attempt,
+            outcome: "failed" as const,
+            ...(attempt.failurePhase ? {} : { failurePhase: "headers" as const }),
+          }
+        : attempt
+    );
+    this.providerRequests.push({
+      requestIndex: this.providerRequests.length,
+      providerResponseObserved: false,
+      providerId: this.executionIdentity?.provider ?? "unknown",
+      modelId: this.executionIdentity?.model ?? "unknown",
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      ...(durationMs === undefined ? {} : { durationMs }),
+      cumulativeInputTokens: this.totals.inputTokens,
+      cumulativeOutputTokens: this.totals.outputTokens,
+      cumulativeCacheReadTokens: this.totals.cacheReadTokens,
+      cumulativeCacheWriteTokens: this.totals.cacheWriteTokens,
+      ...request,
+      ...(physicalAttempts?.length ? { physicalAttempts } : {}),
+    });
+    this.emitCostUpdate(sessionId, agentId);
   }
 
   snapshot(): OrchestratorUsageSnapshot {
@@ -347,6 +490,7 @@ export class RuntimeSessionExecutionTelemetry {
       cacheWriteTokens: this.totals.cacheWriteTokens,
       totalCostUsd,
       costEvidence,
+      providerRequests: this.requestSnapshot(),
       byRoleModel: {
         [`assistant:${model}`]: {
           model,

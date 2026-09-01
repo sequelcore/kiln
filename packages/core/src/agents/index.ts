@@ -198,6 +198,11 @@ export interface ProviderTransportObserver {
   onEvent(event: ProviderTransportEvent): void;
 }
 
+/** Runtime-owned admission checked immediately before each physical provider request. */
+export interface ProviderTransportAdmission {
+  admit(identity?: ProviderRequestIdentity): void;
+}
+
 /** Options for creating a message */
 export interface CreateMessageOptions {
   readonly sessionId?: string;
@@ -213,6 +218,7 @@ export interface CreateMessageOptions {
   readonly signal?: AbortSignal;
   readonly transportWatchdog?: ProviderTransportWatchdog;
   readonly transportObserver?: ProviderTransportObserver;
+  readonly transportAdmission?: ProviderTransportAdmission;
   readonly executionContext?: ProviderExecutionContext;
 }
 
