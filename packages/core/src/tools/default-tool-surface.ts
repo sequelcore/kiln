@@ -7,7 +7,11 @@ import { MemoryGraphResourceProvider, type MemoryGraphResourceProviderOptions } 
 import { MemoryMutationService } from "../memory/service.js";
 import type { GoalRunStore, WorkItemStore } from "../work-governance/index.js";
 import { DEV_TOOL_OUTPUT_SCHEMA, type DevTool } from "./domain/tool.js";
-import { type ToolCatalogConfiguredProducerDiagnostic, ToolCatalogIndex } from "./domain/tool-catalog.js";
+import {
+  type BuiltinToolCatalogContribution,
+  type ToolCatalogConfiguredProducerDiagnostic,
+  ToolCatalogIndex,
+} from "./domain/tool-catalog.js";
 import { getBuiltinEffectEnvelope } from "./domain/tool-effect-envelopes.js";
 import { DevToolRegistry } from "./domain/tool-registry.js";
 import {
@@ -107,6 +111,8 @@ export interface DefaultBuiltinToolRegistryOptions {
   /** Outer configured authority; Core meets it with effect and caller bounds. */
   readonly invocationAdmission?: InvocationAdmission;
   readonly additionalTools?: readonly DevTool[];
+  /** Non-executable provider definitions contributed to the shared catalog. */
+  readonly catalogContributions?: readonly BuiltinToolCatalogContribution[];
   /** CLI-owned validation evidence for configured producers that are not executable. */
   readonly configuredProducerDiagnostics?: readonly ToolCatalogConfiguredProducerDiagnostic[];
   readonly bash?: BashToolOptions;
@@ -270,8 +276,22 @@ export function createSessionBuiltinToolOptions(
   };
 }
 
+interface DefaultBuiltinToolSet {
+  readonly tools: readonly DevTool[];
+  readonly catalog: ToolCatalogIndex;
+  readonly catalogReference: MutableCatalogReference;
+}
+
+interface MutableCatalogReference {
+  current: ToolCatalogIndex;
+}
+
 export function createDefaultBuiltinTools(options: DefaultBuiltinToolRegistryOptions = {}): readonly DevTool[] {
-  let catalog = new ToolCatalogIndex([]);
+  return createDefaultBuiltinToolSet(options).tools;
+}
+
+function createDefaultBuiltinToolSet(options: DefaultBuiltinToolRegistryOptions): DefaultBuiltinToolSet {
+  const catalogReference: MutableCatalogReference = { current: new ToolCatalogIndex([]) };
   const monitorRegistry = options.monitorRegistry ?? new MonitorRegistry(options.monitor);
   const taskStateStore = options.taskStateStore ?? new TaskStateStore(options.taskState);
   const memoryMutationCallerContext = resolveMemoryMutationCallerContext(options);
@@ -332,7 +352,7 @@ export function createDefaultBuiltinTools(options: DefaultBuiltinToolRegistryOpt
     new TaskListTool({ store: taskStateStore }),
     new TaskUpdateTool({ store: taskStateStore }),
     new OperatorElicitationTool(options.operatorElicitation),
-    new ToolCatalogSearchTool(() => catalog),
+    new ToolCatalogSearchTool(() => catalogReference.current),
     new MemorySearchTool({ resources: options.resourceRegistry ?? (() => undefined) }),
     new MemorySaveTool({
       callerContext: memoryMutationCallerContext,
@@ -344,15 +364,17 @@ export function createDefaultBuiltinTools(options: DefaultBuiltinToolRegistryOpt
     ...(options.verificationTools ?? []),
     ...(options.additionalTools ?? []),
   ];
-  catalog = ToolCatalogIndex.fromTools(tools, undefined, {
+  const catalog = ToolCatalogIndex.fromTools(tools, undefined, {
     configuredProducerDiagnostics: options.configuredProducerDiagnostics,
+    catalogContributions: options.catalogContributions,
   });
-  return tools;
+  catalogReference.current = catalog;
+  return { tools, catalog, catalogReference };
 }
 
 export function createDefaultBuiltinToolRegistry(options: DefaultBuiltinToolRegistryOptions = {}): DevToolRegistry {
   const registry = new DevToolRegistry();
-  for (const tool of createDefaultBuiltinTools(options)) {
+  for (const tool of createDefaultBuiltinToolSet(options).tools) {
     registry.register(tool);
   }
   return registry;
@@ -436,12 +458,23 @@ export function createDefaultBuiltinToolSurface(
     artifactResources: { store: artifactStore },
     resourceRegistry: () => resources,
   };
-  const canonicalRegistry = createDefaultBuiltinToolRegistry(surfaceOptions);
-  const tools = projectTools(canonicalRegistry.list(), options.toolProjection);
-  const registry = options.toolProjection?.mode === "strict" ? createRegistryFromTools(tools) : canonicalRegistry;
-  const catalog = ToolCatalogIndex.fromTools(registry.list(), undefined, {
-    configuredProducerDiagnostics: options.configuredProducerDiagnostics,
-  });
+  const canonicalToolSet = createDefaultBuiltinToolSet(surfaceOptions);
+  const canonicalRegistry = createRegistryFromTools(canonicalToolSet.tools);
+  const tools = projectTools(canonicalToolSet.tools, options.toolProjection);
+  const strictProjection = options.toolProjection?.mode === "strict";
+  const registry = strictProjection ? createRegistryFromTools(tools) : canonicalRegistry;
+  const strictCatalogNames = strictProjection
+    ? new Set([
+      ...tools.map((tool) => tool.name),
+      ...(options.toolProjection?.alwaysOnTools ?? []),
+    ])
+    : undefined;
+  const catalog = strictProjection
+    ? canonicalToolSet.catalog.restrictToCanonicalNames(strictCatalogNames ?? new Set())
+    : canonicalToolSet.catalog;
+  // SearchTool was constructed before the complete catalog existed. Point its
+  // closure at the same immutable snapshot exposed by the surface/resources.
+  canonicalToolSet.catalogReference.current = catalog;
   const resourceProviders = [
     ...(options.workspaceResources
       ? [new WorkspaceResourceProvider({

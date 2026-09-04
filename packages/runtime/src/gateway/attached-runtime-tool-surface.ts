@@ -4,6 +4,7 @@ import type {
   AnalysisStateStore,
   AuthorityStateStore,
   AuthorityDescriptor,
+  BuiltinToolCatalogContribution,
   Capability,
   DevTool,
   DefaultBuiltinToolSurface,
@@ -68,6 +69,8 @@ import { isRuntimeOwnedFormalVerificationObservation } from "../work-governance/
 import { runRuntimeFormalVerificationFinishInvocation } from "../work-governance/formal-verification-invocation-state.js";
 import type { EffectiveTurnAuthorityAdmissionContext } from "../session/effective-turn-authority.js";
 import { projectEffectiveTurnAuthorityPerCallConfig } from "../session/effective-turn-authority.js";
+import type { MaterializableRuntimeToolBinding } from "../session/progressive-tool-admission.js";
+import { createMaterializableRuntimeToolBinding } from "../session/progressive-tool-admission.js";
 import {
   createManagedAgentStartToolDefinition,
   createManagedAgentInvokeToolDefinition,
@@ -113,6 +116,8 @@ export interface AttachedRuntimeBuiltinToolSurface {
   readonly capabilities: ReadonlyMap<string, Capability>;
   readonly materializableTools: ReadonlyMap<string, ToolDefinition>;
   readonly materializableCapabilities: ReadonlyMap<string, Capability>;
+  readonly materializableToolBindings: ReadonlyMap<string, MaterializableRuntimeToolBinding>;
+  readonly toolCatalogSnapshotId: `sha256:${string}`;
   readonly toolAuthority: ReadonlyMap<string, AuthorityDescriptor>;
   readonly toolInvocationAdmission?: InvocationAdmission;
   readonly toolCallMetadata: NonNullable<PerCallToolConfig["toolCallMetadata"]>;
@@ -507,18 +512,63 @@ export function createAttachedRuntimeBuiltinToolSurface(
   const managedInvocationAttachment = options.managedInvocation
     ? normalizeManagedInvocationAttachment(options.managedInvocation)
     : undefined;
+  const preparedManagedToolDefinitions = managedInvocationAttachment
+    ? Object.freeze([
+        createManagedAgentInvokeToolDefinition(managedInvocationAttachment.options),
+        createManagedAgentStartToolDefinition(managedInvocationAttachment.options),
+        MANAGED_AGENT_STATUS_TOOL,
+        MANAGED_AGENT_LIST_TOOL,
+        MANAGED_AGENT_JOIN_TOOL,
+        MANAGED_AGENT_CANCEL_TOOL,
+        createManagedAgentOrchestrateToolDefinition(managedInvocationAttachment.options),
+      ] as const)
+    : undefined;
+  const managedCapabilities = managedInvocationAttachment
+    ? Object.freeze([
+        MANAGED_AGENT_INVOKE_CAPABILITY,
+        MANAGED_AGENT_START_CAPABILITY,
+        MANAGED_AGENT_STATUS_CAPABILITY,
+        MANAGED_AGENT_LIST_CAPABILITY,
+        MANAGED_AGENT_JOIN_CAPABILITY,
+        MANAGED_AGENT_CANCEL_CAPABILITY,
+        MANAGED_AGENT_ORCHESTRATE_CAPABILITY,
+      ] as const)
+    : undefined;
+  const managedCatalogContributions = preparedManagedToolDefinitions && managedCapabilities
+    ? preparedManagedToolDefinitions.map((definition, index) => {
+        const capability = managedCapabilities[index];
+        if (!capability?.effectEnvelope) {
+          throw new TypeError(`Managed runtime tool '${definition.name}' requires a declared effect envelope.`);
+        }
+        return {
+          definition,
+          effectEnvelope: capability.effectEnvelope,
+          sourcePackage: "@kilnai/runtime",
+        } satisfies BuiltinToolCatalogContribution;
+      })
+    : [];
   const requiresPlanningStores = options.executionMode === "plan";
-  const coreSurface = options.builtinToolOptions
-    ? createDefaultBuiltinToolSurface(
-      requiresPlanningStores
-        ? createSessionBuiltinToolOptions(options.builtinToolOptions)
-        : options.builtinToolOptions,
-    )
-    : requiresPlanningStores
-      ? createDefaultBuiltinToolSurface(createSessionBuiltinToolOptions())
-      : DEFAULT_CORE_BUILTIN_TOOL_SURFACE;
-  const baseSurface = options.builtinToolOptions || requiresPlanningStores
-      ? buildRuntimeSurface(coreSurface, {
+  const suppliedBuiltinToolOptions = options.builtinToolOptions ?? {};
+  const sessionBuiltinToolOptions = requiresPlanningStores
+    ? createSessionBuiltinToolOptions(suppliedBuiltinToolOptions)
+    : suppliedBuiltinToolOptions;
+  const attachedBuiltinToolOptions = managedCatalogContributions.length > 0
+    ? {
+        ...sessionBuiltinToolOptions,
+        catalogContributions: [
+          ...(sessionBuiltinToolOptions.catalogContributions ?? []),
+          ...managedCatalogContributions,
+        ],
+      }
+    : sessionBuiltinToolOptions;
+  const requiresDedicatedCoreSurface = options.builtinToolOptions !== undefined
+    || requiresPlanningStores
+    || managedInvocationAttachment !== undefined;
+  const coreSurface = requiresDedicatedCoreSurface
+    ? createDefaultBuiltinToolSurface(attachedBuiltinToolOptions)
+    : DEFAULT_CORE_BUILTIN_TOOL_SURFACE;
+  const baseSurface = requiresDedicatedCoreSurface
+    ? buildRuntimeSurface(coreSurface, {
         requireSessionStores: requiresPlanningStores,
         ...(options.builtinToolOptions?.invocationAdmission
           ? { toolInvocationAdmission: options.builtinToolOptions.invocationAdmission }
@@ -571,9 +621,9 @@ export function createAttachedRuntimeBuiltinToolSurface(
   };
 
   const registerMaterializableRuntimeTool = (tool: ToolDefinition, capability: Capability): void => {
-    registerRuntimeTool(tool, capability);
     materializableTools.set(tool.name, tool);
     materializableCapabilities.set(tool.name, capability);
+    toolAuthority.set(tool.name, authorityFromCapability(tool.name, capability));
   };
 
   if (!themeController && options.executionMode !== "plan" && !managedInvocation && !goalCreateExecutor && !options.boundedWork) {
@@ -656,26 +706,8 @@ export function createAttachedRuntimeBuiltinToolSurface(
         ),
       );
     }
-    const managedToolDefinitions = [
-      createManagedAgentInvokeToolDefinition(managedInvocationOptions),
-      createManagedAgentStartToolDefinition(managedInvocationOptions),
-      MANAGED_AGENT_STATUS_TOOL,
-      MANAGED_AGENT_LIST_TOOL,
-      MANAGED_AGENT_JOIN_TOOL,
-      MANAGED_AGENT_CANCEL_TOOL,
-      createManagedAgentOrchestrateToolDefinition(managedInvocationOptions),
-    ] as const;
-    const managedCapabilities = [
-      MANAGED_AGENT_INVOKE_CAPABILITY,
-      MANAGED_AGENT_START_CAPABILITY,
-      MANAGED_AGENT_STATUS_CAPABILITY,
-      MANAGED_AGENT_LIST_CAPABILITY,
-      MANAGED_AGENT_JOIN_CAPABILITY,
-      MANAGED_AGENT_CANCEL_CAPABILITY,
-      MANAGED_AGENT_ORCHESTRATE_CAPABILITY,
-    ] as const;
-    for (const [index, tool] of managedToolDefinitions.entries()) {
-      const capability = managedCapabilities[index];
+    for (const [index, tool] of preparedManagedToolDefinitions!.entries()) {
+      const capability = managedCapabilities![index];
       if (capability) {
         registerMaterializableRuntimeTool(tool, capability);
       }
@@ -711,6 +743,25 @@ export function createAttachedRuntimeBuiltinToolSurface(
     }
   }
 
+  const materializableToolBindings = buildMaterializableRuntimeBindings({
+    definitions: materializableTools,
+    capabilities: materializableCapabilities,
+    executors: callBuiltinTools,
+    scopeIdentity: JSON.stringify({
+      catalogSnapshotId: coreSurface.catalog.snapshotId,
+      executionMode: options.executionMode ?? "execute",
+      ...(managedInvocationAttachment
+        ? { managedCallerAttachment: managedInvocationAttachment.callerIdentity }
+        : {}),
+    }),
+  });
+  const boundMaterializableTools = new Map(
+    [...materializableToolBindings].map(([name, binding]) => [name, binding.definition] as const),
+  );
+  const boundMaterializableCapabilities = new Map(
+    [...materializableToolBindings].map(([name, binding]) => [name, binding.capability] as const),
+  );
+
   return {
     callBuiltinTools: strictToolAllowlist
       ? filterMapByAllowlist(callBuiltinTools, strictToolAllowlist) ?? new Map()
@@ -722,11 +773,15 @@ export function createAttachedRuntimeBuiltinToolSurface(
       ? filterMapByAllowlist(capabilities, strictToolAllowlist) ?? new Map()
       : capabilities,
     materializableTools: strictToolAllowlist
-      ? filterMapByAllowlist(materializableTools, strictToolAllowlist) ?? new Map()
-      : materializableTools,
+      ? filterMapByAllowlist(boundMaterializableTools, strictToolAllowlist) ?? new Map()
+      : boundMaterializableTools,
     materializableCapabilities: strictToolAllowlist
-      ? filterMapByAllowlist(materializableCapabilities, strictToolAllowlist) ?? new Map()
-      : materializableCapabilities,
+      ? filterMapByAllowlist(boundMaterializableCapabilities, strictToolAllowlist) ?? new Map()
+      : boundMaterializableCapabilities,
+    materializableToolBindings: strictToolAllowlist
+      ? filterMapByAllowlist(materializableToolBindings, strictToolAllowlist) ?? new Map()
+      : materializableToolBindings,
+    toolCatalogSnapshotId: coreSurface.catalog.snapshotId,
     toolAuthority: strictToolAllowlist
       ? filterMapByAllowlist(toolAuthority, strictToolAllowlist) ?? new Map()
       : toolAuthority,
@@ -1663,6 +1718,29 @@ function parseJsonRecord(value: string): Record<string, unknown> | undefined {
   }
 }
 
+function buildMaterializableRuntimeBindings(input: {
+  readonly definitions: ReadonlyMap<string, ToolDefinition>;
+  readonly capabilities: ReadonlyMap<string, Capability>;
+  readonly executors: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
+  readonly scopeIdentity: string;
+}): ReadonlyMap<string, MaterializableRuntimeToolBinding> {
+  const bindings = new Map<string, MaterializableRuntimeToolBinding>();
+  for (const [name, definition] of input.definitions) {
+    const capability = input.capabilities.get(name);
+    const executor = input.executors.get(name);
+    if (!capability || !executor) {
+      throw new TypeError(`Materializable runtime tool '${name}' is missing its capability or executor binding.`);
+    }
+    bindings.set(name, createMaterializableRuntimeToolBinding({
+      definition,
+      capability,
+      executor,
+      scopeIdentity: input.scopeIdentity,
+    }));
+  }
+  return bindings;
+}
+
 function buildRuntimeSurface(
   coreSurface: DefaultBuiltinToolSurface,
   options: {
@@ -1679,12 +1757,24 @@ function buildRuntimeSurface(
   }
   const materializableToolDefinitions = projectDevToolDefinitions(coreSurface.registry.list());
   const materializableCapabilities = projectDevToolCapabilities(coreSurface.registry.list());
+  const callBuiltinTools = buildBuiltinToolExecutors(coreSurface);
+  const materializableTools = new Map(
+    materializableToolDefinitions.map((tool) => [tool.name, tool] as const),
+  );
+  const materializableToolBindings = buildMaterializableRuntimeBindings({
+    definitions: materializableTools,
+    capabilities: materializableCapabilities,
+    executors: callBuiltinTools,
+    scopeIdentity: `attached-runtime:core:${coreSurface.catalog.snapshotId}`,
+  });
   return {
-    callBuiltinTools: buildBuiltinToolExecutors(coreSurface),
+    callBuiltinTools,
     toolDefinitions: coreSurface.toolDefinitions,
     capabilities: coreSurface.capabilities,
-    materializableTools: new Map(materializableToolDefinitions.map((tool) => [tool.name, tool] as const)),
+    materializableTools,
     materializableCapabilities,
+    materializableToolBindings,
+    toolCatalogSnapshotId: coreSurface.catalog.snapshotId,
     toolAuthority: buildBuiltinToolAuthority(materializableCapabilities),
     ...(options.toolInvocationAdmission
       ? { toolInvocationAdmission: options.toolInvocationAdmission }

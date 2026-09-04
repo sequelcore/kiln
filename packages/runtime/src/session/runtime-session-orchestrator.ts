@@ -43,7 +43,8 @@ import {
 } from "../capabilities/runtime-capability-composition.js";
 import {
   admitProgressiveTool,
-  readProgressiveToolCatalogSearchMetadata,
+  readProgressiveToolCatalogMaterializationSelection,
+  type MaterializableRuntimeToolBinding,
   type ProgressiveToolAdmissionDecision,
 } from "./progressive-tool-admission.js";
 import { RuntimeSessionApprovalGate } from "./runtime-session-orchestrator-approvals.js";
@@ -61,6 +62,7 @@ import {
   type OrchestratorUsageSnapshot,
   RuntimeProviderRequestAttemptTracker,
   RuntimeSessionExecutionTelemetry,
+  verifyLexicalMaterializationDecisions,
 } from "./runtime-session-orchestrator-telemetry.js";
 import {
   assessRuntimeCompletionObligations,
@@ -140,6 +142,20 @@ interface GovernedWorkMaterializationProgress {
   readonly requiredWorkItemCount: number;
   readonly workItemIds: ReadonlySet<string>;
   readonly goalCreated: boolean;
+}
+
+/**
+ * A lexical catalog search may disclose a schema after the ordinary tool-round
+ * budget has been consumed. This reserve is deliberately narrower than the
+ * managed-work transition reserve below: it authorizes one provider request,
+ * then one tool batch restricted to the newly disclosed names.
+ */
+interface DeferredDisclosureReserve {
+  readonly toolNames: ReadonlySet<string>;
+  readonly providerRequestConsumed: boolean;
+  readonly toolBatchConsumed: boolean;
+  readonly overrideActivated: boolean;
+  readonly activationDecision?: TurnConvergencePauseDecision;
 }
 
 function projectProviderRequestedAuthority(
@@ -400,6 +416,7 @@ export class RuntimeSessionOrchestrator {
     const admittedMaterializableTools = materializableToolsForEvidence(
       this.deps.materializableTools,
       readExecutionToolAllowlist(perCallConfig),
+      this.deps.materializableToolBindings,
     );
     const availableCanonicalToolIds = new Set([
       ...(routing.effectiveTools ?? []).map((tool) => tool.name),
@@ -495,7 +512,10 @@ export class RuntimeSessionOrchestrator {
       binding: capabilityBinding,
       bindingFailure: capabilityBindingResolution.failure,
       baseTools: routing.effectiveTools,
-      materializableTools: this.deps.materializableTools,
+      materializableTools: materializableDefinitions(
+        this.deps.materializableTools,
+        this.deps.materializableToolBindings,
+      ),
       callerOwnedBuiltinToolNames,
     });
     const projectedRoundCapabilityToolBlocks = materializationBlocksForProjectedRound(capabilityToolBlocks);
@@ -522,6 +542,7 @@ export class RuntimeSessionOrchestrator {
     let pendingMaterializationDecisions: readonly ProviderRequestToolMaterializationDecisionEvidence[] = [];
 
     let managedInvocationTransitionReserveUsed = false;
+    let deferredDisclosureReserve: DeferredDisclosureReserve | undefined;
     let temporalEvidenceRecoveryRequested = false;
     let round = 0;
     while (true) {
@@ -532,6 +553,9 @@ export class RuntimeSessionOrchestrator {
       );
       const pendingTransitionForRound = pendingManagedInvocationTransition(toolExecutions);
       const transitionOnlyRound = turnObservation.snapshot().toolRounds >= executionEnvelope.convergence.toolRounds;
+      const deferredDisclosureRequestPending = deferredDisclosureReserve !== undefined
+        && !deferredDisclosureReserve.providerRequestConsumed
+        && !deferredDisclosureReserve.toolBatchConsumed;
       throwIfRuntimeTurnAborted(perCallConfig?.abortSignal);
       const sessionTurnBudget = await this.checkBudget(session.id);
       if (!sessionTurnBudget.allowed) {
@@ -652,6 +676,8 @@ export class RuntimeSessionOrchestrator {
         && pendingTransitionForRound !== undefined
         && !managedInvocationTransitionReserveUsed
         && managedInvocationTransitionToolIsAdmitted(toolsForRound, pendingTransitionForRound, perCallConfig);
+      const deferredDisclosureReserveEligible = deferredDisclosureRequestPending
+        && !transitionReserveEligible;
       const providerDecision = decideTurnConvergence(
         executionEnvelope.convergence,
         turnObservation.snapshot(),
@@ -660,7 +686,9 @@ export class RuntimeSessionOrchestrator {
           projectedInputTokens: estimateRuntimeProviderRequestInput(providerRequest),
         },
       );
-      if (providerDecision.status === "pause" && !isEligibleTransitionReservePause(providerDecision, transitionReserveEligible)) {
+      if (providerDecision.status === "pause"
+        && !isEligibleTransitionReservePause(providerDecision, transitionReserveEligible)
+        && !isEligibleDeferredDisclosureReservePause(providerDecision, deferredDisclosureReserveEligible)) {
         if (providerDecision.reason === "tool_round_limit") {
           if (governedWorkProgress && !governedWorkProgress.goalCreated) {
             return finalizeGovernedWorkMaterializationRequired({
@@ -713,6 +741,22 @@ export class RuntimeSessionOrchestrator {
         managedInvocationTransitionReserveUsed = true;
         const correction = formatManagedInvocationTransitionReserveCorrection(pendingTransitionForRound!);
         session.addUserMessage(textParts(correction));
+      } else if (deferredDisclosureReserveEligible) {
+        const overrideActivated = providerDecision.status === "pause";
+        if (overrideActivated) {
+          turnObservation.recordRecoveryAttempt();
+        }
+        deferredDisclosureReserve = {
+          ...deferredDisclosureReserve!,
+          providerRequestConsumed: true,
+          overrideActivated,
+          ...(providerDecision.status === "pause" ? { activationDecision: providerDecision } : {}),
+        };
+        if (overrideActivated) {
+          session.addUserMessage(textParts(
+            formatDeferredDisclosureReserveCorrection(deferredDisclosureReserve),
+          ));
+        }
       }
       const measureCurrentRequest = (stopReason?: string) => measureProviderRequestRegions({
         system: invocationPromptManifest.finalPrompt,
@@ -727,13 +771,28 @@ export class RuntimeSessionOrchestrator {
           materializableTools: materializableToolsForEvidence(
             this.deps.materializableTools,
             readExecutionToolAllowlist(perCallConfig),
+            this.deps.materializableToolBindings,
           ),
+          materializableToolBindings: this.deps.materializableToolBindings,
           materializationDecisions: pendingMaterializationDecisions,
+          authorityAdmissionId: perCallConfig?.authorityAdmission?.admissionId,
+          currentCatalogSnapshotId: this.deps.toolCatalogSnapshotId,
         }),
         cachePartition,
         conversationProjection: conversationProjection.evidence,
         communicationResolution: routing.communicationResolution,
         ...(stopReason ? { stopReason } : {}),
+      });
+      // The pending lexical evidence is part of the provider-facing contract.
+      // Verify it before dispatch so a rotated authority bundle, substituted
+      // binding, or projected-definition drift cannot be sent to the provider
+      // and only discovered during post-request telemetry.
+      verifyLexicalMaterializationDecisions({
+        projectedTools: toolsForRound,
+        materializationDecisions: pendingMaterializationDecisions,
+        materializableToolBindings: this.deps.materializableToolBindings,
+        authorityAdmissionId: perCallConfig?.authorityAdmission?.admissionId,
+        currentCatalogSnapshotId: this.deps.toolCatalogSnapshotId,
       });
       const providerStartedAt = turnObservation.recordProviderRequestStarted();
       let response: AgentResponse;
@@ -813,6 +872,20 @@ export class RuntimeSessionOrchestrator {
             preLlmEscalation: escalation,
           });
         }
+        if (deferredDisclosureReserve?.providerRequestConsumed === true
+          && deferredDisclosureReserve.overrideActivated) {
+          return this.finalizeTurnConvergencePause({
+            session,
+            executionEnvelope,
+            decision: deferredDisclosureReserveConvergencePause(deferredDisclosureReserve),
+            progressEvidence: progressClassifier.chronologicalEvidence,
+            toolExecutions,
+            routingDecision: toPublicRoutingDecision(routing.routingDecision),
+            communicationResolution: routing.communicationResolution,
+            preLlmEscalation: escalation,
+          });
+        }
+        deferredDisclosureReserve = undefined;
         if (governedWorkProgress && !governedWorkProgress.goalCreated) {
           const correction = formatGovernedWorkMaterializationCorrection(governedWorkProgress);
           turnObservation.recordRecoveryAttempt();
@@ -895,8 +968,12 @@ export class RuntimeSessionOrchestrator {
         && managedInvocationTransitionReserveUsed
         && pendingTransitionForRound !== undefined
         && managedInvocationTransitionToolIsAdmitted(toolsForRound, pendingTransitionForRound, perCallConfig);
+      const deferredDisclosureBatchReservePending = deferredDisclosureReserve?.providerRequestConsumed === true
+        && deferredDisclosureReserve.toolBatchConsumed === false
+        && !transitionBatchReserveEligible;
       if (toolBatchDecision.status === "pause"
-        && !isEligibleTransitionReservePause(toolBatchDecision, transitionBatchReserveEligible)) {
+        && !isEligibleTransitionReservePause(toolBatchDecision, transitionBatchReserveEligible)
+        && !isEligibleDeferredDisclosureBatchReservePause(toolBatchDecision, deferredDisclosureBatchReservePending)) {
         return this.finalizeTurnConvergencePause({
           session,
           executionEnvelope,
@@ -909,6 +986,23 @@ export class RuntimeSessionOrchestrator {
         });
       }
       turnObservation.recordToolRound(normalizedToolCalls.length);
+      const deferredDisclosureBatchReserveActive = deferredDisclosureBatchReservePending
+        && (deferredDisclosureReserve!.overrideActivated || toolBatchDecision.status === "pause");
+      if (deferredDisclosureBatchReservePending) {
+        if (deferredDisclosureBatchReserveActive && !deferredDisclosureReserve!.overrideActivated) {
+          turnObservation.recordRecoveryAttempt();
+        }
+        deferredDisclosureReserve = {
+          ...deferredDisclosureReserve!,
+          toolBatchConsumed: true,
+          overrideActivated: deferredDisclosureBatchReserveActive,
+          ...(deferredDisclosureReserve!.activationDecision
+            ? { activationDecision: deferredDisclosureReserve!.activationDecision }
+            : toolBatchDecision.status === "pause"
+              ? { activationDecision: toolBatchDecision }
+              : {}),
+        };
+      }
       const transitionOnlyToolCalls = transitionOnlyRound && pendingTransitionForRound
         ? partitionManagedInvocationTransitionToolCalls(normalizedToolCalls, pendingTransitionForRound)
         : undefined;
@@ -924,17 +1018,29 @@ export class RuntimeSessionOrchestrator {
       session.addAssistantMessage(assistantParts);
 
       const transitionAdmittedToolCalls = transitionOnlyToolCalls?.allowed ?? normalizedToolCalls;
+      const deferredDisclosureToolCalls = deferredDisclosureBatchReserveActive
+        ? partitionDeferredDisclosureToolCalls(
+            transitionAdmittedToolCalls,
+            deferredDisclosureReserve!.toolNames,
+          )
+        : { allowed: transitionAdmittedToolCalls, blocked: [] as readonly ToolCall[] };
       const governedWorkToolCalls = governedWorkProgress && !governedWorkProgress.goalCreated
-        ? partitionGovernedWorkMaterializationToolCalls(transitionAdmittedToolCalls, governedWorkProgress)
+        ? partitionGovernedWorkMaterializationToolCalls(deferredDisclosureToolCalls.allowed, governedWorkProgress)
         : undefined;
       const projectedRoundToolCalls = partitionProjectedRoundToolCalls(
-        governedWorkToolCalls?.allowed ?? transitionAdmittedToolCalls,
+        governedWorkToolCalls?.allowed ?? deferredDisclosureToolCalls.allowed,
         toolsForRound,
         projectedRoundCapabilityToolBlocks,
       );
       const executableToolCalls = projectedRoundToolCalls.allowed;
       const blockedTransitionOnlyCalls = transitionOnlyToolCalls && transitionOnlyToolCalls.blocked.length > 0
         ? buildManagedInvocationTransitionOnlyBlockedResults(transitionOnlyToolCalls.blocked, pendingTransitionForRound!)
+        : undefined;
+      const blockedDeferredDisclosureCalls = deferredDisclosureToolCalls.blocked.length > 0
+        ? buildDeferredDisclosureBlockedResults(
+            deferredDisclosureToolCalls.blocked,
+            deferredDisclosureReserve!.toolNames,
+          )
         : undefined;
       const blockedProjectedRoundCalls = projectedRoundToolCalls.blocked.length > 0
         ? buildProjectedRoundBlockedResults(projectedRoundToolCalls.blocked, projectedRoundCapabilityToolBlocks)
@@ -944,11 +1050,13 @@ export class RuntimeSessionOrchestrator {
         : undefined;
       const blockedToolExecutions = [
         ...(blockedTransitionOnlyCalls?.toolExecutions ?? []),
+        ...(blockedDeferredDisclosureCalls?.toolExecutions ?? []),
         ...(blockedProjectedRoundCalls?.toolExecutions ?? []),
         ...(blockedGovernedWorkCalls?.toolExecutions ?? []),
       ];
       const blockedToolCallIds = [
         ...(transitionOnlyToolCalls?.blocked ?? []),
+        ...deferredDisclosureToolCalls.blocked,
         ...projectedRoundToolCalls.blocked,
         ...(governedWorkToolCalls?.blocked ?? []),
       ].map((toolCall) => toolCall.id);
@@ -956,6 +1064,7 @@ export class RuntimeSessionOrchestrator {
         toolExecutions.push(...blockedToolExecutions);
         session.addUserMessage([
           ...(blockedTransitionOnlyCalls?.resultParts ?? []),
+          ...(blockedDeferredDisclosureCalls?.resultParts ?? []),
           ...(blockedProjectedRoundCalls?.resultParts ?? []),
           ...(blockedGovernedWorkCalls?.resultParts ?? []),
         ]);
@@ -966,6 +1075,18 @@ export class RuntimeSessionOrchestrator {
           blockedToolExecutions,
           blockedToolCallIds,
         );
+        if (deferredDisclosureBatchReserveActive) {
+          return this.finalizeTurnConvergencePause({
+            session,
+            executionEnvelope,
+            decision: deferredDisclosureReserveConvergencePause(deferredDisclosureReserve!),
+            progressEvidence: progressClassifier.chronologicalEvidence,
+            toolExecutions,
+            routingDecision: toPublicRoutingDecision(routing.routingDecision),
+            communicationResolution: routing.communicationResolution,
+            preLlmEscalation: escalation,
+          });
+        }
         round += 1;
         continue;
       }
@@ -976,7 +1097,9 @@ export class RuntimeSessionOrchestrator {
         toolCallScopeId,
         transitionOnlyRound && pendingTransitionForRound
           ? withManagedInvocationTransitionToolAllowlist(perCallConfig, pendingTransitionForRound)
-          : perCallConfig,
+          : deferredDisclosureBatchReserveActive
+            ? withDeferredDisclosureToolAllowlist(perCallConfig, deferredDisclosureReserve!.toolNames)
+            : perCallConfig,
       );
       for (const summary of execution.toolExecutions) {
         if (summary.durationMs > 0) {
@@ -985,6 +1108,7 @@ export class RuntimeSessionOrchestrator {
       }
       const batchToolExecutions = [
         ...(blockedTransitionOnlyCalls?.toolExecutions ?? []),
+        ...(blockedDeferredDisclosureCalls?.toolExecutions ?? []),
         ...execution.toolExecutions,
         ...(blockedProjectedRoundCalls?.toolExecutions ?? []),
         ...(blockedGovernedWorkCalls?.toolExecutions ?? []),
@@ -992,6 +1116,7 @@ export class RuntimeSessionOrchestrator {
       toolExecutions.push(...batchToolExecutions);
       session.addUserMessage([
         ...(blockedTransitionOnlyCalls?.resultParts ?? []),
+        ...(blockedDeferredDisclosureCalls?.resultParts ?? []),
         ...execution.resultParts,
         ...(blockedProjectedRoundCalls?.resultParts ?? []),
         ...(blockedGovernedWorkCalls?.resultParts ?? []),
@@ -1033,17 +1158,43 @@ export class RuntimeSessionOrchestrator {
           preLlmEscalation: escalation,
         });
       }
+      if (deferredDisclosureBatchReserveActive) {
+        return this.finalizeTurnConvergencePause({
+          session,
+          executionEnvelope,
+          decision: deferredDisclosureReserveConvergencePause(deferredDisclosureReserve!),
+          progressEvidence: progressClassifier.chronologicalEvidence,
+          toolExecutions,
+          routingDecision: toPublicRoutingDecision(routing.routingDecision),
+          communicationResolution: routing.communicationResolution,
+          preLlmEscalation: escalation,
+        });
+      }
       const progressiveAdmission = admitProgressivelyMaterializedTools(
         projectedRoundTools,
         execution.toolExecutions,
         this.deps.materializableTools,
+        this.deps.materializableToolBindings,
+        this.deps.toolCatalogSnapshotId,
         readExecutionToolAllowlist(perCallConfig),
+        callBuiltinTools,
+        this.deps.builtinTools,
         capabilityBinding,
         perCallConfig?.authorityAdmission,
         callerOwnedBuiltinToolNames,
       );
       projectedRoundTools = progressiveAdmission.tools;
       pendingMaterializationDecisions = progressiveAdmission.decisions;
+      if (progressiveAdmission.materializedLexicalToolNames.length > 0) {
+        deferredDisclosureReserve = {
+          toolNames: new Set(progressiveAdmission.materializedLexicalToolNames),
+          providerRequestConsumed: false,
+          toolBatchConsumed: false,
+          overrideActivated: false,
+        };
+      } else if (deferredDisclosureBatchReservePending) {
+        deferredDisclosureReserve = undefined;
+      }
       if (mutableCapabilityExecutors) {
         for (const [toolName, executor] of progressiveAdmission.capabilityExecutors) {
           mutableCapabilityExecutors.set(toolName, executor);
@@ -1404,9 +1555,21 @@ export class RuntimeSessionOrchestrationSurface {
     this.approvalGate = new RuntimeSessionApprovalGate(deps.eventBus);
   }
 
-  bindProvider(provider: ProviderAdapter, model?: string): RuntimeSessionOrchestrator {
+  bindProvider(
+    provider: ProviderAdapter,
+    model?: string,
+    toolSurface?: Pick<
+      OrchestratorDeps,
+      | "builtinTools"
+      | "materializableTools"
+      | "materializableToolBindings"
+      | "toolCatalogSnapshotId"
+      | "capabilityMap"
+    >,
+  ): RuntimeSessionOrchestrator {
     return new RuntimeSessionOrchestrator({
       ...this.deps,
+      ...toolSurface,
       provider,
       ...(model ? { model } : {}),
     }, this.approvalGate);
@@ -1492,6 +1655,69 @@ function withManagedInvocationTransitionToolAllowlist(
   return {
     ...perCallConfig,
     toolAllowlist: new Set([pending.nextTool]),
+  };
+}
+
+function withDeferredDisclosureToolAllowlist(
+  perCallConfig: PerCallToolConfig | undefined,
+  toolNames: ReadonlySet<string>,
+): PerCallToolConfig {
+  return {
+    ...perCallConfig,
+    // Keep the parent authority admission intact while narrowing the
+    // per-call execution projection for this one deferred-disclosure batch.
+    toolAllowlist: new Set(toolNames),
+  };
+}
+
+function partitionDeferredDisclosureToolCalls(
+  toolCalls: readonly ToolCall[],
+  disclosedToolNames: ReadonlySet<string>,
+): {
+  readonly allowed: readonly ToolCall[];
+  readonly blocked: readonly ToolCall[];
+} {
+  const allowed: ToolCall[] = [];
+  const blocked: ToolCall[] = [];
+  for (const toolCall of toolCalls) {
+    if (disclosedToolNames.has(toolCall.name)) {
+      allowed.push(toolCall);
+    } else {
+      blocked.push(toolCall);
+    }
+  }
+  return { allowed, blocked };
+}
+
+function buildDeferredDisclosureBlockedResults(
+  toolCalls: readonly ToolCall[],
+  disclosedToolNames: ReadonlySet<string>,
+): {
+  readonly resultParts: readonly ContentPart[];
+  readonly toolExecutions: readonly ToolExecutionSummary[];
+} {
+  const disclosed = [...disclosedToolNames].sort().join(", ");
+  const content = [
+    "Tool execution blocked: this one-shot deferred-disclosure batch only permits the newly materialized tool name(s).",
+    disclosed.length > 0 ? `Permitted newly disclosed tool name(s): ${disclosed}.` : "No newly disclosed tool name is executable.",
+    "Search, unrelated, and unselected peer tools must wait for ordinary convergence.",
+  ].join("\n");
+  return {
+    resultParts: toolCalls.map((toolCall) => ({
+      type: "tool_result" as const,
+      toolUseId: toolCall.id,
+      content,
+      isError: true,
+    })),
+    toolExecutions: toolCalls.map((toolCall) => ({
+      toolCallId: toolCall.id,
+      toolName: toolCall.name,
+      input: toolCall.input,
+      durationMs: 0,
+      success: false,
+      output: content,
+      resultSummary: content.slice(0, 200),
+    })),
   };
 }
 
@@ -1851,17 +2077,43 @@ function finalizeGovernedWorkMaterializationRequired(input: {
 function materializableToolsForEvidence(
   materializableTools: ReadonlyMap<string, ToolDefinition> | undefined,
   toolAllowlist: ReadonlySet<string> | undefined,
+  materializableToolBindings?: ReadonlyMap<string, MaterializableRuntimeToolBinding>,
 ): ReadonlyMap<string, ToolDefinition> | undefined {
-  if (!materializableTools || !toolAllowlist) {
+  // Once linked bindings are available they are the sole provider-facing
+  // source. The older definition map remains useful for Capability Fabric
+  // collision checks, but must not reintroduce an unlinked lexical name.
+  const source = materializableToolBindings !== undefined
+    ? materializableDefinitions(undefined, materializableToolBindings)
+    : materializableTools;
+  if (!source || !toolAllowlist) {
     return undefined;
   }
   const scoped = new Map<string, ToolDefinition>();
-  for (const [name, tool] of materializableTools.entries()) {
+  for (const [name, tool] of source.entries()) {
     if (toolAllowlist.has(name)) {
       scoped.set(name, tool);
     }
   }
   return scoped;
+}
+
+function materializableDefinitions(
+  materializableTools: ReadonlyMap<string, ToolDefinition> | undefined,
+  materializableToolBindings: ReadonlyMap<string, MaterializableRuntimeToolBinding> | undefined,
+): ReadonlyMap<string, ToolDefinition> | undefined {
+  if (!materializableTools && !materializableToolBindings) {
+    return undefined;
+  }
+  const definitions = new Map(materializableTools ?? []);
+  for (const [name, binding] of materializableToolBindings ?? []) {
+    // Bindings are canonical for linked lexical materialization. Keep the
+    // map key check local so malformed caller-owned maps cannot smuggle a
+    // differently named definition into Capability collision evaluation.
+    if (binding.definition.name === name) {
+      definitions.set(name, binding.definition);
+    }
+  }
+  return definitions;
 }
 
 function mergeRuntimeBuiltinTools(
@@ -2085,50 +2337,109 @@ function admitProgressivelyMaterializedTools(
   tools: readonly ToolDefinition[] | undefined,
   executions: readonly ToolExecutionSummary[],
   materializableTools: ReadonlyMap<string, ToolDefinition> | undefined,
+  materializableToolBindings: ReadonlyMap<string, MaterializableRuntimeToolBinding> | undefined,
+  currentCatalogSnapshotId: `sha256:${string}` | undefined,
   turnToolAllowlist: ReadonlySet<string> | undefined,
+  callBuiltinTools: ReadonlyMap<string, RuntimeBuiltinToolExecutor> | undefined,
+  dependencyBuiltinTools: ReadonlyMap<string, RuntimeBuiltinToolExecutor> | undefined,
   capabilityBinding: RuntimeCapabilityTurnBinding | undefined,
   authorityAdmission: PerCallToolConfig["authorityAdmission"],
   callerOwnedBuiltinToolNames: ReadonlySet<string>,
 ): {
   readonly tools: readonly ToolDefinition[] | undefined;
   readonly decisions: readonly ProviderRequestToolMaterializationDecisionEvidence[];
+  readonly materializedLexicalToolNames: readonly string[];
   readonly capabilityExecutors: readonly (readonly [string, RuntimeBuiltinToolExecutor])[];
 } {
-  const hasCatalogMaterializations = materializableTools !== undefined && materializableTools.size > 0;
+  // Presence of the binding map (including an empty map) is meaningful: a
+  // catalog search with no linked binding must produce a redacted denial
+  // decision rather than silently disappearing from telemetry.
+  const hasCatalogMaterializations = materializableToolBindings !== undefined;
   const hasCapabilityMaterializations = capabilityBinding !== undefined
     && capabilityBinding.authorityCandidates.some((candidate) => candidate.toolName !== undefined);
   if (!tools || !turnToolAllowlist || (!hasCatalogMaterializations && !hasCapabilityMaterializations)) {
-    return { tools, decisions: [], capabilityExecutors: [] };
+    return { tools, decisions: [], materializedLexicalToolNames: [], capabilityExecutors: [] };
   }
 
   let nextTools = tools;
   const decisions: ProviderRequestToolMaterializationDecisionEvidence[] = [];
+  const materializedLexicalToolNames: string[] = [];
+  const emittedLexicalDecisionNames = new Set<string>();
   const capabilityExecutors: Array<readonly [string, RuntimeBuiltinToolExecutor]> = [];
   for (const execution of executions) {
-    const catalogMetadata = readProgressiveToolCatalogSearchMetadata(execution.metadata);
-    if (catalogMetadata) {
-      if (!materializableTools) continue;
-      const admission = admitProgressiveTool(
-        nextTools,
-        materializableTools,
-        turnToolAllowlist,
-        execution.metadata,
-      );
+    const catalogMetadata = readProgressiveToolCatalogMaterializationSelection(execution.metadata);
+    const rawCatalogMetadata = recordValue(execution.metadata);
+    const legacyCatalogSearch = execution.toolName === "tool_catalog_search"
+      && rawCatalogMetadata?.kind === "catalog"
+      && rawCatalogMetadata.toolName === "tool_catalog_search"
+      && rawCatalogMetadata.operation === "search";
+    if (legacyCatalogSearch) {
+      // The strict parser intentionally rejects stale, non-exact, or
+      // schema-less results. They still need a redacted lexical decision so
+      // contradictory metadata cannot leak the requested name.
+      if (!catalogMetadata || !materializableToolBindings) {
+        decisions.push({
+          decision: "not_materializable",
+          toolName: "<redacted>",
+          ...(execution.toolCallId ? { sourceToolCallId: execution.toolCallId } : {}),
+          sourceToolName: execution.toolName,
+          catalog: {},
+        });
+        continue;
+      }
+
+      const admission = currentCatalogSnapshotId === undefined
+        ? { tools: nextTools, decision: "not_materializable" as const }
+        : admitProgressiveTool({
+            tools: nextTools,
+            materializableToolBindings,
+            turnToolAllowlist,
+            currentCatalogSnapshotId,
+            authorityAdmission,
+            currentExecutor: callBuiltinTools?.get(catalogMetadata.materializableToolName)
+              ?? dependencyBuiltinTools?.get(catalogMetadata.materializableToolName),
+            metadata: execution.metadata,
+          });
       nextTools = admission.tools;
       const decision = materializationDecision(admission.decision);
-      const canExposeToolName = decision !== "outside_authority";
+      const canExposeToolName = (decision === "materialized" || decision === "already_materialized")
+        && admission.binding !== undefined
+        && authorityAdmission !== undefined;
+      // Repeated identical selections in one provider batch must produce one
+      // lexical evidence record and one projected addition, not a telemetry
+      // duplicate. The admission owner still evaluates every selection.
+      if (canExposeToolName && emittedLexicalDecisionNames.has(catalogMetadata.materializableToolName)) {
+        continue;
+      }
+      if (canExposeToolName) {
+        emittedLexicalDecisionNames.add(catalogMetadata.materializableToolName);
+        if (decision === "materialized") {
+          materializedLexicalToolNames.push(catalogMetadata.materializableToolName);
+        }
+      }
+      const lexicalBinding = canExposeToolName && admission.binding && authorityAdmission
+        ? {
+            catalogSnapshotId: catalogMetadata.catalogSnapshotId,
+            toolDefinitionDigest: admission.binding.definitionDigest,
+            authorityAdmissionId: authorityAdmission.admissionId,
+            executableAdmissionId: admission.binding.executableAdmissionId,
+          }
+        : undefined;
       decisions.push({
         decision,
         toolName: canExposeToolName ? catalogMetadata.materializableToolName : "<redacted>",
         ...(execution.toolCallId ? { sourceToolCallId: execution.toolCallId } : {}),
         sourceToolName: execution.toolName,
-        catalog: {
-          ...(canExposeToolName && catalogMetadata.exact ? { exact: catalogMetadata.exact } : {}),
-          ...(canExposeToolName && catalogMetadata.resultCount !== undefined ? { resultCount: catalogMetadata.resultCount } : {}),
-          ...(canExposeToolName && catalogMetadata.totalIndexed !== undefined ? { totalIndexed: catalogMetadata.totalIndexed } : {}),
-          ...(canExposeToolName && catalogMetadata.includedSchemas !== undefined ? { includedSchemas: catalogMetadata.includedSchemas } : {}),
-          ...(canExposeToolName ? { stale: catalogMetadata.stale } : {}),
-        },
+        ...(lexicalBinding ? { lexicalBinding } : {}),
+        catalog: canExposeToolName
+          ? {
+              exact: catalogMetadata.exact,
+              resultCount: catalogMetadata.resultCount,
+              ...(catalogMetadata.totalIndexed !== undefined ? { totalIndexed: catalogMetadata.totalIndexed } : {}),
+              includedSchemas: catalogMetadata.includedSchemas,
+              stale: catalogMetadata.stale,
+            }
+          : {},
       });
       continue;
     }
@@ -2141,7 +2452,7 @@ function admitProgressivelyMaterializedTools(
       capabilityBinding,
       authorityAdmission,
       turnToolAllowlist,
-      materializableTools,
+      materializableDefinitions(materializableTools, materializableToolBindings),
       callerOwnedBuiltinToolNames,
     );
     nextTools = admission.tools;
@@ -2175,6 +2486,7 @@ function admitProgressivelyMaterializedTools(
   return {
     tools: nextTools,
     decisions,
+    materializedLexicalToolNames: Object.freeze(materializedLexicalToolNames),
     capabilityExecutors: Object.freeze(capabilityExecutors),
   };
 }
@@ -2652,6 +2964,26 @@ function isEligibleTransitionReservePause(
   return eligible && decision.status === "pause" && decision.reason === "tool_round_limit";
 }
 
+function isEligibleDeferredDisclosureReservePause(
+  decision: TurnConvergenceDecision,
+  eligible: boolean,
+): boolean {
+  return eligible
+    && decision.status === "pause"
+    && (decision.reason === "provider_request_limit" || decision.reason === "tool_round_limit");
+}
+
+function isEligibleDeferredDisclosureBatchReservePause(
+  decision: TurnConvergenceDecision,
+  eligible: boolean,
+): boolean {
+  return eligible
+    && decision.status === "pause"
+    && (decision.reason === "tool_round_limit"
+      || decision.reason === "tool_call_limit"
+      || decision.reason === "recovery_limit");
+}
+
 function transitionReserveConvergencePause(
   policy: ResolvedTurnConvergencePolicy,
   collector: RuntimeTurnConvergenceObservationCollector,
@@ -2669,6 +3001,29 @@ function transitionReserveConvergencePause(
     observed: policy.toolRounds,
     limit: policy.toolRounds,
   };
+}
+
+function deferredDisclosureReserveConvergencePause(
+  reserve: DeferredDisclosureReserve,
+): TurnConvergencePauseDecision {
+  if (!reserve.activationDecision) {
+    throw new Error("Deferred-disclosure reserve completed without an activating convergence decision.");
+  }
+  return reserve.activationDecision;
+}
+
+function formatDeferredDisclosureReserveCorrection(
+  reserve: DeferredDisclosureReserve,
+): string {
+  const names = [...reserve.toolNames].sort();
+  const trigger = reserve.activationDecision?.reason ?? "convergence limit";
+  return [
+    `A legacy lexical catalog search materialized a newly disclosed tool at the ${trigger}.`,
+    names.length > 0
+      ? `Only the newly disclosed tool name(s) may be executed in this one-shot reserved batch: ${names.join(", ")}.`
+      : "No newly disclosed tool name is executable in this reserved batch.",
+    "Do not issue another catalog search or call unrelated, unselected peer, or previously projected tools in this batch.",
+  ].join("\n");
 }
 
 function formatRuntimeTurnConvergencePause(decision: TurnConvergencePauseDecision): string {

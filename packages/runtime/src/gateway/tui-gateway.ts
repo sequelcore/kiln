@@ -476,6 +476,8 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
     eventBus,
     builtinTools: builtinToolSurface.callBuiltinTools,
     materializableTools: builtinToolSurface.materializableTools,
+    materializableToolBindings: builtinToolSurface.materializableToolBindings,
+    toolCatalogSnapshotId: builtinToolSurface.toolCatalogSnapshotId,
     capabilityMap: builtinToolSurface.materializableCapabilities,
   });
   const sessionRegistry = new SessionRegistry();
@@ -679,7 +681,13 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
         credential: committed.credential,
         admission: committed.admission,
       });
-      const orchestrator = orchestrationSurface.bindProvider(provider, committed.admission.providerModelId);
+      const orchestrator = orchestrationSurface.bindProvider(provider, committed.admission.providerModelId, {
+        builtinTools: turnBuiltinToolSurface.callBuiltinTools,
+        materializableTools: turnBuiltinToolSurface.materializableTools,
+        materializableToolBindings: turnBuiltinToolSurface.materializableToolBindings,
+        toolCatalogSnapshotId: turnBuiltinToolSurface.toolCatalogSnapshotId,
+        capabilityMap: turnBuiltinToolSurface.materializableCapabilities,
+      });
       activityStreamer.selectSession(runtimeSession.id);
       return processAdmittedTurn({
         orchestrator,

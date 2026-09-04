@@ -18,6 +18,7 @@ import { makeTempDir, nodeTestFilesystem, removeTempDir } from "./infrastructure
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ActionEffectEnvelope } from "../../src/engine/domain/action-effect.js";
+import type { BuiltinToolCatalogContribution } from "../../src/tools/domain/tool-catalog.js";
 
 const createDefaultBuiltinToolSurface: typeof createCoreDefaultBuiltinToolSurface = (options = {}) =>
   createCoreDefaultBuiltinToolSurface({ ...options, hostFilesystem: nodeTestFilesystem });
@@ -80,6 +81,17 @@ const READ_ONLY_EFFECT: ActionEffectEnvelope = {
   identityUse: "none",
   consequences: [],
   idempotency: "idempotent",
+};
+
+const MANAGED_CATALOG_CONTRIBUTION: BuiltinToolCatalogContribution = {
+  definition: {
+    name: "managed_deferred_tool",
+    description: "Deferred managed tool",
+    inputSchema: { type: "object", properties: {}, required: [], additionalProperties: false },
+  },
+  effectEnvelope: READ_ONLY_EFFECT,
+  sourcePackage: "@kilnai/runtime",
+  aliases: ["Deferred managed tool"],
 };
 
 function createAuthorityAwareMemoryMutationService(authority: { canWriteMemory?: boolean } | undefined) {
@@ -304,6 +316,88 @@ describe("default builtin tool surface", () => {
       ],
     });
     expect(surface.catalog.search({ query: "directory tree", limit: 1 }).entries[0]?.name).toBe("tree");
+  });
+
+  it("keeps inert catalog contributions out of execution while sharing the catalog with search and resources", async () => {
+    const surface = createDefaultBuiltinToolSurface({
+      catalogContributions: [MANAGED_CATALOG_CONTRIBUTION],
+    });
+
+    expect(surface.registry.has("managed_deferred_tool")).toBe(false);
+    expect(surface.toolNames).not.toContain("managed_deferred_tool");
+    expect(surface.toolDefinitions.map((tool) => tool.name)).not.toContain("managed_deferred_tool");
+    expect(surface.catalog.search({ exact: "managed_deferred_tool" }).entries).toHaveLength(1);
+    expect(surface.catalog.snapshotId).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    await expect(surface.bridge.execute({
+      name: "tool_catalog_search",
+      input: { exact: "managed_deferred_tool", includeSchemas: true, verbosity: "structured" },
+    })).resolves.toMatchObject({
+      result: {
+        metadata: {
+          catalogSnapshotId: surface.catalog.snapshotId,
+          materializableToolDefinitionDigest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+        },
+      },
+    });
+    await expect(surface.resources.read("kiln://tools/catalog")).resolves.toMatchObject({
+      contents: [{ text: expect.stringContaining("managed_deferred_tool") }],
+    });
+  });
+
+  it("applies strict visibility to the shared catalog snapshot without exposing deferred contributions", async () => {
+    const surface = createDefaultBuiltinToolSurface({
+      catalogContributions: [MANAGED_CATALOG_CONTRIBUTION],
+      toolProjection: { mode: "strict", alwaysOnTools: ["read", "tool_catalog_search"] },
+    });
+
+    expect(surface.catalog.search({ query: "managed" }).entries).toEqual([]);
+    expect(surface.catalog.search({ exact: "Deferred managed tool" })).toMatchObject({
+      entries: [],
+      reason: "unauthorized",
+      diagnostic: { canonicalName: "managed_deferred_tool" },
+    });
+    await expect(surface.bridge.execute({
+      name: "tool_catalog_search",
+      input: { exact: "Deferred managed tool", includeSchemas: true, verbosity: "structured" },
+    })).resolves.toMatchObject({
+      result: {
+        metadata: {
+          catalogSnapshotId: surface.catalog.snapshotId,
+        },
+      },
+    });
+    await expect(surface.resources.read("kiln://tools/catalog")).resolves.toMatchObject({
+      contents: [{ text: expect.not.stringContaining("managed_deferred_tool") }],
+    });
+  });
+
+  it("keeps an explicitly admitted deferred name discoverable without making it executable", async () => {
+    const surface = createDefaultBuiltinToolSurface({
+      catalogContributions: [MANAGED_CATALOG_CONTRIBUTION],
+      toolProjection: {
+        mode: "strict",
+        alwaysOnTools: ["read", "tool_catalog_search", "managed_deferred_tool"],
+      },
+    });
+
+    expect(surface.registry.has("managed_deferred_tool")).toBe(false);
+    expect(surface.toolNames).not.toContain("managed_deferred_tool");
+    expect(surface.toolDefinitions.map((tool) => tool.name)).not.toContain("managed_deferred_tool");
+    expect(surface.catalog.search({ exact: "managed_deferred_tool" }).entries).toHaveLength(1);
+    await expect(surface.bridge.execute({
+      name: "tool_catalog_search",
+      input: { exact: "managed_deferred_tool", includeSchemas: true, verbosity: "structured" },
+    })).resolves.toMatchObject({
+      result: {
+        metadata: {
+          catalogSnapshotId: surface.catalog.snapshotId,
+          materializableToolDefinitionDigest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+        },
+      },
+    });
+    await expect(surface.resources.read("kiln://tools/catalog")).resolves.toMatchObject({
+      contents: [{ text: expect.stringContaining("managed_deferred_tool") }],
+    });
   });
 
   it("exposes a resource registry over the same catalog and session stores", async () => {

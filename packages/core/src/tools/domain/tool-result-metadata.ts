@@ -24,6 +24,7 @@ import type {
   WorkItemStatus,
 } from "../../work-governance/index.js";
 import type { TemporalEventEvidenceRequirement, TemporalEvidenceDecision } from "./temporal-evidence.js";
+import type { ToolCatalogSnapshotId, ToolDefinitionDigest } from "./tool-catalog.js";
 import type {
   WebSearchDomainPostcondition,
   WebSearchIntent,
@@ -441,7 +442,9 @@ export interface CatalogToolResultMetadata<TToolName extends CatalogToolName = C
   readonly totalIndexed: number;
   readonly includedSchemas?: boolean;
   readonly stale?: boolean;
+  readonly catalogSnapshotId?: ToolCatalogSnapshotId;
   readonly materializableToolName?: string;
+  readonly materializableToolDefinitionDigest?: ToolDefinitionDigest;
   readonly verbosity?: ToolOutputVerbosity;
 }
 

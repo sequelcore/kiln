@@ -858,6 +858,12 @@ export class ProviderSession implements IKilnSession {
       model: this.resolvedModel,
       tools: isTextOnly ? [] : [...this.toolDefinitions, ...externalTools],
       materializableTools: isTextOnly ? new Map() : this.materializableTools,
+      materializableToolBindings: isTextOnly
+        ? new Map()
+        : this.builtinToolSurface.materializableToolBindings,
+      ...(!isTextOnly
+        ? { toolCatalogSnapshotId: this.builtinToolSurface.toolCatalogSnapshotId }
+        : {}),
       builtinTools: isTextOnly ? new Map() : this.builtinTools,
       eventBus: this.eventBus,
       toolAuthorizer: authorizer,

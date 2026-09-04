@@ -70,11 +70,13 @@ export type {
 } from "./domain/tool.js";
 export { DEV_TOOL_OUTPUT_SCHEMA, TOOL_SCHEMAS } from "./domain/tool.js";
 export type {
+  BuiltinToolCatalogContribution,
   ToolCatalogAlias,
   ToolCatalogAuthority,
   ToolCatalogConfiguredProducerDiagnostic,
   ToolCatalogConfigurationDiagnostic,
   ToolCatalogConfigurationDiagnosticCode,
+  ToolCatalogDefinitionShape,
   ToolCatalogEntry,
   ToolCatalogIndexOptions,
   ToolCatalogSearchAdapter,
@@ -82,9 +84,13 @@ export type {
   ToolCatalogSearchReason,
   ToolCatalogSearchRequest,
   ToolCatalogSearchResult,
+  ToolCatalogSnapshotId,
+  ToolDefinitionDigest,
 } from "./domain/tool-catalog.js";
 export {
+  digestToolDefinition,
   LexicalToolCatalogSearchAdapter,
+  normalizeBuiltinToolCatalogContribution,
   TOOL_CATALOG_ALIASES,
   TOOL_CATALOG_OBLIGATION_ALIASES,
   ToolCatalogIndex,

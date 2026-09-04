@@ -899,6 +899,8 @@ function wireOperatorTransport(
     eventBus,
     builtinTools: builtinToolSurface.callBuiltinTools,
     materializableTools: builtinToolSurface.materializableTools,
+    materializableToolBindings: builtinToolSurface.materializableToolBindings,
+    toolCatalogSnapshotId: builtinToolSurface.toolCatalogSnapshotId,
     capabilityMap: builtinToolSurface.materializableCapabilities,
   });
   const sessionRegistry = new SessionRegistry();
@@ -1173,7 +1175,13 @@ function wireOperatorTransport(
         credential: committed.credential,
         admission: committed.admission,
       });
-      const orchestrator = orchestrationSurface.bindProvider(provider, committed.admission.providerModelId);
+      const orchestrator = orchestrationSurface.bindProvider(provider, committed.admission.providerModelId, {
+        builtinTools: turnBuiltinToolSurface.callBuiltinTools,
+        materializableTools: turnBuiltinToolSurface.materializableTools,
+        materializableToolBindings: turnBuiltinToolSurface.materializableToolBindings,
+        toolCatalogSnapshotId: turnBuiltinToolSurface.toolCatalogSnapshotId,
+        capabilityMap: turnBuiltinToolSurface.materializableCapabilities,
+      });
       activityStreamer.selectSession(runtimeSession.id);
       return processAdmittedTurn({
         orchestrator,

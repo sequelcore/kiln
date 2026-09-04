@@ -2,17 +2,86 @@ import { describe, expect, it, vi } from "vitest";
 import { ToolCache, type ProviderAdapter, type ToolDefinition } from "@kilnai/core/agents";
 import { textParts, type AuthorityDescriptor, type Capability, type RateLimiter, type ToolAuthorizer } from "@kilnai/core/engine";
 import { EventBus, type ApprovalRequestedEvent, type ToolCalledEvent, type ToolResultEvent } from "@kilnai/core/events";
+import { digestToolDefinition, getBuiltinEffectEnvelope } from "@kilnai/core/tools";
 import { type KilnMcpClient } from "@kilnai/core/mcp";
 import { ToolResultSanitizer as RealToolResultSanitizer, type SafetyPipeline, type ToolResultSanitizer } from "@kilnai/core/safety";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createAttachedRuntimeBuiltinToolSurface } from "../../src/gateway/attached-runtime-tool-surface.js";
-import { RuntimeSessionOrchestrationSurface, RuntimeSessionOrchestrator, type PerCallToolConfig } from "../../src/session/runtime-session-orchestrator.js";
+import { RuntimeSessionOrchestrationSurface, RuntimeSessionOrchestrator, type PerCallToolConfig, type RuntimeBuiltinToolExecutor } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSessionToolExecutor } from "../../src/session/runtime-session-orchestrator-tool-executor.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
-import { createFixtureClaimConfig } from "./runtime-claim-fixture.js";
+import { deriveRuntimeConvergencePolicyInput } from "../../src/session/runtime-execution-envelope.js";
+import { createFixtureClaimConfig, FIXTURE_READ_ONLY_EFFECT } from "./runtime-claim-fixture.js";
 import { fixtureAuditLog, waitForAssertion, makeProvider, makeCommandProvider, makeToolCallProvider, makeSession, getReinjectedToolResultFromSecondCall, getReinjectedToolResultPartFromSecondCall, getLastToolResultPartsFromCall, makeCapabilityMap, fixtureToolActionConfig, READ_ONLY_EFFECT, MUTATION_EFFECT, IDEMPOTENT_MUTATION_EFFECT, FIXTURE_EFFECT_CEILING } from "./runtime-session-orchestrator-tools-test-fixture.js";
+import { createMaterializableRuntimeToolBinding } from "../../src/session/progressive-tool-admission.js";
+
+const LEGACY_CATALOG_SNAPSHOT_ID = `sha256:${"c".repeat(64)}` as const;
+
+function linkedLegacyToolFixture(input: {
+  readonly session: RuntimeSession;
+  readonly provider: ProviderAdapter;
+  readonly catalogTool: ToolDefinition;
+  readonly deferredTool: ToolDefinition;
+  readonly deferredExecutor?: RuntimeBuiltinToolExecutor;
+  readonly allowedDeferred?: boolean;
+}): {
+  readonly binding: ReturnType<typeof createMaterializableRuntimeToolBinding>;
+  readonly metadata: Record<string, unknown>;
+  readonly config: PerCallToolConfig;
+} {
+  const executor: RuntimeBuiltinToolExecutor = input.deferredExecutor
+    ?? vi.fn().mockResolvedValue("deferred result");
+  const deferredEffect = getBuiltinEffectEnvelope(input.deferredTool.name)
+    ?? FIXTURE_READ_ONLY_EFFECT;
+  const binding = createMaterializableRuntimeToolBinding({
+    definition: input.deferredTool,
+    capability: {
+      name: input.deferredTool.name,
+      description: input.deferredTool.description,
+      schema: input.deferredTool.inputSchema,
+      tags: [...input.deferredTool.tags],
+      effectEnvelope: deferredEffect,
+    },
+    executor,
+    scopeIdentity: "runtime-test-legacy-catalog",
+  });
+  const config = createFixtureClaimConfig({
+    session: input.session,
+    provider: input.provider,
+    includeToolClaims: true,
+    toolPermissions: [
+      { toolName: input.catalogTool.name, effectEnvelope: FIXTURE_READ_ONLY_EFFECT },
+      ...(input.allowedDeferred === false
+        ? []
+        : [{ toolName: input.deferredTool.name, effectEnvelope: deferredEffect }]),
+    ],
+  });
+  return {
+    binding,
+    config: Object.freeze({
+      ...config,
+      toolAllowlist: new Set([
+        input.catalogTool.name,
+        ...(input.allowedDeferred === false ? [] : [input.deferredTool.name]),
+      ]),
+    }),
+    metadata: {
+      toolName: input.catalogTool.name,
+      kind: "catalog",
+      operation: "search",
+      exact: input.deferredTool.name,
+      resultCount: 1,
+      totalIndexed: 2,
+      includedSchemas: true,
+      stale: false,
+      materializableToolName: input.deferredTool.name,
+      catalogSnapshotId: LEGACY_CATALOG_SNAPSHOT_ID,
+      materializableToolDefinitionDigest: digestToolDefinition(input.deferredTool),
+    },
+  };
+}
 
 describe("RuntimeSessionOrchestrator - tool execution", () => {
     it("emits tool_authorized event and executes allowed tools", async () => {
@@ -1934,6 +2003,7 @@ describe("RuntimeSessionOrchestrator - tool execution", () => {
         inputSchema: { type: "object" },
         tags: new Set(["browser"]),
       };
+      const session = makeSession();
       const provider: ProviderAdapter = {
         name: "mock",
         createMessage: vi.fn()
@@ -1961,31 +2031,27 @@ describe("RuntimeSessionOrchestrator - tool execution", () => {
           }),
         streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
       };
+      const linkedFixture = linkedLegacyToolFixture({ session, provider, catalogTool, deferredTool });
       const catalogSearch = vi.fn().mockResolvedValue({
         output: JSON.stringify({ tools: [deferredTool.name] }),
         isError: false,
-        metadata: {
-          toolName: "tool_catalog_search",
-          kind: "catalog",
-          operation: "search",
-          exact: deferredTool.name,
-          resultCount: 1,
-          totalIndexed: 2,
-          includedSchemas: true,
-          stale: false,
-          materializableToolName: deferredTool.name,
-        },
+        metadata: linkedFixture.metadata,
       });
       const orchestrator = new RuntimeSessionOrchestrator({
         provider,
+        model: "unknown",
         tools: [catalogTool],
         materializableTools: new Map([[deferredTool.name, deferredTool]]),
-        builtinTools: new Map([[catalogTool.name, catalogSearch]]),
+        materializableToolBindings: new Map([[deferredTool.name, linkedFixture.binding]]),
+        toolCatalogSnapshotId: LEGACY_CATALOG_SNAPSHOT_ID,
+        capabilityMap: new Map([[deferredTool.name, linkedFixture.binding.capability]]),
+        builtinTools: new Map([
+          [catalogTool.name, catalogSearch],
+          [deferredTool.name, linkedFixture.binding.executor],
+        ]),
       });
 
-      const result = await orchestrator.processMessage(makeSession(), textParts("start a browser"), undefined, undefined, {
-        toolAllowlist: new Set([catalogTool.name, deferredTool.name]),
-      });
+      const result = await orchestrator.processMessage(session, textParts("start a browser"), undefined, undefined, linkedFixture.config);
 
       expect(catalogSearch).toHaveBeenCalledWith(
         { exact: deferredTool.name, includeSchemas: true },
@@ -2062,6 +2128,12 @@ describe("RuntimeSessionOrchestrator - tool execution", () => {
           toolName: deferredTool.name,
           sourceToolCallId: "catalog-search-1",
           sourceToolName: catalogTool.name,
+          lexicalBinding: {
+            catalogSnapshotId: LEGACY_CATALOG_SNAPSHOT_ID,
+            toolDefinitionDigest: linkedFixture.binding.definitionDigest,
+            authorityAdmissionId: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+            executableAdmissionId: linkedFixture.binding.executableAdmissionId,
+          },
           catalog: {
             exact: deferredTool.name,
             resultCount: 1,
@@ -2096,6 +2168,7 @@ describe("RuntimeSessionOrchestrator - tool execution", () => {
         inputSchema: { type: "object" },
         tags: new Set(["browser", "mutation"]),
       };
+      const session = makeSession();
       const provider: ProviderAdapter = {
         name: "mock",
         createMessage: vi.fn()
@@ -2123,34 +2196,50 @@ describe("RuntimeSessionOrchestrator - tool execution", () => {
           }),
         streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
       };
+      const linkedSnapshot = linkedLegacyToolFixture({
+        session,
+        provider,
+        catalogTool,
+        deferredTool: browserSnapshotTool,
+      });
+      const linkedSessionStart = linkedLegacyToolFixture({
+        session,
+        provider,
+        catalogTool,
+        deferredTool: browserSessionStartTool,
+      });
+      expect(linkedSnapshot.config.authorityAdmission?.turn.tools.allowedToolPermissions.map(({ toolName }) => toolName))
+        .toEqual([browserSnapshotTool.name, catalogTool.name].sort());
       const catalogSearch = vi.fn().mockResolvedValue({
         output: JSON.stringify({ tools: [browserSnapshotTool.name] }),
         isError: false,
-        metadata: {
-          toolName: catalogTool.name,
-          kind: "catalog",
-          operation: "search",
-          exact: browserSnapshotTool.name,
-          resultCount: 1,
-          totalIndexed: 2,
-          includedSchemas: true,
-          stale: false,
-          materializableToolName: browserSnapshotTool.name,
-        },
+        metadata: linkedSnapshot.metadata,
       });
       const orchestrator = new RuntimeSessionOrchestrator({
         provider,
+        model: "unknown",
         tools: [catalogTool],
         materializableTools: new Map([
           [browserSnapshotTool.name, browserSnapshotTool],
           [browserSessionStartTool.name, browserSessionStartTool],
         ]),
-        builtinTools: new Map([[catalogTool.name, catalogSearch]]),
+        materializableToolBindings: new Map([
+          [browserSnapshotTool.name, linkedSnapshot.binding],
+          [browserSessionStartTool.name, linkedSessionStart.binding],
+        ]),
+        toolCatalogSnapshotId: LEGACY_CATALOG_SNAPSHOT_ID,
+        capabilityMap: new Map([
+          [browserSnapshotTool.name, linkedSnapshot.binding.capability],
+          [browserSessionStartTool.name, linkedSessionStart.binding.capability],
+        ]),
+        builtinTools: new Map([
+          [catalogTool.name, catalogSearch],
+          [browserSnapshotTool.name, linkedSnapshot.binding.executor],
+          [browserSessionStartTool.name, linkedSessionStart.binding.executor],
+        ]),
       });
 
-      const result = await orchestrator.processMessage(makeSession(), textParts("inspect browser"), undefined, undefined, {
-        toolAllowlist: new Set([catalogTool.name, browserSnapshotTool.name]),
-      });
+      const result = await orchestrator.processMessage(session, textParts("inspect browser"), undefined, undefined, linkedSnapshot.config);
 
       expect(catalogSearch).toHaveBeenCalledWith(
         { exact: browserSnapshotTool.name, includeSchemas: true },
@@ -2197,6 +2286,7 @@ describe("RuntimeSessionOrchestrator - tool execution", () => {
         inputSchema: { type: "object" },
         tags: new Set(["browser", "mutation"]),
       };
+      const session = makeSession();
       const provider: ProviderAdapter = {
         name: "mock",
         createMessage: vi.fn()
@@ -2224,31 +2314,35 @@ describe("RuntimeSessionOrchestrator - tool execution", () => {
           }),
         streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
       };
+      const linked = linkedLegacyToolFixture({
+        session,
+        provider,
+        catalogTool,
+        deferredTool: browserSessionStartTool,
+        allowedDeferred: false,
+      });
+      expect(linked.config.authorityAdmission?.turn.tools.allowedToolPermissions.map(({ toolName }) => toolName))
+        .toEqual([catalogTool.name]);
       const catalogSearch = vi.fn().mockResolvedValue({
         output: JSON.stringify({ tools: [browserSessionStartTool.name] }),
         isError: false,
-        metadata: {
-          toolName: catalogTool.name,
-          kind: "catalog",
-          operation: "search",
-          exact: browserSessionStartTool.name,
-          resultCount: 1,
-          totalIndexed: 2,
-          includedSchemas: true,
-          stale: false,
-          materializableToolName: browserSessionStartTool.name,
-        },
+        metadata: linked.metadata,
       });
       const orchestrator = new RuntimeSessionOrchestrator({
         provider,
+        model: "unknown",
         tools: [catalogTool],
         materializableTools: new Map([[browserSessionStartTool.name, browserSessionStartTool]]),
-        builtinTools: new Map([[catalogTool.name, catalogSearch]]),
+        materializableToolBindings: new Map([[browserSessionStartTool.name, linked.binding]]),
+        toolCatalogSnapshotId: LEGACY_CATALOG_SNAPSHOT_ID,
+        capabilityMap: new Map([[browserSessionStartTool.name, linked.binding.capability]]),
+        builtinTools: new Map([
+          [catalogTool.name, catalogSearch],
+          [browserSessionStartTool.name, linked.binding.executor],
+        ]),
       });
 
-      const result = await orchestrator.processMessage(makeSession(), textParts("start a browser"), undefined, undefined, {
-        toolAllowlist: new Set([catalogTool.name]),
-      });
+      const result = await orchestrator.processMessage(session, textParts("start a browser"), undefined, undefined, linked.config);
 
       const providerRequests = result.providerRequests as Array<{
         readonly toolProjection?: {
@@ -2288,6 +2382,7 @@ describe("RuntimeSessionOrchestrator - tool execution", () => {
         inputSchema: { type: "object" },
         tags: new Set(["browser"]),
       };
+      const session = makeSession();
       const provider: ProviderAdapter = {
         name: "mock",
         createMessage: vi.fn()
@@ -2335,38 +2430,37 @@ describe("RuntimeSessionOrchestrator - tool execution", () => {
           }),
         streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
       };
-      const catalogSearch = vi.fn().mockResolvedValue({
-        output: JSON.stringify({ tools: [browserTool.name] }),
-        isError: false,
-        metadata: {
-          toolName: catalogTool.name,
-          kind: "catalog",
-          operation: "search",
-          exact: browserTool.name,
-          resultCount: 1,
-          totalIndexed: 2,
-          includedSchemas: true,
-          stale: false,
-          materializableToolName: browserTool.name,
-        },
-      });
       const browserSessionStart = vi.fn().mockResolvedValue({
         output: "browser-session-1",
         isError: false,
       });
+      const linked = linkedLegacyToolFixture({
+        session,
+        provider,
+        catalogTool,
+        deferredTool: browserTool,
+        deferredExecutor: browserSessionStart,
+      });
+      const catalogSearch = vi.fn().mockResolvedValue({
+        output: JSON.stringify({ tools: [browserTool.name] }),
+        isError: false,
+        metadata: linked.metadata,
+      });
       const orchestrator = new RuntimeSessionOrchestrator({
         provider,
+        model: "unknown",
         tools: [catalogTool],
         materializableTools: new Map([[browserTool.name, browserTool]]),
+        materializableToolBindings: new Map([[browserTool.name, linked.binding]]),
+        toolCatalogSnapshotId: LEGACY_CATALOG_SNAPSHOT_ID,
+        capabilityMap: new Map([[browserTool.name, linked.binding.capability]]),
         builtinTools: new Map([
           [catalogTool.name, catalogSearch],
           [browserTool.name, browserSessionStart],
         ]),
       });
 
-      await orchestrator.processMessage(makeSession(), textParts("start a browser"), undefined, undefined, {
-        toolAllowlist: new Set([catalogTool.name, browserTool.name]),
-      });
+      await orchestrator.processMessage(session, textParts("start a browser"), undefined, undefined, linked.config);
 
       expect(catalogSearch).toHaveBeenCalledTimes(1);
       expect(browserSessionStart).toHaveBeenCalledTimes(1);
@@ -2449,6 +2543,123 @@ describe("RuntimeSessionOrchestrator - tool execution", () => {
         expect.not.objectContaining({ type: "tool_called", toolCallId: "read-2", executionScope }),
         expect.not.objectContaining({ type: "tool_result", toolCallId: "read-2", executionScope }),
       ]);
+    });
+
+    it.each([
+      ["tool-round limit", "tool_round_limit", deriveRuntimeConvergencePolicyInput({
+        policyId: "kiln.slice3.reserve.tool-round",
+        toolRounds: 1,
+      })],
+      ["provider-request limit", "provider_request_limit", deriveRuntimeConvergencePolicyInput({
+        policyId: "kiln.slice3.reserve.provider-request",
+        providerRequests: 1,
+        toolRounds: 2,
+      })],
+      ["tool-call limit", "tool_call_limit", deriveRuntimeConvergencePolicyInput({
+        policyId: "kiln.slice3.reserve.tool-call",
+        providerRequests: 2,
+        toolRounds: 2,
+        toolCalls: 1,
+      })],
+      ["reserve-induced recovery collision", "provider_request_limit", deriveRuntimeConvergencePolicyInput({
+        policyId: "kiln.slice3.reserve.recovery",
+        providerRequests: 1,
+        toolRounds: 2,
+        recoveryAttempts: 1,
+      })],
+    ])("uses one deferred-disclosure reserve across the %s", async (_case, dispositionReason, convergence) => {
+      const catalogTool: ToolDefinition = {
+        name: "tool_catalog_search",
+        description: "Searches the tool catalog",
+        inputSchema: {},
+        tags: new Set(),
+      };
+      const deferredTool: ToolDefinition = {
+        name: "browser_session_start",
+        description: "Starts a browser session",
+        inputSchema: { type: "object" },
+        tags: new Set(["browser", "mutation"]),
+      };
+      const session = makeSession();
+      const provider: ProviderAdapter = {
+        name: "mock",
+        createMessage: vi.fn()
+          .mockResolvedValueOnce({
+            parts: textParts("finding the browser session tool"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [{
+              id: "catalog-search-reserve",
+              name: catalogTool.name,
+              input: { exact: deferredTool.name, includeSchemas: true },
+            }],
+            stopReason: "tool_use",
+          })
+          .mockResolvedValueOnce({
+            parts: textParts("using the disclosed tool"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [
+              { id: "selected-call", name: deferredTool.name, input: {} },
+              { id: "search-again", name: catalogTool.name, input: { exact: deferredTool.name } },
+              { id: "hidden-peer", name: "browser_snapshot", input: {} },
+            ],
+            stopReason: "tool_use",
+          }),
+        streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+      };
+      const selectedExecutor = vi.fn().mockResolvedValue({ output: "browser-session-1", isError: false });
+      const linked = linkedLegacyToolFixture({
+        session,
+        provider,
+        catalogTool,
+        deferredTool,
+        deferredExecutor: selectedExecutor,
+      });
+      const catalogSearch = vi.fn().mockResolvedValue({
+        output: JSON.stringify({ tools: [deferredTool.name] }),
+        isError: false,
+        metadata: linked.metadata,
+      });
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        model: "unknown",
+        tools: [catalogTool],
+        executionEnvelope: { convergence },
+        materializableTools: new Map([[deferredTool.name, deferredTool]]),
+        materializableToolBindings: new Map([[deferredTool.name, linked.binding]]),
+        toolCatalogSnapshotId: LEGACY_CATALOG_SNAPSHOT_ID,
+        capabilityMap: new Map([[deferredTool.name, linked.binding.capability]]),
+        builtinTools: new Map([
+          [catalogTool.name, catalogSearch],
+          [deferredTool.name, selectedExecutor],
+        ]),
+      });
+
+      const result = await orchestrator.processMessage(
+        session,
+        textParts("start a browser"),
+        undefined,
+        undefined,
+        linked.config,
+      );
+
+      expect(provider.createMessage).toHaveBeenCalledTimes(2);
+      expect(selectedExecutor).toHaveBeenCalledTimes(1);
+      expect(catalogSearch).toHaveBeenCalledTimes(1);
+      expect(result).toEqual(expect.objectContaining({
+        outcome: "paused",
+        dispositionReason,
+      }));
+      expect(result.toolExecutions).toEqual(expect.arrayContaining([
+        expect.objectContaining({ toolCallId: "selected-call", toolName: deferredTool.name, success: true }),
+        expect.objectContaining({ toolCallId: "search-again", toolName: catalogTool.name, success: false }),
+        expect.objectContaining({ toolCallId: "hidden-peer", toolName: "browser_snapshot", success: false }),
+      ]));
     });
 
     it("stops a queued tool batch immediately when the operator cancels the turn", async () => {

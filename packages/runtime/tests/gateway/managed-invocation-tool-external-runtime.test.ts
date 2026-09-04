@@ -12,6 +12,7 @@ import {
   makeRouteCapability,
   makeSession,
   makeSurface,
+  makeSurfaceOptions,
   TEST_REQUESTED_DESTRUCTIVE_READ_ONLY_PARENT_AUTHORITY,
 } from "./managed-invocation-tool-test-fixture.js";
 
@@ -705,8 +706,10 @@ describe("managed invocation runtime tool — external runtime and materializati
   });
 
   describe("attached runtime builtin tool surface materializable registration", () => {
-    it("registers managed invocation tool definitions in materializableTools and materializableCapabilities", () => {
-      const surface = makeSurface(makeAdapter());
+    it("keeps managed invocation tools deferred, discoverable, and executable", async () => {
+      const surface = makeSurface(makeAdapter(), undefined, undefined, {
+        testEffectiveTurnAuthority: null,
+      });
 
       const toolNames = [
         "managed_agent.invoke",
@@ -719,9 +722,111 @@ describe("managed invocation runtime tool — external runtime and materializati
       ];
 
       for (const name of toolNames) {
+        expect(surface.toolDefinitions.some((tool) => tool.name === name)).toBe(false);
+        expect(surface.capabilities.has(name)).toBe(false);
         expect(surface.materializableTools.has(name)).toBe(true);
         expect(surface.materializableCapabilities.has(name)).toBe(true);
+        expect(surface.callBuiltinTools.has(name)).toBe(true);
+        const binding = surface.materializableToolBindings.get(name);
+        expect(binding?.definition).toBe(surface.materializableTools.get(name));
+        expect(binding?.capability).toBe(surface.materializableCapabilities.get(name));
+        expect(binding?.executor, name).toBe(surface.callBuiltinTools.get(name));
+        expect(binding).toMatchObject({
+          definitionDigest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+          executableAdmissionId: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+        });
+
+        const catalogSearchAuthority = surface.toolAuthority.get("tool_catalog_search");
+        const catalogSearchEffect = surface.materializableCapabilities.get("tool_catalog_search")?.effectEnvelope;
+        expect(catalogSearchAuthority).toBeDefined();
+        expect(catalogSearchEffect).toBeDefined();
+        const discovered = await surface.callBuiltinTools.get("tool_catalog_search")?.(
+          {
+            exact: name,
+            includeSchemas: true,
+          },
+          {
+            session: makeSession(`catalog-${name}`),
+            toolCall: { id: `catalog-${name}`, name: "tool_catalog_search", input: {} },
+            authority: catalogSearchAuthority!,
+            resolvedEffect: catalogSearchEffect!,
+          },
+        ) as {
+          readonly isError: boolean;
+          readonly metadata?: Record<string, unknown>;
+        } | undefined;
+        expect(discovered).toMatchObject({
+          isError: false,
+          metadata: {
+            kind: "catalog",
+            operation: "search",
+            exact: name,
+            resultCount: 1,
+            includedSchemas: true,
+            stale: false,
+            materializableToolName: name,
+            catalogSnapshotId: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+            materializableToolDefinitionDigest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+          },
+        });
+        expect(discovered?.metadata?.catalogSnapshotId).toBe(surface.toolCatalogSnapshotId);
       }
+    });
+
+    it("filters strict catalog visibility, bindings, authority, and executors together", async () => {
+      const surface = createAttachedRuntimeBuiltinToolSurface({
+        builtinToolOptions: {
+          toolProjection: {
+            mode: "strict",
+            alwaysOnTools: ["tool_catalog_search", "managed_agent.invoke"],
+          },
+        },
+        managedInvocation: makeSurfaceOptions(makeAdapter()),
+        testEffectiveTurnAuthority: null,
+      });
+
+      expect(surface.toolDefinitions.map((tool) => tool.name)).toEqual(["tool_catalog_search"]);
+      for (const projection of [
+        surface.materializableTools,
+        surface.materializableCapabilities,
+        surface.materializableToolBindings,
+        surface.toolAuthority,
+        surface.callBuiltinTools,
+      ]) {
+        expect([...projection.keys()].sort()).toEqual(["managed_agent.invoke", "tool_catalog_search"]);
+      }
+
+      const authority = surface.toolAuthority.get("tool_catalog_search")!;
+      const resolvedEffect = surface.materializableCapabilities.get("tool_catalog_search")!.effectEnvelope!;
+      const search = surface.callBuiltinTools.get("tool_catalog_search")!;
+      await expect(search(
+        { exact: "managed_agent.invoke", includeSchemas: true },
+        {
+          session: makeSession("strict-catalog"),
+          toolCall: { id: "strict-catalog", name: "tool_catalog_search", input: {} },
+          authority,
+          resolvedEffect,
+          allowedToolNames: ["managed_agent.invoke", "tool_catalog_search"],
+        },
+      )).resolves.toMatchObject({
+        isError: false,
+        metadata: {
+          materializableToolName: "managed_agent.invoke",
+          catalogSnapshotId: surface.toolCatalogSnapshotId,
+        },
+      });
+      await expect(search(
+        { exact: "managed_agent.start", includeSchemas: true },
+        {
+          session: makeSession("strict-catalog-peer"),
+          toolCall: { id: "strict-catalog-peer", name: "tool_catalog_search", input: {} },
+          authority,
+          resolvedEffect,
+          allowedToolNames: ["managed_agent.invoke", "tool_catalog_search"],
+        },
+      )).resolves.not.toMatchObject({
+        metadata: { materializableToolName: "managed_agent.start" },
+      });
     });
   });
 

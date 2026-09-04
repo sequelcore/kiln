@@ -1,9 +1,53 @@
 import { describe, expect, it } from "vitest";
-import { ToolCatalogIndex } from "../../../src/tools/domain/tool-catalog.js";
+import {
+  digestToolDefinition,
+  ToolCatalogIndex,
+  type BuiltinToolCatalogContribution,
+} from "../../../src/tools/domain/tool-catalog.js";
 import type { DevTool, ToolInput, ToolResult } from "../../../src/tools/domain/tool.js";
 import { ToolCatalogSearchTool } from "../../../src/tools/infrastructure/tool-catalog-search-tool.js";
 
 describe("ToolCatalogSearchTool", () => {
+  it("reports the catalog snapshot and exact definition digest only for a current schema lookup", async () => {
+    const contribution: BuiltinToolCatalogContribution = {
+      definition: {
+        name: "managed_tool",
+        description: "Managed tool",
+        inputSchema: { type: "object", properties: {}, required: [], additionalProperties: false },
+      },
+      effectEnvelope: {
+        operation: "observe",
+        boundaries: ["process"],
+        reversibility: "reversible",
+        dataEgress: "none",
+        identityUse: "none",
+        consequences: [],
+        idempotency: "idempotent",
+      },
+      sourcePackage: "@kilnai/runtime",
+    };
+    const catalog = ToolCatalogIndex.fromTools([fakeTool("tool_catalog_search", { readOnly: true, idempotent: true })], undefined, {
+      catalogContributions: [contribution],
+    });
+    const tool = new ToolCatalogSearchTool(() => catalog);
+
+    const exact = await tool.execute({
+      name: "tool_catalog_search",
+      input: { exact: "managed_tool", includeSchemas: true, verbosity: "structured" },
+    });
+    const query = await tool.execute({
+      name: "tool_catalog_search",
+      input: { query: "managed", includeSchemas: true, verbosity: "structured" },
+    });
+
+    expect(exact.metadata).toMatchObject({
+      catalogSnapshotId: catalog.snapshotId,
+      materializableToolName: "managed_tool",
+      materializableToolDefinitionDigest: digestToolDefinition(contribution.definition),
+    });
+    expect(query.metadata).not.toHaveProperty("materializableToolName");
+    expect(query.metadata).not.toHaveProperty("materializableToolDefinitionDigest");
+  });
   it("filters discovery results to the effective per-turn allowlist", async () => {
     const catalog = ToolCatalogIndex.fromTools([
       fakeTool("bash", { destructive: true }),

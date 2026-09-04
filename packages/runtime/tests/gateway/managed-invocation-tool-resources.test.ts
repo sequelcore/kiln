@@ -73,7 +73,8 @@ describe("managed invocation runtime tool — resources and surface contracts", 
       },
     });
 
-    const tool = surface.toolDefinitions.find((definition) => definition.name === "managed_agent.invoke");
+    expect(surface.toolDefinitions.some((definition) => definition.name === "managed_agent.invoke")).toBe(false);
+    const tool = surface.materializableTools.get("managed_agent.invoke");
     const schema = tool?.inputSchema as {
       readonly properties?: {
         readonly routeId?: { readonly enum?: readonly string[] };
@@ -182,7 +183,8 @@ describe("managed invocation runtime tool — resources and surface contracts", 
       },
     });
 
-    const tool = surface.toolDefinitions.find((definition) => definition.name === "managed_agent.invoke");
+    expect(surface.toolDefinitions.some((definition) => definition.name === "managed_agent.invoke")).toBe(false);
+    const tool = surface.materializableTools.get("managed_agent.invoke");
     const schema = tool?.inputSchema as {
       readonly properties?: {
         readonly skills?: {
@@ -334,7 +336,8 @@ describe("managed invocation runtime tool — resources and surface contracts", 
       },
     };
 
-    expect(surface.toolDefinitions.map((tool) => tool.name)).toContain("managed_agent.invoke");
+    expect(surface.toolDefinitions.map((tool) => tool.name)).not.toContain("managed_agent.invoke");
+    expect(surface.materializableTools.has("managed_agent.invoke")).toBe(true);
     expect(executeConfig.toolAllowlist?.has("managed_agent.invoke")).toBe(true);
     expect(executeConfig.toolAllowlist?.has("managed_agent.start")).toBe(true);
     expect(executeConfig.toolAllowlist?.has("managed_agent.status")).toBe(true);

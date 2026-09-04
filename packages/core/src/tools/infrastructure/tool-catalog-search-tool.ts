@@ -50,6 +50,7 @@ export class ToolCatalogSearchTool implements DevTool {
       totalIndexed: result.totalIndexed,
       includedSchemas: request.includeSchemas ?? false,
       stale: result.stale ?? false,
+      catalogSnapshotId: catalog.snapshotId,
       ...(request.exact
         && request.includeSchemas === true
         && result.stale !== true
@@ -59,6 +60,7 @@ export class ToolCatalogSearchTool implements DevTool {
               result.diagnostic?.code === "available"
                 ? result.diagnostic.canonicalName
                 : result.entries[0]?.name,
+            materializableToolDefinitionDigest: result.entries[0]?.toolDefinitionDigest,
           }
         : {}),
       verbosity: verbosity.value,

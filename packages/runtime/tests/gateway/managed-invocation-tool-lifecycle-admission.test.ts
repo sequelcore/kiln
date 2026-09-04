@@ -57,18 +57,22 @@ describe("managed invocation runtime tool — lifecycle and admission", () => {
       },
     };
 
+    const lifecycleToolNames = [
+      "managed_agent.invoke",
+      "managed_agent.start",
+      "managed_agent.status",
+      "managed_agent.list",
+      "managed_agent.join",
+      "managed_agent.cancel",
+      "managed_agent.orchestrate",
+    ];
     const toolNames = surface.toolDefinitions.map((tool) => tool.name);
-    expect(toolNames).toEqual(
-      expect.arrayContaining([
-        "managed_agent.invoke",
-        "managed_agent.start",
-        "managed_agent.status",
-        "managed_agent.list",
-        "managed_agent.join",
-        "managed_agent.cancel",
-        "managed_agent.orchestrate",
-      ]),
-    );
+    for (const name of lifecycleToolNames) {
+      expect(toolNames).not.toContain(name);
+      expect(surface.materializableTools.has(name)).toBe(true);
+      expect(surface.materializableCapabilities.has(name)).toBe(true);
+      expect(surface.callBuiltinTools.has(name)).toBe(true);
+    }
 
     const started = (await surface.callBuiltinTools.get("managed_agent.start")?.(
       {

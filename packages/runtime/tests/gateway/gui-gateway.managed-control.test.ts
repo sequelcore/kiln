@@ -994,7 +994,7 @@ describe("GUI gateway managed control", () => {
         (permission) => permission.toolName === "managed_agent.start",
       )).toBe(true);
       expect(admittedTurn?.perCallConfig?.additionalTools?.some((tool) => tool.name === "managed_agent.start")).toBe(
-        true,
+        false,
       );
       expect(managedLifecycleFrames).toEqual([]);
       expect(sessionEventFrames.some((frame) => frame.event?.kind === "cost_updated")).toBe(true);

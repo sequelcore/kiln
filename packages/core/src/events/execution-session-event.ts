@@ -131,6 +131,17 @@ export interface ProviderRequestToolMaterializationDecisionEvidence {
   readonly toolName: string;
   readonly sourceToolCallId?: string;
   readonly sourceToolName: string;
+  /**
+   * Immutable evidence for the legacy lexical-catalog transition. Capability
+   * Fabric decisions retain their own generation evidence and do not project
+   * through this binding.
+   */
+  readonly lexicalBinding?: {
+    readonly catalogSnapshotId: `sha256:${string}`;
+    readonly toolDefinitionDigest: `sha256:${string}`;
+    readonly authorityAdmissionId: `sha256:${string}`;
+    readonly executableAdmissionId: `sha256:${string}`;
+  };
   readonly catalog: {
     readonly exact?: string;
     readonly resultCount?: number;

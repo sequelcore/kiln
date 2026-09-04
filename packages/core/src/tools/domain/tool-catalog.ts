@@ -1,13 +1,17 @@
-import { DEV_TOOL_OUTPUT_SCHEMA, type DevTool } from "./tool.js";
-import { getBuiltinEffectEnvelope } from "./tool-effect-envelopes.js";
+import { sha256ContentIdentity } from "../../content-addressing/content-identity.js";
 import {
   catalogAuthorityFromEnvelope,
+  normalizeActionEffectEnvelope,
   tagsFromEnvelope,
+  type ActionEffectEnvelope,
 } from "../../engine/domain/action-effect.js";
+import { DEV_TOOL_OUTPUT_SCHEMA, type DevTool } from "./tool.js";
+import { getBuiltinEffectEnvelope } from "./tool-effect-envelopes.js";
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 50;
 const SOURCE_PACKAGE = "@kilnai/core";
+const SNAPSHOT_IDENTITY_REVISION = "tool-catalog/v1";
 
 export type ToolCatalogAuthority = "read_only" | "destructive" | "standard";
 export type ToolCatalogSearchReason =
@@ -49,6 +53,7 @@ export interface ToolCatalogSearchDiagnostic {
 
 export interface ToolCatalogIndexOptions {
   readonly configuredProducerDiagnostics?: readonly ToolCatalogConfiguredProducerDiagnostic[];
+  readonly catalogContributions?: readonly BuiltinToolCatalogContribution[];
   readonly allowedCanonicalNames?: ReadonlySet<string>;
   readonly knownCanonicalNames?: readonly string[];
 }
@@ -81,6 +86,34 @@ export const TOOL_CATALOG_OBLIGATION_ALIASES: readonly ToolCatalogAlias[] = Obje
   TOOL_CATALOG_ALIASES.filter((mapping) => mapping.obligationSafe === true),
 );
 
+/**
+ * The provider-facing portion of a tool definition.
+ *
+ * Tool execution and catalog metadata deliberately do not cross this boundary.
+ * Runtime may pass a richer structural definition; only these fields identify
+ * the exact definition a provider can materialize.
+ */
+export interface ToolCatalogDefinitionShape {
+  readonly name: string;
+  readonly description: string;
+  readonly inputSchema: Record<string, unknown>;
+  readonly outputSchema?: Record<string, unknown>;
+  readonly strict?: true;
+  /** Provider-facing routing tags (Runtime ToolDefinition-compatible). */
+  readonly tags?: Iterable<string>;
+}
+
+/** A non-executable, Core-normalized contribution to the builtin tool catalog. */
+export interface BuiltinToolCatalogContribution {
+  readonly definition: ToolCatalogDefinitionShape;
+  readonly effectEnvelope: ActionEffectEnvelope;
+  readonly sourcePackage: string;
+  readonly aliases?: readonly string[];
+}
+
+export type ToolDefinitionDigest = `sha256:${string}`;
+export type ToolCatalogSnapshotId = `sha256:${string}`;
+
 export interface ToolCatalogEntry {
   readonly name: string;
   readonly aliases?: readonly string[];
@@ -92,6 +125,7 @@ export interface ToolCatalogEntry {
   readonly outputFields: readonly string[];
   readonly inputSchema?: Record<string, unknown>;
   readonly outputSchema?: Record<string, unknown>;
+  readonly toolDefinitionDigest: ToolDefinitionDigest;
 }
 
 export interface ToolCatalogSearchRequest {
@@ -116,6 +150,41 @@ export interface ToolCatalogSearchAdapter {
     entries: readonly ToolCatalogEntry[],
     request: ToolCatalogSearchRequest,
   ): readonly ToolCatalogEntry[];
+}
+
+interface ToolCatalogIndexInternalOptions {
+  readonly snapshotId?: ToolCatalogSnapshotId;
+  readonly aliasMappings?: readonly ToolCatalogAlias[];
+}
+
+/** Normalize and deeply freeze one inert catalog contribution at the Core boundary. */
+export function normalizeBuiltinToolCatalogContribution(input: unknown): BuiltinToolCatalogContribution {
+  if (!isPlainRecord(input) || !hasOnlyKeys(input, ["definition", "effectEnvelope", "sourcePackage", "aliases"])) {
+    throw new TypeError("Builtin tool catalog contribution has an unsupported shape.");
+  }
+
+  const definition = normalizeToolDefinitionShape(input.definition);
+  const effectEnvelope = normalizeActionEffectEnvelope(input.effectEnvelope);
+  if (!effectEnvelope) {
+    throw new TypeError("Builtin tool catalog contribution effect envelope is malformed.");
+  }
+  if (typeof input.sourcePackage !== "string" || input.sourcePackage.trim().length === 0) {
+    throw new TypeError("Builtin tool catalog contribution source package is malformed.");
+  }
+
+  const aliases = input.aliases === undefined ? undefined : normalizeAliasList(input.aliases);
+  return deepFreeze({
+    definition,
+    effectEnvelope,
+    sourcePackage: input.sourcePackage.trim(),
+    ...(aliases && aliases.length > 0 ? { aliases } : {}),
+  });
+}
+
+/** Compute the exact deterministic identity of a provider-facing definition. */
+export function digestToolDefinition(definition: ToolCatalogDefinitionShape): ToolDefinitionDigest {
+  const normalized = normalizeToolDefinitionShape(definition);
+  return sha256ContentIdentity(stableCanonicalStringify(normalized)) as ToolDefinitionDigest;
 }
 
 export class LexicalToolCatalogSearchAdapter implements ToolCatalogSearchAdapter {
@@ -159,23 +228,52 @@ export class ToolCatalogIndex {
   private readonly entries: readonly ToolCatalogEntry[];
   private readonly adapter: ToolCatalogSearchAdapter;
   readonly configuredProducerDiagnostics: readonly ToolCatalogConfiguredProducerDiagnostic[];
+  readonly snapshotId: ToolCatalogSnapshotId;
   private readonly allowedCanonicalNames?: ReadonlySet<string>;
   private readonly knownCanonicalNames: ReadonlySet<string>;
+  private readonly aliasMappings: readonly ToolCatalogAlias[];
 
   constructor(
     entries: readonly ToolCatalogEntry[],
     adapter: ToolCatalogSearchAdapter = new LexicalToolCatalogSearchAdapter(),
     options: ToolCatalogIndexOptions = {},
+    internalOptions: ToolCatalogIndexInternalOptions = {},
   ) {
-    this.entries = entries.map((entry) => normalizeEntry(entry));
+    const normalizedEntries = [
+      ...entries.map((entry) => normalizeEntry(entry)),
+      ...(options.catalogContributions ?? [])
+        .map((contribution) => entryFromContribution(contribution))
+        .sort((left, right) => compareCodeUnits(left.name, right.name)),
+    ];
+    const configuredProducerDiagnostics = options.configuredProducerDiagnostics?.map(cloneConfiguredProducerDiagnostic) ?? [];
+    const aliasMappings = internalOptions.aliasMappings
+      ? internalOptions.aliasMappings.map(cloneAlias)
+      : collectAliasMappings(normalizedEntries);
+    assertCatalogIdentity(
+      normalizedEntries,
+      configuredProducerDiagnostics,
+      options.knownCanonicalNames ?? [],
+      aliasMappings,
+    );
+
+    this.entries = Object.freeze(normalizedEntries.map((entry) => freezeEntry(entry)));
     this.adapter = adapter;
-    this.configuredProducerDiagnostics = options.configuredProducerDiagnostics?.map(cloneConfiguredProducerDiagnostic) ?? [];
-    this.allowedCanonicalNames = options.allowedCanonicalNames;
+    this.configuredProducerDiagnostics = Object.freeze(configuredProducerDiagnostics);
+    this.aliasMappings = Object.freeze(aliasMappings);
+    this.allowedCanonicalNames = options.allowedCanonicalNames === undefined
+      ? undefined
+      : new Set(options.allowedCanonicalNames);
     this.knownCanonicalNames = new Set([
       ...(options.knownCanonicalNames ?? []),
       ...this.entries.map((entry) => entry.name),
       ...this.configuredProducerDiagnostics.map((diagnostic) => diagnostic.canonicalName),
+      ...this.aliasMappings.map((mapping) => mapping.canonicalName),
     ]);
+    this.snapshotId = internalOptions.snapshotId ?? computeSnapshotId(
+      this.entries,
+      this.configuredProducerDiagnostics,
+    );
+    Object.freeze(this);
   }
 
   static fromTools(
@@ -194,6 +292,10 @@ export class ToolCatalogIndex {
         configuredProducerDiagnostics: this.configuredProducerDiagnostics,
         allowedCanonicalNames,
         knownCanonicalNames: [...this.knownCanonicalNames],
+      },
+      {
+        snapshotId: this.snapshotId,
+        aliasMappings: this.aliasMappings,
       },
     );
   }
@@ -255,9 +357,9 @@ export class ToolCatalogIndex {
   }
 
   private resolveExact(exact: string): { readonly canonicalName: string; readonly alias?: string } | undefined {
-    const alias = aliasForExact(exact);
+    const alias = this.aliasMappings.find((mapping) => mapping.alias.toLowerCase() === exact);
     if (alias) {
-      return alias;
+      return { canonicalName: alias.canonicalName, alias: alias.alias };
     }
     const canonicalName = [...this.knownCanonicalNames].find((name) => name.toLowerCase() === exact);
     return canonicalName ? { canonicalName } : undefined;
@@ -299,29 +401,58 @@ export class ToolCatalogIndex {
 
 function entryFromTool(tool: DevTool): ToolCatalogEntry {
   const outputSchema = tool.outputSchema ?? DEV_TOOL_OUTPUT_SCHEMA;
+  const definition: ToolCatalogDefinitionShape = {
+    name: tool.name,
+    description: tool.description,
+    inputSchema: cloneRecord(tool.inputSchema),
+    outputSchema: cloneRecord(outputSchema),
+    tags: [],
+  };
+  const envelope = normalizedToolEffectEnvelope(tool);
   return {
     name: tool.name,
     ...(aliasesForCanonicalName(tool.name).length > 0 ? { aliases: aliasesForCanonicalName(tool.name) } : {}),
     description: tool.description,
-    tags: tagsForTool(tool),
-    authority: authorityForTool(tool),
+    tags: tagsForTool(tool, envelope),
+    authority: envelope ? catalogAuthorityFromEnvelope(envelope) : "standard",
     sourcePackage: SOURCE_PACKAGE,
     inputFields: schemaFields(tool.inputSchema),
     outputFields: schemaFields(outputSchema),
-    inputSchema: cloneRecord(tool.inputSchema),
-    outputSchema: cloneRecord(outputSchema),
+    inputSchema: definition.inputSchema,
+    outputSchema: definition.outputSchema,
+    toolDefinitionDigest: digestToolDefinition(definition),
   };
 }
 
-function authorityForTool(tool: DevTool): ToolCatalogAuthority {
-  const envelope = getBuiltinEffectEnvelope(tool.name);
-  if (!envelope) {
-    return "standard";
-  }
-  return catalogAuthorityFromEnvelope(envelope);
+function entryFromContribution(input: BuiltinToolCatalogContribution): ToolCatalogEntry {
+  const contribution = normalizeBuiltinToolCatalogContribution(input);
+  const envelope = contribution.effectEnvelope;
+  const definition = contribution.definition;
+  const aliases = [
+    ...aliasesForCanonicalName(definition.name),
+    ...(contribution.aliases ?? []),
+  ];
+  return {
+    name: definition.name,
+    ...(aliases.length > 0 ? { aliases } : {}),
+    description: definition.description,
+    tags: tagsFromEnvelope(envelope),
+    authority: catalogAuthorityFromEnvelope(envelope),
+    sourcePackage: contribution.sourcePackage,
+    inputFields: schemaFields(definition.inputSchema),
+    outputFields: definition.outputSchema ? schemaFields(definition.outputSchema) : [],
+    inputSchema: definition.inputSchema,
+    ...(definition.outputSchema ? { outputSchema: definition.outputSchema } : {}),
+    toolDefinitionDigest: digestToolDefinition(definition),
+  };
 }
 
-function tagsForTool(tool: DevTool): readonly string[] {
+function normalizedToolEffectEnvelope(tool: DevTool): ActionEffectEnvelope | undefined {
+  const declared = tool.effectEnvelope ?? getBuiltinEffectEnvelope(tool.name);
+  return declared ? normalizeActionEffectEnvelope(declared) : undefined;
+}
+
+function tagsForTool(tool: DevTool, envelope: ActionEffectEnvelope | undefined): readonly string[] {
   const tags = new Set<string>();
   if (tool.name === "read" || tool.name === "read_many" || tool.name === "write" || tool.name === "edit" || tool.name === "patch") {
     tags.add("file");
@@ -385,7 +516,6 @@ function tagsForTool(tool: DevTool): readonly string[] {
   }
 
   // Authority tags derived from canonical effect envelope
-  const envelope = getBuiltinEffectEnvelope(tool.name);
   if (envelope) {
     for (const effectTag of tagsFromEnvelope(envelope)) {
       tags.add(effectTag);
@@ -415,31 +545,303 @@ function cloneEntry(entry: ToolCatalogEntry, includeSchemas: boolean): ToolCatal
     outputFields: [...entry.outputFields],
     ...(includeSchemas && entry.inputSchema ? { inputSchema: cloneRecord(entry.inputSchema) } : {}),
     ...(includeSchemas && entry.outputSchema ? { outputSchema: cloneRecord(entry.outputSchema) } : {}),
+    toolDefinitionDigest: entry.toolDefinitionDigest,
   };
 }
 
 function normalizeEntry(entry: ToolCatalogEntry): ToolCatalogEntry {
-  const aliases = aliasesForCanonicalName(entry.name);
+  const aliases = [
+    ...(entry.aliases ?? []),
+    ...aliasesForCanonicalName(entry.name),
+  ];
+  const inputSchema = entry.inputSchema ? cloneRecord(entry.inputSchema) : undefined;
+  const outputSchema = entry.outputSchema ? cloneRecord(entry.outputSchema) : undefined;
+  if (!inputSchema) {
+    throw new TypeError("Tool catalog entry input schema is required for definition identity.");
+  }
+  const definition: ToolCatalogDefinitionShape = {
+    name: entry.name,
+    description: entry.description,
+    inputSchema,
+    ...(outputSchema ? { outputSchema } : {}),
+    tags: [],
+  };
   return {
     ...entry,
-    ...(aliases.length > 0 ? { aliases } : {}),
+    ...(aliases.length > 0 ? { aliases: normalizeAliasList(aliases) } : {}),
     tags: [...entry.tags],
     inputFields: [...entry.inputFields],
     outputFields: [...entry.outputFields],
-    ...(entry.inputSchema ? { inputSchema: cloneRecord(entry.inputSchema) } : {}),
-    ...(entry.outputSchema ? { outputSchema: cloneRecord(entry.outputSchema) } : {}),
+    ...(inputSchema ? { inputSchema } : {}),
+    ...(outputSchema ? { outputSchema } : {}),
+    toolDefinitionDigest: digestToolDefinition(definition),
   };
+}
+
+function normalizeToolDefinitionShape(input: unknown): ToolCatalogDefinitionShape {
+  if (!isPlainRecord(input) || !hasOnlyKeys(input, ["name", "description", "inputSchema", "outputSchema", "strict", "tags"])) {
+    throw new TypeError("Builtin tool definition has an unsupported shape.");
+  }
+  if (typeof input.name !== "string" || input.name.trim().length === 0) {
+    throw new TypeError("Builtin tool definition name is malformed.");
+  }
+  if (typeof input.description !== "string") {
+    throw new TypeError("Builtin tool definition description is malformed.");
+  }
+  const inputSchema = normalizeSchemaRecord(input.inputSchema, "input");
+  const outputSchema = input.outputSchema === undefined
+    ? undefined
+    : normalizeSchemaRecord(input.outputSchema, "output");
+  if (input.strict !== undefined && input.strict !== true) {
+    throw new TypeError("Builtin tool definition strict flag is malformed.");
+  }
+  // Runtime ToolDefinition always carries a tags collection. Treat an omitted
+  // structural field as the provider-visible empty collection so every digest
+  // has one canonical shape while still accepting minimal contribution input.
+  const tags = input.tags === undefined ? Object.freeze([]) : normalizeDefinitionTags(input.tags);
+  return deepFreeze({
+    name: input.name.trim(),
+    description: input.description,
+    inputSchema,
+    ...(outputSchema ? { outputSchema } : {}),
+    ...(input.strict === true ? { strict: true as const } : {}),
+    tags,
+  });
+}
+
+function normalizeDefinitionTags(value: unknown): readonly string[] {
+  if (
+    typeof value !== "object"
+    || value === null
+    || typeof (value as { readonly [Symbol.iterator]?: unknown })[Symbol.iterator] !== "function"
+  ) {
+    throw new TypeError("Builtin tool definition tags must be an iterable of strings.");
+  }
+  const tags = new Set<string>();
+  try {
+    for (const tag of value as Iterable<unknown>) {
+      if (typeof tag !== "string" || tag.length > 256) {
+        throw new TypeError("Builtin tool definition tags must contain bounded strings.");
+      }
+      tags.add(tag);
+    }
+  } catch (error) {
+    if (error instanceof TypeError) throw error;
+    throw new TypeError("Builtin tool definition tags must be an iterable of strings.");
+  }
+  return Object.freeze([...tags].sort(compareCodeUnits));
+}
+
+function normalizeSchemaRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!isPlainRecord(value)) {
+    throw new TypeError(`Builtin tool definition ${label} schema is malformed.`);
+  }
+  return deepFreeze(cloneRecord(value));
+}
+
+function freezeEntry(entry: ToolCatalogEntry): ToolCatalogEntry {
+  return Object.freeze({
+    ...entry,
+    ...(entry.aliases ? { aliases: Object.freeze([...entry.aliases]) } : {}),
+    tags: Object.freeze([...entry.tags]),
+    inputFields: Object.freeze([...entry.inputFields]),
+    outputFields: Object.freeze([...entry.outputFields]),
+    ...(entry.inputSchema ? { inputSchema: deepFreeze(cloneRecord(entry.inputSchema)) } : {}),
+    ...(entry.outputSchema ? { outputSchema: deepFreeze(cloneRecord(entry.outputSchema)) } : {}),
+  });
+}
+
+function collectAliasMappings(entries: readonly ToolCatalogEntry[]): readonly ToolCatalogAlias[] {
+  const mappings: ToolCatalogAlias[] = [...TOOL_CATALOG_ALIASES];
+  for (const entry of entries) {
+    for (const alias of entry.aliases ?? []) {
+      if (!mappings.some((mapping) => mapping.alias === alias && mapping.canonicalName === entry.name)) {
+        mappings.push({ alias, canonicalName: entry.name });
+      }
+    }
+  }
+  return mappings.map(cloneAlias);
+}
+
+function assertCatalogIdentity(
+  entries: readonly ToolCatalogEntry[],
+  diagnostics: readonly ToolCatalogConfiguredProducerDiagnostic[],
+  knownCanonicalNames: readonly string[],
+  aliases: readonly ToolCatalogAlias[],
+): void {
+  // Executable and inert catalog entries are identity-bearing records. Two
+  // entries with the same spelling are still a collision: silently replacing
+  // one would make the provider-facing definition ambiguous.
+  const entryCanonicalNames = new Map<string, string>();
+  for (const entry of entries) {
+    const name = entry.name;
+    const normalized = normalizeIdentity(name);
+    if (!normalized) {
+      throw new TypeError("Tool catalog canonical name is malformed.");
+    }
+    const previous = entryCanonicalNames.get(normalized);
+    if (previous !== undefined) {
+      throw new TypeError(`Tool catalog canonical name collision: ${previous} and ${name}.`);
+    }
+    entryCanonicalNames.set(normalized, name);
+  }
+
+  // Known names and unavailable-producer diagnostics are visibility metadata;
+  // repeating the exact same name there is harmless, while a case-insensitive
+  // spelling conflict remains ambiguous and fails closed.
+  const canonicalNames = new Map(entryCanonicalNames);
+  for (const name of [
+    ...knownCanonicalNames,
+    ...diagnostics.map((diagnostic) => diagnostic.canonicalName),
+    ...aliases.map((mapping) => mapping.canonicalName),
+  ]) {
+    const normalized = normalizeIdentity(name);
+    if (!normalized) {
+      throw new TypeError("Tool catalog canonical name is malformed.");
+    }
+    const previous = canonicalNames.get(normalized);
+    if (previous !== undefined && previous !== name) {
+      throw new TypeError(`Tool catalog canonical name collision: ${previous} and ${name}.`);
+    }
+    canonicalNames.set(normalized, name);
+  }
+
+  const aliasesByName = new Map<string, ToolCatalogAlias>();
+  for (const mapping of aliases) {
+    const aliasKey = normalizeIdentity(mapping.alias);
+    const canonicalKey = normalizeIdentity(mapping.canonicalName);
+    if (!aliasKey || !canonicalKey) {
+      throw new TypeError("Tool catalog alias is malformed.");
+    }
+    if (canonicalNames.has(aliasKey)) {
+      throw new TypeError(`Tool catalog alias collision with canonical name: ${mapping.alias}.`);
+    }
+    const previous = aliasesByName.get(aliasKey);
+    if (previous !== undefined && normalizeIdentity(previous.canonicalName) !== canonicalKey) {
+      throw new TypeError(`Tool catalog alias collision: ${mapping.alias}.`);
+    }
+    aliasesByName.set(aliasKey, mapping);
+  }
+}
+
+function computeSnapshotId(
+  entries: readonly ToolCatalogEntry[],
+  diagnostics: readonly ToolCatalogConfiguredProducerDiagnostic[],
+): ToolCatalogSnapshotId {
+  const identity = {
+    revision: SNAPSHOT_IDENTITY_REVISION,
+    entries: [...entries]
+      .map(entryIdentity)
+      .sort((left, right) => compareCodeUnits(String(left.name), String(right.name))),
+    configuredProducerDiagnostics: diagnostics
+      .map((diagnostic) => ({
+        canonicalName: diagnostic.canonicalName,
+        status: diagnostic.status,
+        configuration: diagnostic.configuration,
+      }))
+      .sort((left, right) => compareCodeUnits(left.canonicalName, right.canonicalName)
+        || compareCodeUnits(stableCanonicalStringify(left), stableCanonicalStringify(right))),
+  };
+  return sha256ContentIdentity(stableCanonicalStringify(identity)) as ToolCatalogSnapshotId;
+}
+
+/** Canonical JSON for identity material; object key order never affects a digest. */
+function stableCanonicalStringify(value: unknown, seen: Set<object> = new Set<object>()): string {
+  if (value === undefined) return "null";
+  if (value === null || typeof value !== "object") {
+    const serialized = JSON.stringify(value);
+    return serialized === undefined ? "null" : serialized;
+  }
+  if (seen.has(value)) {
+    throw new TypeError("Tool catalog identity cannot contain cyclic data.");
+  }
+  seen.add(value);
+  try {
+    if (Array.isArray(value)) {
+      return `[${value.map((item) => stableCanonicalStringify(item, seen)).join(",")}]`;
+    }
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => compareCodeUnits(left, right));
+    return `{${entries
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableCanonicalStringify(entry, seen)}`)
+      .join(",")}}`;
+  } finally {
+    seen.delete(value);
+  }
+}
+
+function entryIdentity(entry: ToolCatalogEntry): Record<string, unknown> {
+  return {
+    name: entry.name,
+    aliases: [...(entry.aliases ?? [])].sort(compareCodeUnits),
+    description: entry.description,
+    tags: [...entry.tags].sort(compareCodeUnits),
+    authority: entry.authority,
+    sourcePackage: entry.sourcePackage,
+    inputFields: [...entry.inputFields].sort(compareCodeUnits),
+    outputFields: [...entry.outputFields].sort(compareCodeUnits),
+    ...(entry.inputSchema ? { inputSchema: entry.inputSchema } : {}),
+    ...(entry.outputSchema ? { outputSchema: entry.outputSchema } : {}),
+    toolDefinitionDigest: entry.toolDefinitionDigest,
+  };
+}
+
+function normalizeAliasList(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) {
+    throw new TypeError("Builtin tool catalog aliases must be an array of strings.");
+  }
+  const aliases = new Set<string>();
+  for (const alias of value) {
+    if (typeof alias !== "string" || alias.trim().length === 0) {
+      throw new TypeError("Builtin tool catalog aliases must contain non-empty strings.");
+    }
+    aliases.add(alias.trim());
+  }
+  return Object.freeze([...aliases].sort(compareCodeUnits));
+}
+
+function cloneAlias(alias: ToolCatalogAlias): ToolCatalogAlias {
+  return Object.freeze({
+    alias: alias.alias,
+    canonicalName: alias.canonicalName,
+    ...(alias.obligationSafe === true ? { obligationSafe: true as const } : {}),
+  });
+}
+
+function normalizeIdentity(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function compareCodeUnits(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
+  const allowedKeys = new Set(allowed);
+  return Object.keys(value).every((key) => allowedKeys.has(key));
+}
+
+function deepFreeze<T>(value: T): T {
+  if (!value || typeof value !== "object" || Object.isFrozen(value)) {
+    return value;
+  }
+  for (const nested of Array.isArray(value) ? value : Object.values(value as Record<string, unknown>)) {
+    deepFreeze(nested);
+  }
+  return Object.freeze(value);
 }
 
 function aliasesForCanonicalName(canonicalName: string): readonly string[] {
   return TOOL_CATALOG_ALIASES
     .filter((mapping) => mapping.canonicalName === canonicalName)
     .map((mapping) => mapping.alias);
-}
-
-function aliasForExact(exact: string): { readonly canonicalName: string; readonly alias: string } | undefined {
-  const mapping = TOOL_CATALOG_ALIASES.find((candidate) => candidate.alias.toLowerCase() === exact);
-  return mapping ? { canonicalName: mapping.canonicalName, alias: mapping.alias } : undefined;
 }
 
 function createSearchDiagnostic(
@@ -460,22 +862,22 @@ function createSearchDiagnostic(
 function cloneConfiguredProducerDiagnostic(
   diagnostic: ToolCatalogConfiguredProducerDiagnostic,
 ): ToolCatalogConfiguredProducerDiagnostic {
-  return {
+  return Object.freeze({
     canonicalName: diagnostic.canonicalName,
     status: diagnostic.status,
     configuration: cloneConfigurationDiagnostic(diagnostic.configuration),
-  };
+  });
 }
 
 function cloneConfigurationDiagnostic(
   diagnostic: ToolCatalogConfigurationDiagnostic,
 ): ToolCatalogConfigurationDiagnostic {
-  return {
+  return Object.freeze({
     code: diagnostic.code,
     message: diagnostic.message,
     ...(diagnostic.expectedVersion ? { expectedVersion: diagnostic.expectedVersion } : {}),
     ...(diagnostic.observedVersion ? { observedVersion: diagnostic.observedVersion } : {}),
-  };
+  });
 }
 
 function scoreEntry(entry: ToolCatalogEntry, tokens: readonly string[]): number {

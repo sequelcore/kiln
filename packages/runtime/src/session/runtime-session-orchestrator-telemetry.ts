@@ -22,15 +22,19 @@ import type {
   ProviderTransportEvent,
   ProviderTransportObserver,
   DeliberationResolution,
+  ToolDefinition,
+  ToolDefinitionDigest,
 } from "@kilnai/core";
 import {
   computeUsageCostUsd,
+  digestToolDefinition,
   resolveExecutionCostEvidence,
   resolveExecutionPricing,
   toEffectivePromptEvidence,
   estimateTextTokens,
 } from "@kilnai/core";
 import type { ModelPricing } from "@kilnai/core";
+import type { MaterializableRuntimeToolBinding } from "./progressive-tool-admission.js";
 
 export interface OrchestratorUsageSnapshot {
   readonly inputTokens: number;
@@ -273,14 +277,29 @@ export function measureProviderRequestRegions(input: {
 }
 
 export function buildProviderRequestToolProjectionEvidence(input: {
-  readonly projectedTools: readonly { readonly name: string }[] | undefined;
+  readonly projectedTools: readonly ToolDefinition[] | undefined;
   readonly materializableTools: ReadonlyMap<string, unknown> | undefined;
+  readonly materializableToolBindings?: ReadonlyMap<string, MaterializableRuntimeToolBinding>;
+  readonly authorityAdmissionId?: `sha256:${string}`;
+  readonly currentCatalogSnapshotId?: `sha256:${string}`;
   readonly materializationDecisions: readonly ProviderRequestToolMaterializationDecisionEvidence[];
 }): ProviderRequestToolProjectionEvidence {
   const projectedNames = input.projectedTools?.map((tool) => tool.name) ?? [];
+  // The definition map is already scoped to the current authority allowlist
+  // by the orchestrator. Prefer it over the raw binding map so an admitted
+  // binding that is outside this turn cannot leak its canonical name.
   const materializableNames = input.materializableTools
     ? [...input.materializableTools.keys()]
-    : [];
+    : input.materializableToolBindings
+      ? [...input.materializableToolBindings.keys()]
+      : [];
+  verifyLexicalMaterializationDecisions({
+    projectedTools: input.projectedTools,
+    materializationDecisions: input.materializationDecisions,
+    materializableToolBindings: input.materializableToolBindings,
+    authorityAdmissionId: input.authorityAdmissionId,
+    currentCatalogSnapshotId: input.currentCatalogSnapshotId,
+  });
   return {
     projected: toolProjectionSet(projectedNames),
     materializable: toolProjectionSet(materializableNames),
@@ -289,6 +308,87 @@ export function buildProviderRequestToolProjectionEvidence(input: {
       .map((decision) => decision.toolName),
     materializationDecisions: input.materializationDecisions,
   };
+}
+
+/**
+ * Materialization evidence is model-facing only after the selected lexical
+ * definition has crossed the same projection boundary as the provider
+ * request. Verify that claim against the actual ToolDefinition array instead
+ * of trusting a copied name or digest from the search result.
+ *
+ * Capability Fabric materializations intentionally do not enter this check:
+ * they carry their own generation/selection evidence and use a different
+ * source tool name. Legacy lexical decisions are identified by the canonical
+ * `tool_catalog_search` source and must carry the Core-linked binding.
+ */
+export function verifyLexicalMaterializationDecisions(input: {
+  readonly projectedTools: readonly ToolDefinition[] | undefined;
+  readonly materializationDecisions: readonly ProviderRequestToolMaterializationDecisionEvidence[];
+  readonly materializableToolBindings?: ReadonlyMap<string, MaterializableRuntimeToolBinding>;
+  readonly authorityAdmissionId?: `sha256:${string}`;
+  readonly currentCatalogSnapshotId?: `sha256:${string}`;
+}): void {
+  const lexicalDecisions = input.materializationDecisions.filter((decision) =>
+    decision.sourceToolName === "tool_catalog_search");
+  const materializedLexicalDecisions = lexicalDecisions.filter((decision) =>
+    decision.decision === "materialized" || decision.decision === "already_materialized");
+
+  const materializedNames = new Set<string>();
+  for (const decision of materializedLexicalDecisions) {
+    if (decision.toolName === "<redacted>" || decision.lexicalBinding === undefined) {
+      throw new Error("Lexical materialization telemetry is missing authority-linked binding evidence.");
+    }
+    materializedNames.add(decision.toolName);
+    if (input.authorityAdmissionId === undefined
+      || decision.lexicalBinding.authorityAdmissionId !== input.authorityAdmissionId) {
+      throw new Error(`Lexical materialization telemetry authority admission mismatch for '${decision.toolName}'.`);
+    }
+    if (input.currentCatalogSnapshotId === undefined
+      || decision.lexicalBinding.catalogSnapshotId !== input.currentCatalogSnapshotId) {
+      throw new Error(`Lexical materialization telemetry catalog snapshot mismatch for '${decision.toolName}'.`);
+    }
+    const binding = input.materializableToolBindings?.get(decision.toolName);
+    if (!binding
+      || binding.definition.name !== decision.toolName
+      || binding.definitionDigest !== decision.lexicalBinding.toolDefinitionDigest
+      || binding.executableAdmissionId !== decision.lexicalBinding.executableAdmissionId) {
+      throw new Error(`Lexical materialization telemetry executable binding mismatch for '${decision.toolName}'.`);
+    }
+    if (digestToolDefinition(binding.definition) !== binding.definitionDigest) {
+      throw new Error(`Lexical materialization telemetry binding definition digest mismatch for '${decision.toolName}'.`);
+    }
+    const projectedMatches = (input.projectedTools ?? []).filter((tool) => tool.name === decision.toolName);
+    if (projectedMatches.length !== 1) {
+      throw new Error(
+        `Lexical materialization telemetry expected exactly one projected ToolDefinition for '${decision.toolName}', found ${projectedMatches.length}.`,
+      );
+    }
+    const projected = projectedMatches[0];
+    if (!projected) {
+      throw new Error(`Lexical materialization telemetry could not read projected ToolDefinition for '${decision.toolName}'.`);
+    }
+    const recomputedDigest = digestToolDefinition(projected) as ToolDefinitionDigest;
+    if (recomputedDigest !== decision.lexicalBinding.toolDefinitionDigest
+      || recomputedDigest !== binding.definitionDigest) {
+      throw new Error(
+        `Lexical materialization telemetry ToolDefinition digest mismatch for '${decision.toolName}'.`,
+      );
+    }
+  }
+
+  // A denied legacy decision cannot be authority-redacted partially. Keep the
+  // redacted shape explicit and reject accidental leakage of a stale,
+  // colliding, or otherwise contradictory catalog target.
+  for (const decision of input.materializationDecisions) {
+    if (decision.sourceToolName === "tool_catalog_search"
+      && decision.decision !== "materialized"
+      && decision.decision !== "already_materialized"
+      && (decision.toolName !== "<redacted>"
+        || decision.lexicalBinding !== undefined
+        || Object.keys(decision.catalog).length > 0)) {
+      throw new Error("Outside-authority lexical materialization telemetry is not redacted.");
+    }
+  }
 }
 
 export interface ProviderRequestCachePartitionInput {

@@ -77,6 +77,7 @@ import type { RuntimeSessionTurnBudgetAuthority } from "./session-turn-budget-au
 import type { EscalationDetector, EscalationSignal } from "./support/escalation/escalation-detector.js";
 import type { RuntimeCapabilityGeneration } from "../capabilities/runtime-capability-composition.js";
 import type { PortableInvocationSettlement } from "../capabilities/portable-execution.js";
+import type { MaterializableRuntimeToolBinding } from "./progressive-tool-admission.js";
 
 export type {
   EffectiveTurnAuthorityCompleteness,
@@ -144,6 +145,15 @@ export interface OrchestratorDeps {
   readonly providerTransportAdmission?: import("@kilnai/core").ProviderTransportAdmission;
   readonly tools?: readonly ToolDefinition[];
   readonly materializableTools?: ReadonlyMap<string, ToolDefinition>;
+  /**
+   * Runtime-owned executable bindings for legacy lexical disclosure. The
+   * binding map is kept separate from the provider-facing definition map so a
+   * catalog result can only disclose a definition after its current authority
+   * bundle has been linked by the progressive-admission owner.
+   */
+  readonly materializableToolBindings?: ReadonlyMap<string, MaterializableRuntimeToolBinding>;
+  /** Exact Core ToolCatalogIndex snapshot used to produce catalog metadata. */
+  readonly toolCatalogSnapshotId?: `sha256:${string}`;
   /** Runtime-owned immutable capability generation for deferred selection. */
   readonly capabilityGeneration?: RuntimeCapabilityGeneration;
   readonly mcpClients?: readonly KilnMcpClient[];

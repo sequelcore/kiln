@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultBuiltinTools } from "../../../src/tools/default-tool-surface.js";
-import { ToolCatalogIndex } from "../../../src/tools/domain/tool-catalog.js";
+import {
+  digestToolDefinition,
+  ToolCatalogIndex,
+  type BuiltinToolCatalogContribution,
+} from "../../../src/tools/domain/tool-catalog.js";
 import type { DevTool } from "../../../src/tools/domain/tool.js";
 
 function verificationTool(name: string): DevTool {
@@ -11,6 +15,43 @@ function verificationTool(name: string): DevTool {
     async execute() {
       return { output: "ok", isError: false };
     },
+  };
+}
+
+const CONTRIBUTION_EFFECT = {
+  operation: "observe",
+  boundaries: ["process", "workspace"],
+  reversibility: "reversible",
+  dataEgress: "none",
+  identityUse: "none",
+  consequences: [],
+  idempotency: "idempotent",
+} as const;
+
+function catalogContribution(
+  name: string,
+  aliases: readonly string[] = [],
+): BuiltinToolCatalogContribution {
+  return {
+    definition: {
+      name,
+      description: `${name} managed tool`,
+      inputSchema: {
+        type: "object",
+        properties: { value: { type: "string" } },
+        required: [],
+        additionalProperties: false,
+      },
+      outputSchema: {
+        type: "object",
+        properties: { result: { type: "string" } },
+        required: ["result"],
+        additionalProperties: false,
+      },
+    },
+    effectEnvelope: CONTRIBUTION_EFFECT,
+    sourcePackage: "@kilnai/runtime",
+    ...(aliases.length > 0 ? { aliases } : {}),
   };
 }
 
@@ -32,6 +73,94 @@ describe("ToolCatalogIndex", () => {
     });
     expect(result.entries[0]?.inputSchema).toBeUndefined();
     expect(result.entries[0]?.outputSchema).toBeUndefined();
+  });
+
+  it("normalizes inert contributions and makes their identity independent of input order", () => {
+    const firstContribution = catalogContribution("managed_beta", ["Beta managed"]);
+    const secondContribution = catalogContribution("managed_alpha", ["Alpha managed"]);
+    const first = ToolCatalogIndex.fromTools([], undefined, {
+      catalogContributions: [firstContribution, secondContribution],
+    });
+    const second = ToolCatalogIndex.fromTools([], undefined, {
+      catalogContributions: [secondContribution, firstContribution],
+    });
+
+    expect(first.snapshotId).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(first.snapshotId).toBe(second.snapshotId);
+    expect(first.search({ exact: "Beta managed", includeSchemas: true })).toMatchObject({
+      entries: [{
+        name: "managed_beta",
+        aliases: ["Beta managed"],
+        authority: "read_only",
+        tags: ["read-only", "idempotent"],
+        sourcePackage: "@kilnai/runtime",
+        toolDefinitionDigest: digestToolDefinition(firstContribution.definition),
+      }],
+    });
+    expect(first.search({ exact: "managed_alpha" }).entries[0]?.inputSchema).toBeUndefined();
+  });
+
+  it("preserves the source snapshot identity while restricting visible canonical names", () => {
+    const catalog = ToolCatalogIndex.fromTools([], undefined, {
+      catalogContributions: [catalogContribution("managed_tool", ["Managed tool"])],
+    });
+    const restricted = catalog.restrictToCanonicalNames(new Set(["tool_catalog_search"]));
+
+    expect(restricted).not.toBe(catalog);
+    expect(restricted.snapshotId).toBe(catalog.snapshotId);
+    expect(restricted.search({ query: "managed" }).entries).toEqual([]);
+    expect(restricted.search({ exact: "Managed tool" })).toMatchObject({
+      entries: [],
+      stale: true,
+      reason: "unauthorized",
+      diagnostic: { canonicalName: "managed_tool", alias: "Managed tool" },
+    });
+  });
+
+  it("includes provider-facing tags and strictness in definition identity", () => {
+    const base = catalogContribution("managed_identity");
+    const tagged = {
+      ...base,
+      definition: { ...base.definition, tags: new Set(["managed", "read-only"]) },
+    } satisfies BuiltinToolCatalogContribution;
+    const runtimeTags = {
+      [Symbol.iterator]: () => ["managed", "read-only"][Symbol.iterator](),
+    } satisfies Iterable<string>;
+    const structurallyRuntimeOwned = {
+      ...base,
+      definition: { ...base.definition, tags: runtimeTags },
+    } satisfies BuiltinToolCatalogContribution;
+    const strict = {
+      ...tagged,
+      definition: { ...tagged.definition, strict: true as const },
+    } satisfies BuiltinToolCatalogContribution;
+
+    expect(digestToolDefinition(base.definition)).not.toBe(digestToolDefinition(tagged.definition));
+    expect(digestToolDefinition(tagged.definition)).toBe(digestToolDefinition(structurallyRuntimeOwned.definition));
+    expect(digestToolDefinition(tagged.definition)).not.toBe(digestToolDefinition(strict.definition));
+    expect(ToolCatalogIndex.fromTools([], undefined, { catalogContributions: [base] }).snapshotId)
+      .not.toBe(ToolCatalogIndex.fromTools([], undefined, { catalogContributions: [tagged] }).snapshotId);
+    expect(ToolCatalogIndex.fromTools([], undefined, { catalogContributions: [tagged] }).snapshotId)
+      .not.toBe(ToolCatalogIndex.fromTools([], undefined, { catalogContributions: [strict] }).snapshotId);
+  });
+
+  it("fails closed when canonical names or aliases collide", () => {
+    expect(() => ToolCatalogIndex.fromTools([
+      verificationTool("duplicate_tool"),
+      verificationTool("duplicate_tool"),
+    ])).toThrow(/canonical name collision/i);
+    expect(() => ToolCatalogIndex.fromTools([verificationTool("managed_tool")], undefined, {
+      catalogContributions: [catalogContribution("managed_tool")],
+    })).toThrow(/canonical name collision/i);
+    expect(() => ToolCatalogIndex.fromTools([verificationTool("read")], undefined, {
+      catalogContributions: [catalogContribution("managed_tool", ["read"])],
+    })).toThrow(/alias collision/i);
+    expect(() => ToolCatalogIndex.fromTools([], undefined, {
+      catalogContributions: [
+        catalogContribution("managed_one", ["same alias"]),
+        catalogContribution("managed_two", ["same alias"]),
+      ],
+    })).toThrow(/alias collision/i);
   });
 
   it("supports exact, prefix, tag, and lexical query search without embeddings", () => {
