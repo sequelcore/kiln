@@ -24,6 +24,9 @@ type RunArgFlags = {
   addDir?: string;
   localProvider?: string;
   workers?: number;
+  executionEnvelopePath?: string;
+  disableTools?: boolean;
+  disableMcp?: boolean;
 };
 
 export type { GlobalOpenCodeModelGatewayProjectionResult } from "./config/global-opencode-model-gateway-projection.js";
@@ -456,6 +459,9 @@ function printRunHelp(appName: string): void {
   console.log("  --skip-git-repo-check        Allow Codex runs outside a git repo");
   console.log("  --local-provider <name>      Codex local provider (ollama or lmstudio)");
   console.log("  --workers <n>                Run parallel isolated workers");
+  console.log("  --execution-envelope <path>  Runtime execution-envelope JSON (advanced)");
+  console.log("  --disable-tools              Expose no model-callable tools (advanced)");
+  console.log("  --disable-mcp                Admit no canonical MCP servers (advanced)");
   console.log("  -h, --help                   Show this help");
 }
 
@@ -554,6 +560,15 @@ function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: RunArg
       const n = Number(rawArgs[i + 1]);
       if (!Number.isNaN(n) && n > 0) flags.workers = n;
       i += 2;
+    } else if (arg === "--execution-envelope" && i + 1 < rawArgs.length) {
+      flags.executionEnvelopePath = rawArgs[i + 1];
+      i += 2;
+    } else if (arg === "--disable-tools") {
+      flags.disableTools = true;
+      i += 1;
+    } else if (arg === "--disable-mcp") {
+      flags.disableMcp = true;
+      i += 1;
     } else if (arg.startsWith("-")) {
       throw new Error(
         `Unknown run option '${arg}'. Operator execution accepts target identity, not provider, model, or credential overrides.`,

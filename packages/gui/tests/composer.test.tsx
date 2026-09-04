@@ -120,6 +120,7 @@ describe("Composer", () => {
     });
 
     expect(screen.getByText("Goal in progress")).toBeInTheDocument();
+    expect(document.querySelectorAll('[data-role="active-goal-dock"] [data-role="activity-orb"]')).toHaveLength(1);
     expect(screen.getByRole("alert")).toHaveTextContent("Goal is already paused.");
     fireEvent.click(screen.getByRole("button", { name: /open goal progress/i }));
     const workItem = await screen.findByLabelText("Verify canonical session events. In progress");

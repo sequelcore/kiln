@@ -2,6 +2,7 @@ import type {
   ActionEffectEnvelope,
   AuthorityDescriptor,
   Capability,
+  CostUpdateEvent,
   ErrorEvent,
   ExecutionSessionBindingEvidence,
   ManagedAgentAdapterWriteAuthorityDescriptor,
@@ -14,6 +15,7 @@ import type {
   ManagedEconomicExecutionReport,
   ModelDeliberationCapabilities,
   ProviderAdapter,
+  ProviderRequestEvidence,
   ProviderTransportEvent,
   SandboxConfig,
   StructuredExecutionResult,
@@ -53,6 +55,7 @@ import type {
 import type { EffectiveAuthorityAdmissionBundle } from "../../session/effective-authority-admission-bundle.js";
 import { RuntimeSession } from "../../session/runtime-session.js";
 import { RuntimeSessionOrchestrator } from "../../session/runtime-session-orchestrator.js";
+import { projectProviderRequestObservations } from "../../session/runtime-session-event-ledger.js";
 import type {
   OrchestrateResult,
   OrchestratorDeps,
@@ -91,6 +94,7 @@ export interface ManagedDirectProviderRuntimeAdapterConfig {
   readonly toolAuthority?: ReadonlyMap<string, AuthorityDescriptor>;
   readonly writeAuthority?: ManagedAgentAdapterWriteAuthorityDescriptor;
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
+  readonly providerTransportAdmission?: import("@kilnai/core").ProviderTransportAdmission;
   readonly economicIdentity?: ManagedEconomicExecutionIdentity;
   readonly executionBinding?: Extract<ExecutionSessionBindingEvidence, { readonly status: "bound" }>;
   readonly deliberationCapabilities?: ModelDeliberationCapabilities;
@@ -291,7 +295,14 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       input.abortSignal.addEventListener("abort", abortFromRuntime, { once: true });
     }
     const progressEvents: ManagedAgentRuntimeInvocationProgressEvent[] = [];
-    const execution = this.runChildRuntime(input, childSession, abortController.signal, progressEvents);
+    const observedProviderRequests: ProviderRequestEvidence[] = [];
+    const execution = this.runChildRuntime(
+      input,
+      childSession,
+      abortController.signal,
+      progressEvents,
+      observedProviderRequests,
+    );
     input.registerAdapterCompletion(execution);
     if (
       this.economicIdentity !== undefined &&
@@ -313,7 +324,13 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
 
     if (raced === TIMEOUT) {
       execution.catch(() => undefined);
-      return this.timedOutRecord(input, childSessionId, childTurnId, progressEvents);
+      return this.timedOutRecord(
+        input,
+        childSessionId,
+        childTurnId,
+        progressEvents,
+        observedProviderRequests,
+      );
     }
 
     return raced as ManagedAgentInvocationRecord;
@@ -392,6 +409,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
     childSession: RuntimeSession,
     abortSignal: AbortSignal,
     progressEvents: ManagedAgentRuntimeInvocationProgressEvent[],
+    observedProviderRequests: ProviderRequestEvidence[],
   ): Promise<ManagedAgentInvocationRecord> {
     const request = input.request;
     const childSessionId = childSession.id;
@@ -459,6 +477,27 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         : capabilityMap;
       const builtinTools = withManagedToolSandbox(runtimeBuiltinTools, createManagedToolSandbox(request));
       const eventBus = new EventBus();
+      const completedProviderRequestSegments: ProviderRequestEvidence[] = [];
+      let activeProviderRequestSnapshot: readonly ProviderRequestEvidence[] = [];
+      const providerRequestHandler = (event: CostUpdateEvent): void => {
+        const nextSnapshot = event.providerRequests ?? [];
+        if (
+          activeProviderRequestSnapshot.length > 0
+          && nextSnapshot.length > 0
+          && providerRequestSegmentIdentity(activeProviderRequestSnapshot[0]!)
+            !== providerRequestSegmentIdentity(nextSnapshot[0]!)
+        ) {
+          completedProviderRequestSegments.push(...activeProviderRequestSnapshot);
+        }
+        activeProviderRequestSnapshot = nextSnapshot;
+        observedProviderRequests.splice(
+          0,
+          observedProviderRequests.length,
+          ...completedProviderRequestSegments,
+          ...activeProviderRequestSnapshot,
+        );
+      };
+      eventBus.on("cost_update", providerRequestHandler);
       const unsubscribeProgress = attachManagedChildProgressObserver(
         eventBus,
         childSessionId,
@@ -469,6 +508,9 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         provider: this.provider,
         ...(this.model ? { model: this.model } : {}),
         executionEnvelope: boundedExecutionEnvelope(this.executionEnvelope, input.workLimits?.maxTurns),
+        ...(this.config.providerTransportAdmission
+          ? { providerTransportAdmission: this.config.providerTransportAdmission }
+          : {}),
         tools: tools.filter((tool) => executionToolAllowlist.has(tool.name)),
         builtinTools,
         eventBus,
@@ -680,6 +722,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         }
       } finally {
         unsubscribeProgress();
+        eventBus.off("cost_update", providerRequestHandler);
       }
       const resultText = extractText(result.parts);
       const replayResource = resultReplayResource(request.invocationId, resultText);
@@ -731,6 +774,15 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
             amount: "unknown",
           },
         },
+        providerRequestObservations: projectProviderRequestObservations({
+          requests: result.providerRequests ?? [],
+          routeId: input.admission.capabilitySnapshot.routeId,
+          managedInvocation: {
+            invocationId: request.invocationId,
+            childSessionId,
+            childTurnId,
+          },
+        }),
         resultHandoff: {
           provenance: structuredResult
             ? submissionToolHandoffProvenance(request.providerRoute.model)
@@ -750,7 +802,13 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       });
     } catch (err) {
       if (input.abortSignal.aborted && input.abortSignal.reason instanceof ManagedEconomicLifecycleTimeoutError) {
-        return this.timedOutRecord(input, childSessionId, childTurnId, progressEvents);
+        return this.timedOutRecord(
+          input,
+          childSessionId,
+          childTurnId,
+          progressEvents,
+          observedProviderRequests,
+        );
       }
       if (input.abortSignal.aborted) {
         return defineManagedAgentInvocationRecord({
@@ -760,6 +818,12 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
           childTurnId,
           transcript: transcriptPointer(request.invocationId),
           usage: unknownRuntimeUsage(),
+          providerRequestObservations: this.projectProviderRequestObservations(
+            input,
+            childSessionId,
+            childTurnId,
+            observedProviderRequests,
+          ),
           resultHandoff: {
             provenance: runtimeGeneratedHandoffProvenance(request.providerRoute.model),
             summary: String(input.abortSignal.reason ?? "Managed direct provider invocation cancelled."),
@@ -784,6 +848,12 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
           },
         ],
         usage: unknownRuntimeUsage(),
+        providerRequestObservations: this.projectProviderRequestObservations(
+          input,
+          childSessionId,
+          childTurnId,
+          observedProviderRequests,
+        ),
         resultHandoff: {
           provenance: runtimeGeneratedHandoffProvenance(request.providerRoute.model),
           summary: failureSummary,
@@ -827,6 +897,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
     childSessionId: string,
     childTurnId: string,
     progressEvents: readonly ManagedAgentRuntimeInvocationProgressEvent[],
+    providerRequests: readonly ProviderRequestEvidence[] = [],
   ): ManagedAgentInvocationRecord {
     const request = input.request;
     const timeoutMs =
@@ -853,6 +924,12 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         },
       ],
       usage: unknownRuntimeUsage(),
+      providerRequestObservations: this.projectProviderRequestObservations(
+        input,
+        childSessionId,
+        childTurnId,
+        providerRequests,
+      ),
       resultHandoff: {
         provenance: runtimeGeneratedHandoffProvenance(request.providerRoute.model),
         summary: timeoutSummary,
@@ -863,6 +940,23 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         memoryWriteProposalUris: [],
       },
       replayResources: [timeoutResource],
+    });
+  }
+
+  private projectProviderRequestObservations(
+    input: ManagedAgentRuntimeInvocationInput,
+    childSessionId: string,
+    childTurnId: string,
+    requests: readonly ProviderRequestEvidence[],
+  ): ManagedAgentInvocationRecord["providerRequestObservations"] {
+    return projectProviderRequestObservations({
+      requests,
+      routeId: input.admission.capabilitySnapshot.routeId,
+      managedInvocation: {
+        invocationId: input.request.invocationId,
+        childSessionId,
+        childTurnId,
+      },
     });
   }
 
@@ -1319,6 +1413,17 @@ function mergeManagedChildResults(execution: OrchestrateResult, finalization: Or
     providerRequests: [...(execution.providerRequests ?? []), ...(finalization.providerRequests ?? [])],
     toolExecutions: [...(execution.toolExecutions ?? []), ...(finalization.toolExecutions ?? [])],
   };
+}
+
+function providerRequestSegmentIdentity(request: ProviderRequestEvidence): string {
+  return [
+    request.requestIndex,
+    request.providerId,
+    request.modelId,
+    request.systemHash,
+    request.messageHash,
+    request.toolSchemaHash,
+  ].join(":");
 }
 
 function isFailedDirectChildDisposition(disposition: TurnTerminalDisposition): boolean {

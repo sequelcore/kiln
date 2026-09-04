@@ -2660,7 +2660,6 @@ function effectivePromptPresentation(payload: Record<string, unknown>): Operator
   addItem(details, "Provider", observation.providerId);
   addItem(details, "Model", observation.modelId);
   addItem(details, "Request", observation.requestIndex + 1);
-  addItem(details, "Prompt hash", observation.finalPromptHash);
   addItem(details, "Estimated tokens", observation.estimatedTokens);
   addItem(details, "Components", observation.componentCount);
   addItem(details, "Detail requested", detail?.requested);
@@ -3115,6 +3114,82 @@ function continuityPresentation(payload: Record<string, unknown>): OperatorEvent
     summary,
     compactText: summary,
     tone: "info",
+    details,
+    surfaces: ACTIVITY_SURFACES,
+    conversationDisposition: "none",
+  };
+}
+
+function providerRequestPresentation(payload: Record<string, unknown>): OperatorEventPresentation {
+  const request = asRecord(payload.request);
+  if (!request) {
+    return {
+      title: "Provider request evidence unavailable",
+      summary: "Canonical provider-request evidence is missing or invalid",
+      compactText: "Provider request evidence unavailable",
+      tone: "warning",
+      details: [],
+      surfaces: ACTIVITY_SURFACES,
+      conversationDisposition: "none",
+    };
+  }
+  const dispatch = asRecord(request.dispatch);
+  const attempt = asRecord(dispatch?.attempt);
+  const retry = asRecord(dispatch?.retry);
+  const usage = asRecord(request.usage);
+  const input = asRecord(usage?.input);
+  const output = asRecord(usage?.output);
+  const cacheRead = asRecord(usage?.cacheRead);
+  const cacheWrite = asRecord(usage?.cacheWrite);
+  const capacity = asRecord(request.capacity);
+  const deliberation = asRecord(request.deliberation);
+  const authority = asRecord(request.authority);
+  const provider = readString(request.providerId) ?? "Unknown provider";
+  const model = readString(request.modelId) ?? "Unknown model";
+  const outcome = readString(dispatch?.outcome) ?? "unknown";
+  const attemptNumber = attempt?.state === "observed" ? readNumber(attempt.value) : null;
+  const inputTokens = readNumber(input?.tokens);
+  const outputTokens = readNumber(output?.tokens);
+  const route = readString(request.routeId);
+  const summary = [
+    `${provider}/${model}`,
+    attemptNumber === null ? "attempt unknown" : `attempt ${attemptNumber}`,
+    outcome,
+    inputTokens === null || outputTokens === null ? "usage unknown" : `${inputTokens}â†‘ ${outputTokens}â†“`,
+  ].join(" Â· ");
+  const details: OperatorEventDetailItem[] = [];
+  addItem(details, "Provider", provider);
+  addItem(details, "Model", model);
+  addItem(details, "Route", route);
+  addItem(
+    details,
+    "Deliberation",
+    deliberation?.state === "observed"
+      ? [readString(deliberation.selectedLevel), readString(deliberation.status)].filter(Boolean).join(" / ")
+      : "unknown",
+  );
+  addItem(
+    details,
+    "Authority",
+    authority?.state === "observed"
+      ? [readString(authority.requestedAuthority), readString(authority.admittedAuthority)].filter(Boolean).join(" / ")
+      : "unknown",
+  );
+  addItem(details, "Request", readNumber(request.requestIndex) === null ? null : readNumber(request.requestIndex)! + 1);
+  addItem(details, "Attempt", attemptNumber);
+  addItem(details, "Retry", retry?.state === "observed" ? retry.value : "unknown");
+  addItem(details, "Outcome", outcome);
+  addItem(details, "Response status", readNumber(dispatch?.responseStatus));
+  addItem(details, "Input tokens", inputTokens ?? "unknown");
+  addItem(details, "Output tokens", outputTokens ?? "unknown");
+  addItem(details, "Cache read tokens", readNumber(cacheRead?.tokens) ?? "unknown");
+  addItem(details, "Cache write tokens", readNumber(cacheWrite?.tokens) ?? "unknown");
+  addItem(details, "Capacity", readString(capacity?.state));
+  return {
+    title: outcome === "failed" ? "Provider request failed" : "Provider request observed",
+    summary,
+    compactText: summary,
+    tone: outcome === "failed" ? "error" : capacity?.state === "overflow" ? "warning" : "info",
     details,
     surfaces: ACTIVITY_SURFACES,
     conversationDisposition: "none",
@@ -3587,6 +3662,8 @@ export function presentOperatorEventPayload(
       return costUpdatedPresentation(payload);
     case "lifecycle_attribution_recorded":
       return lifecycleAttributionPresentation(payload);
+    case "provider_request_observed":
+      return providerRequestPresentation(payload);
     case "effective_prompt_observed":
       return effectivePromptPresentation(payload);
     case "goal.created":

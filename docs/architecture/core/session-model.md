@@ -181,6 +181,11 @@ emits exactly one terminal `outcome`: `completed`, `failed`, `paused`, or
 they do not permanently fail a turn that the runtime later recovers and closes
 successfully.
 
+Derived session metadata follows the latest terminal disposition. Only a
+`failed` turn projects the durable error tag and `lastError`; a later completed,
+paused, or cancelled turn removes stale failure presentation while preserving
+the underlying audit events. Its ledger phase mirrors that terminal outcome.
+
 The terminal outcome is a typed `RuntimeTurnTerminalDisposition`: it carries the
 exact `dispositionReason` and, where the branch requires it, convergence
 settlement evidence, completion-obligation evidence, or external-harness
@@ -206,6 +211,11 @@ result to content and token counts. Operator surfaces present `completed` as
 success, `failed` as error, `paused` as an action-required warning, and
 `cancelled` as a neutral cancellation. Reaching the end of a stream is not
 evidence that the turn succeeded.
+
+Every turn that invokes a provider emits one `provider_routed` event before its
+first provider request, including execution against an explicitly committed
+default target that required no dynamic routing decision. The event records the
+route committed for that turn; per-request usage remains separate evidence.
 
 ## Operator Session Events
 

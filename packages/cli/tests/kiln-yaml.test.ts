@@ -475,8 +475,6 @@ describe("mergeKilnYaml", () => {
         maxChildDepth: 1,
         maxReviewRounds: 3,
         maxRemediationRounds: 2,
-        maxToolCalls: 20,
-        maxActiveDurationMs: 60_000,
       },
       minimumHarnessCapability: "authoritative" as const,
     };

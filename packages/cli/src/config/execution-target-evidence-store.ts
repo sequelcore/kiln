@@ -294,6 +294,66 @@ export function executionTargetEvidenceRevision(value: unknown): ExecutionTarget
   return `sha256:${createHash("sha256").update(serializeSnapshot(snapshot)).digest("hex")}`;
 }
 
+/**
+ * Proves that a replacement snapshot renews observation provenance only. A
+ * renewal may move discovery identity/provenance and timestamps forward, but
+ * it cannot change accounts, provider/model identity, data-policy meaning, or
+ * economic meaning.
+ */
+export function assertExecutionTargetEvidenceRenewal(
+  currentValue: unknown,
+  renewedValue: unknown,
+): void {
+  const current = defineExecutionTargetEvidenceSnapshot(currentValue);
+  const renewed = defineExecutionTargetEvidenceSnapshot(renewedValue);
+  const currentMaterial = renewalAuthorityMaterial(current);
+  const renewedMaterial = renewalAuthorityMaterial(renewed);
+  if (JSON.stringify(currentMaterial) !== JSON.stringify(renewedMaterial)) {
+    throw new Error("Execution-target evidence renewal changes authority-bearing material.");
+  }
+  if (executionTargetEvidenceRevision(current) === executionTargetEvidenceRevision(renewed)) {
+    throw new Error("Execution-target evidence renewal must publish a new observation revision.");
+  }
+}
+
+function renewalAuthorityMaterial(snapshot: ExecutionTargetEvidenceSnapshot): unknown {
+  return {
+    version: snapshot.version,
+    accounts: snapshot.accounts,
+    targets: snapshot.targets.map((target) => {
+      const discovery = {
+        providerId: target.discovery.providerId,
+        providerModelId: target.discovery.providerModelId,
+      };
+      const {
+        sourceIdentity: _dataPolicySourceIdentity,
+        sourceRevision: _dataPolicySourceRevision,
+        sourceDigest: _dataPolicySourceDigest,
+        observedAt: _dataPolicyObservedAt,
+        expiresAt: _dataPolicyExpiresAt,
+        ...dataPolicy
+      } = target.dataPolicyEvidence;
+      if (target.kind === "harness") {
+        return {
+          targetId: target.targetId,
+          kind: target.kind,
+          discovery,
+          dataPolicy,
+          ...(target.limitations ? { limitations: target.limitations } : {}),
+        };
+      }
+      const { evidence: _priceSourceEvidence, ...priceEvidence } = target.economics.priceEvidence;
+      return {
+        targetId: target.targetId,
+        kind: target.kind,
+        discovery,
+        dataPolicy,
+        economics: { ...target.economics, priceEvidence },
+      };
+    }),
+  };
+}
+
 export function executionTargetEvidencePath(input: {
   readonly globalConfigPath: string;
   readonly revision: ExecutionTargetEvidenceRevision;

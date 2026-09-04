@@ -4,16 +4,26 @@ import {
   KilnSettingsApplyRequestSchema,
   KilnSettingsProposalRequestSchema,
 } from "@kilnai/gateway-contracts";
-import { type AccountUsageInspectionService, createAccountUsageInspectionService } from "../application/account-usage-inspection.js";
+import {
+  type AccountUsageInspectionService,
+  type AccountUsageRefresh,
+  createAccountUsageInspectionService,
+} from "../application/account-usage-inspection.js";
 import type { ConfigSettingsApplicationPort } from "../application/config-settings-application.js";
 import type { OperatorProjectAgentTaskApplicationPort } from "../application/operator-project-agent-tasks.js";
 import type { HarnessIntegrationId } from "../config/harness-integration-capabilities.js";
 import { createNativeHarnessInspectionService, type NativeHarnessInspectionService } from "../application/native-harness-inspection.js";
 
 const INSPECTION_TOOL_NAMES = ["kiln_status_inspect", "kiln_work_governance_inspect", "kiln_capability_inspect", "kiln_account_usage_inspect"] as const;
+const ACCOUNT_USAGE_MUTATION_TOOL_NAMES = ["kiln_account_usage_refresh"] as const;
 const SETTINGS_TOOL_NAMES = ["kiln_settings_read", "kiln_settings_propose", "kiln_settings_apply"] as const;
 const AGENT_TASK_TOOL_NAMES = ["kiln_agent_task_submit", "kiln_agent_task_status", "kiln_agent_task_result", "kiln_agent_task_cancel", "kiln_agent_task_replay"] as const;
-const TOOL_NAMES = [...INSPECTION_TOOL_NAMES, ...SETTINGS_TOOL_NAMES, ...AGENT_TASK_TOOL_NAMES] as const;
+const TOOL_NAMES = [
+  ...INSPECTION_TOOL_NAMES,
+  ...ACCOUNT_USAGE_MUTATION_TOOL_NAMES,
+  ...SETTINGS_TOOL_NAMES,
+  ...AGENT_TASK_TOOL_NAMES,
+] as const;
 
 export type NativeHarnessMcpToolName = (typeof TOOL_NAMES)[number];
 
@@ -101,6 +111,19 @@ export class NativeHarnessMcpTools {
       }
       return this.callSettingsTool(name as (typeof SETTINGS_TOOL_NAMES)[number], args, identity, requestId);
     }
+    if (ACCOUNT_USAGE_MUTATION_TOOL_NAMES.includes(name as (typeof ACCOUNT_USAGE_MUTATION_TOOL_NAMES)[number])) {
+      if (!identity) {
+        return this.error("KILN_ACCOUNT_USAGE_IDENTITY_UNAVAILABLE", "The trusted native-harness session identity is unavailable.", "Reopen the authenticated native-harness session before refreshing account usage.", requestId);
+      }
+      if (!isEmptyObject(args)) {
+        return this.error("KILN_ACCOUNT_USAGE_INVALID_REQUEST", "Account usage refresh does not accept account or provider selection.", "Remove request arguments and retry the canonical all-configured-accounts refresh.", requestId);
+      }
+      try {
+        return this.accountUsageSuccess(await this.accountUsage.refresh(), identity, requestId);
+      } catch {
+        return this.error("KILN_ACCOUNT_USAGE_REFRESH_FAILED", "Provider usage could not be refreshed.", "Repair the reported provider credential or retry the canonical refresh.", requestId);
+      }
+    }
     if (!isEmptyObject(args)) {
       return this.error("KILN_TOOL_INVALID_REQUEST", "This read-only Kiln inspection tool does not accept arguments.", "Remove request arguments and retry.", requestId);
     }
@@ -134,6 +157,23 @@ export class NativeHarnessMcpTools {
     } catch {
       return undefined;
     }
+  }
+
+  private accountUsageSuccess(
+    value: AccountUsageRefresh,
+    identity: NativeHarnessMcpRequestIdentity,
+    requestId: string,
+  ): NativeHarnessMcpCallResult {
+    const structuredContent = {
+      ...value,
+      evidence: {
+        ...value.evidence,
+        harness: this.harness,
+        callerId: identity.callerId,
+        requestId,
+      },
+    };
+    return { content: [{ type: "text", text: JSON.stringify(structuredContent) }], structuredContent };
   }
 
   private async callSettingsTool(
@@ -365,6 +405,7 @@ function descriptionFor(name: NativeHarnessMcpToolName): string {
   if (name === "kiln_work_governance_inspect") return "Read the resolved Kiln work-governance policy. Read-only; cannot start or update work.";
   if (name === "kiln_capability_inspect") return "Read native harness capability availability from canonical Kiln status. Read-only; cannot invoke managed agents.";
   if (name === "kiln_account_usage_inspect") return "Read sanitized account usage and eligible virtual routes. Read-only; cannot select credentials or mutate routing policy.";
+  if (name === "kiln_account_usage_refresh") return "Refresh sanitized usage evidence for every configured provider account. Cannot select credentials or mutate routing policy.";
   if (name === "kiln_settings_read") return "Read the canonical secret-free Kiln settings snapshot with scope, source, activation, and revision evidence.";
   if (name === "kiln_settings_propose") return "Propose one typed canonical Kiln setting change without applying it.";
   if (name === "kiln_settings_apply") return "Apply one settings proposal using an exact operator approval id; model authority alone can never commit it.";
@@ -377,6 +418,7 @@ function descriptionFor(name: NativeHarnessMcpToolName): string {
 
 function inputSchemaFor(name: NativeHarnessMcpToolName): Record<string, unknown> {
   if (INSPECTION_TOOL_NAMES.includes(name as (typeof INSPECTION_TOOL_NAMES)[number])) return emptyObjectSchema();
+  if (ACCOUNT_USAGE_MUTATION_TOOL_NAMES.includes(name as (typeof ACCOUNT_USAGE_MUTATION_TOOL_NAMES)[number])) return emptyObjectSchema();
   if (name === "kiln_settings_read") {
     return {
       type: "object",
@@ -460,6 +502,9 @@ function inputSchemaFor(name: NativeHarnessMcpToolName): Record<string, unknown>
 }
 
 function annotationsFor(name: NativeHarnessMcpToolName): Record<string, boolean> {
+  if (name === "kiln_account_usage_refresh") {
+    return { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true };
+  }
   if (name === "kiln_agent_task_submit" || name === "kiln_agent_task_cancel" || name === "kiln_settings_propose" || name === "kiln_settings_apply") return { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
   return { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 }

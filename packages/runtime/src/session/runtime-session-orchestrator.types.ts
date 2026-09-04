@@ -91,6 +91,8 @@ export type {
 
 export interface RuntimeExecutionEnvelope {
   readonly convergence?: TurnConvergencePolicyInput;
+  /** Hard ceiling across physical transport attempts when an owning surface shares one authority. */
+  readonly physicalProviderRequests?: number;
   readonly conversation?: RuntimeConversationExecutionEnvelope;
 }
 
@@ -139,6 +141,7 @@ export interface OrchestratorDeps {
   /** Monotonic clock injected for deterministic turn-convergence accounting. */
   readonly monotonicNow?: () => number;
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
+  readonly providerTransportAdmission?: import("@kilnai/core").ProviderTransportAdmission;
   readonly tools?: readonly ToolDefinition[];
   readonly materializableTools?: ReadonlyMap<string, ToolDefinition>;
   /** Runtime-owned immutable capability generation for deferred selection. */

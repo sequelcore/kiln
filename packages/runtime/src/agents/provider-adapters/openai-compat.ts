@@ -613,6 +613,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
     const timer = timeout === undefined
       ? undefined
       : setTimeout(() => controller.abort(new ProviderTransportTimeoutError("headers")), timeout);
+    options.transportAdmission?.admit(options.requestIdentity);
     this.emitTransport(options, { type: "request_started", identity: safeProviderRequestIdentity(options.requestIdentity) });
     try {
       const response = await fetch(`${this.baseUrl}/chat/completions`, {

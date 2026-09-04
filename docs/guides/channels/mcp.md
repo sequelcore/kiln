@@ -134,7 +134,9 @@ stdio bridge. The bridge derives the adopted project from its working
 directory and authenticates to one global loopback Operator Runtime. Sessions
 for the same project share one lazy project Runtime; different projects remain
 isolated. This provides Kiln inspection, sanitized account-usage inspection,
-and bounded control-plane tools without starting the HTTP Model Gateway. It
+an explicit authenticated `kiln_account_usage_refresh` operation for all
+configured accounts, and bounded control-plane tools without starting the HTTP
+Model Gateway. It
 does not run a harness's native subagents or tools.
 
 The bridge also publishes a compact server-level instruction component shared
@@ -154,6 +156,13 @@ bounded operations with trusted caller identity, explicit authority,
 constrained inputs, and sanitized structured output. It never exposes secrets,
 credential material, raw provider responses, storage paths, configuration,
 environment values, or account PII.
+
+Account usage follows command-query separation: `kiln_account_usage_inspect` is
+strictly read-only and returns retained sanitized evidence;
+`kiln_account_usage_refresh` performs provider reads and persists their
+sanitized snapshots. Refresh accepts no provider, account, or credential
+selector, requires trusted harness identity, and reports provider failures
+without treating stale evidence as current.
 
 CLI and MCP operations may use the same canonical application owner without
 having identical commands or fields. A missing CLI operation on the MCP bridge

@@ -463,10 +463,14 @@ export interface PersistedSessionMeta {
   resumeOutcome?: ResumeOutcome;
   sessionLedger?: {
     currentPhase: string;
+    /** Canonical turn whose incremental state is currently projected. */
+    currentTurnId?: string;
     resumedFrom?: string;
     workingDirectory?: string;
     worktreePath?: string;
     lastError?: string;
+    /** Canonical turn that produced lastError. */
+    lastErrorTurnId?: string;
     lastProvider?: string;
     toolCallCount?: number;
     turnDepth?: number;
@@ -603,6 +607,7 @@ const CANONICAL_SESSION_EVENT_KINDS = new Set<CanonicalSessionEventKind>([
   "file_changed",
   "cost_updated",
   "context_usage_observed",
+  "provider_request_observed",
   "effective_prompt_observed",
   "lifecycle_attribution_recorded",
   "agent_invocation_requested",

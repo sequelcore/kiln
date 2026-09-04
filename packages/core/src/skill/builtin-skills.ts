@@ -939,8 +939,11 @@ Workflow:
    operation and schema; do not guess an absent tool from a remembered name.
 2. Before authority-dependent work, inspect canonical status, work governance,
    and capability evidence. Inspect sanitized account usage only when route
-   eligibility or capacity is relevant. Treat degraded, unresolved, stale,
-   unsupported, and unavailable evidence as stated; none grants authority.
+   eligibility or capacity is relevant. When usage is stale and the discovered
+   surface exposes the canonical all-account refresh, call it without provider,
+   account, or credential selectors, then inspect again. Treat degraded,
+   unresolved, stale, unsupported, and unavailable evidence as stated; none
+   grants authority.
 3. Submit managed work only with a bounded objective, a configured agent profile
    exposed by current capability evidence, and a stable idempotency key for the
    logical request. Reuse that key when retrying the same request; use a new key

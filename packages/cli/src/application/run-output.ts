@@ -1,4 +1,4 @@
-import type { CommunicationResolution, VerificationResult } from "@kilnai/core";
+import type { CommunicationResolution, ProviderRequestObservation, VerificationResult } from "@kilnai/core";
 import {
   VerifiedEfficiencyEvidenceProjectionSchema,
   type ContextUsageProjection,
@@ -221,6 +221,7 @@ export interface RunJsonOutputEnvelope {
     readonly inputTokens: number;
     readonly outputTokens: number;
     readonly toolCallCount: number;
+    readonly managedChildCount: number;
     readonly turnDepth: number;
     readonly startedAt: string;
     readonly completedAt: string;
@@ -229,6 +230,7 @@ export interface RunJsonOutputEnvelope {
     readonly contextGovernance?: ContextGovernanceSummary;
     readonly contextUsage?: ContextUsageProjection;
     readonly efficiencyEvidence?: VerifiedEfficiencyEvidenceProjection;
+    readonly providerRequests?: readonly ProviderRequestObservation[];
   };
   readonly diagnostics: {
     readonly lastError: string | null;
@@ -359,6 +361,7 @@ export function buildRunJsonOutputEnvelope(input: {
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly toolCallCount: number;
+  readonly managedChildCount?: number;
   readonly turnDepth: number;
   readonly startedAt: string;
   readonly completedAt: string;
@@ -367,6 +370,7 @@ export function buildRunJsonOutputEnvelope(input: {
   readonly contextGovernance?: ContextGovernanceSummary;
   readonly contextUsage?: ContextUsageProjection;
   readonly efficiencyEvidence?: VerifiedEfficiencyEvidenceProjection;
+  readonly providerRequests?: readonly ProviderRequestObservation[];
   readonly lastError: string | null;
   readonly attempts: readonly RunSessionAttemptResult[];
   readonly verificationResult?: VerificationResult;
@@ -393,6 +397,7 @@ export function buildRunJsonOutputEnvelope(input: {
       inputTokens: input.inputTokens,
       outputTokens: input.outputTokens,
       toolCallCount: input.toolCallCount,
+      managedChildCount: input.managedChildCount ?? 0,
       turnDepth: input.turnDepth,
       startedAt: input.startedAt,
       completedAt: input.completedAt,
@@ -403,6 +408,7 @@ export function buildRunJsonOutputEnvelope(input: {
       ...(input.efficiencyEvidence
         ? { efficiencyEvidence: VerifiedEfficiencyEvidenceProjectionSchema.parse(input.efficiencyEvidence) }
         : {}),
+      ...(input.providerRequests ? { providerRequests: input.providerRequests } : {}),
     },
     diagnostics: {
       lastError: input.lastError,

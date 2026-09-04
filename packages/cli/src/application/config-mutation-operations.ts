@@ -22,6 +22,7 @@ import { validateGlobalConfig } from "../config/global-config.js";
 import { deriveEffectiveKilnYaml } from "../config/config-merger.js";
 import { isAlias, isCollection } from "yaml";
 import {
+  assertExecutionTargetEvidenceRenewal,
   projectExecutionTargetCatalogFromIntent,
   readExecutionTargetEvidenceSnapshot,
   type DirectExecutionTargetIntent,
@@ -107,6 +108,8 @@ export function normalizeConfigMutation(
       return normalizeTargetSelect(context, payload);
     case "target.create":
       return normalizeTargetCreate(context, payload);
+    case "target.refresh_evidence":
+      return normalizeTargetEvidenceRefresh(context, payload);
     case "native.import":
       return normalizeNativeImport(context, payload);
     case "mutation.rollback":
@@ -910,6 +913,73 @@ function normalizeNativeImport(
 
 function projectConfigPath(context: ConfigMutationContext): string {
   return projectBinding(context).configPath;
+}
+
+/**
+ * Rebinds canonical target intent to a newly published observation revision.
+ * The evidence owner must prove that only freshness provenance changed; route,
+ * policy, account, and economics material remain identical.
+ */
+function normalizeTargetEvidenceRefresh(
+  context: ConfigMutationContext,
+  rawPayload: unknown,
+): NormalizedConfigMutation {
+  const payload = asRecord(rawPayload);
+  const diagnostics: KilnConfigValidationDiagnostic[] = [];
+  const evidenceRevision = requireEvidenceRevision(payload.evidenceRevision, diagnostics);
+  const priorEvidenceRevision = requireEvidenceRevision(payload.priorEvidenceRevision, diagnostics);
+  const expectedRevision = requireConfigRevision(payload.expectedRevision, diagnostics);
+  const path = context.globalConfigPath;
+  const document = readValidGlobalDocument(path, diagnostics);
+  let nextContent = "";
+  if (document && evidenceRevision && priorEvidenceRevision) {
+    const actualRevision = existsSync(path) ? `sha256:${hashText(readFileSync(path, "utf-8"))}` : "absent";
+    if (expectedRevision !== actualRevision) {
+      diagnostics.push({ severity: "error", field: "expectedRevision", message: `Global configuration changed before target-evidence refresh (expected ${expectedRevision}, found ${actualRevision}).` });
+    }
+    const current = parse(document.toString()) as Record<string, unknown>;
+    const currentIntent = asRecord(current.targetCatalog) as unknown as ExecutionTargetCatalogIntent;
+    if (!currentIntent || typeof currentIntent.evidenceRevision !== "string") {
+      diagnostics.push({ severity: "error", field: "targetCatalog", message: "Global config must declare targetCatalog before refreshing target evidence." });
+    } else if (currentIntent.evidenceRevision !== priorEvidenceRevision) {
+      diagnostics.push({ severity: "error", field: "priorEvidenceRevision", message: "Target-evidence refresh does not match the currently bound evidence revision." });
+    } else if (evidenceRevision === priorEvidenceRevision) {
+      diagnostics.push({ severity: "error", field: "evidenceRevision", message: "Target-evidence refresh must bind a newly published observation revision." });
+    } else {
+      try {
+        const priorEvidence = readExecutionTargetEvidenceSnapshot({
+          globalConfigPath: context.globalConfigPath,
+          revision: priorEvidenceRevision,
+        });
+        const renewedEvidence = readExecutionTargetEvidenceSnapshot({
+          globalConfigPath: context.globalConfigPath,
+          revision: evidenceRevision,
+        });
+        assertExecutionTargetEvidenceRenewal(priorEvidence, renewedEvidence);
+        const nextIntent: ExecutionTargetCatalogIntent = { ...currentIntent, evidenceRevision };
+        projectExecutionTargetCatalogFromIntent(nextIntent, renewedEvidence, evidenceRevision);
+        document.setIn(["targetCatalog", "evidenceRevision"], evidenceRevision);
+        nextContent = document.toString();
+        admitGlobalStructure(nextContent, diagnostics);
+      } catch (error) {
+        diagnostics.push({ severity: "error", field: "evidenceRevision", message: errorMessage(error) });
+      }
+    }
+  }
+  return {
+    scope: "global",
+    payload: { evidenceRevision, priorEvidenceRevision, expectedRevision },
+    path,
+    nextContent,
+    diagnostics,
+    // A successful renewal preserves configured authority material, but it
+    // restores executable availability and therefore still requires explicit
+    // operator approval.
+    authorityImpact: "unknown",
+    affectedOwners: ["execution-routing", "execution-target-evidence"],
+    reconciliationTargets: ["execution-targets"],
+    activation: "next-session",
+  };
 }
 
 function projectBinding(context: ConfigMutationContext): ProjectStateBinding {

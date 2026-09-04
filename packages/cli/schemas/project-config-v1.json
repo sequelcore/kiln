@@ -682,9 +682,6 @@
             "maximumLimits": {
               "additionalProperties": false,
               "properties": {
-                "maxActiveDurationMs": {
-                  "type": "number"
-                },
                 "maxChildDepth": {
                   "type": "number"
                 },
@@ -701,9 +698,6 @@
                   "type": "number"
                 },
                 "maxReviewRounds": {
-                  "type": "number"
-                },
-                "maxToolCalls": {
                   "type": "number"
                 }
               },

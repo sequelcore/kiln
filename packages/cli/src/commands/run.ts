@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import readline from "node:readline";
 import type { ContextArtifactCache, ExecutionTargetCatalog } from "@kilnai/core";
 import {
   admitManagedAgentOrchestrationRequest,
   buildManagedAgentFanOutOrchestrationRequest,
+  createBoundHostToolSandbox,
   createSessionBuiltinToolOptions,
+  type DefaultBuiltinToolRegistryOptions,
   defineDeliberationLevelId,
   formatProviderModelRouteCooldown,
   GoalRunStore,
@@ -14,6 +16,7 @@ import {
   type ModelDeliberationCapabilities,
   mapProviderModelRouteErrorToOutcome,
   scoreComplexity,
+  SandboxPolicy,
   type VerificationResult,
   WorkItemStore,
 } from "@kilnai/core";
@@ -23,6 +26,7 @@ import type {
   EffectiveTurnAuthoritySnapshot,
   ManagedInvocationToolOptions,
   RuntimeSessionTokenUsageReader,
+  RuntimeExecutionEnvelope,
 } from "@kilnai/runtime";
 import {
   attachManagedInvocationSessionEventSink,
@@ -31,6 +35,7 @@ import {
   getProjectContextArtifactCache,
   normalizeContextUsageProjection,
   ProviderModelRouteHealthStore,
+  RuntimeProviderTransportBudgetAuthority,
   resolveAdHocManagedInvocationRouteProfile,
   resolveManagedInvocationCallerIdentity,
   runManagedAgentOrchestrationLifecycle,
@@ -50,6 +55,7 @@ import {
   createManagedInvocationExecutionProofResolverRef,
 } from "../application/managed-invocation-attachment.js";
 import { createOperatorSurfaceEconomicAuthority } from "../application/operator-surface-economic-authority.js";
+import { projectProviderRequestObservations } from "../application/provider-request-observation-projection.js";
 import {
   managedInvocationPersistedTranscriptEventDrafts,
   operatorTranscriptSourceForEntry,
@@ -84,6 +90,7 @@ import {
 } from "../application/run-output.js";
 import type { RunSessionAttemptResult, RunSessionRouteCandidate, runSession } from "../application/run-session.js";
 import { readRuntimeConfigurationRevision } from "../application/runtime-configuration-revision.js";
+import { resolveRunManagedDirectActionClaimStorePaths } from "../application/run-action-claim-store-paths.js";
 import { SqliteRuntimeModelRoundActionClaimStore } from "../application/runtime-model-round-action-claim-store.js";
 import { canonicalSessionEventsFromTranscript } from "../application/runtime-session-rehydration.js";
 import { SqliteRuntimeToolActionClaimStore } from "../application/runtime-tool-action-claim-store.js";
@@ -123,6 +130,7 @@ import { createManagedDirectProviderAdapterFactory } from "../config/managed-age
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
 import { resolveModelFacingPermissionPolicy } from "../config/model-facing-permission-policy.js";
+import { digestKilnPermissionPolicy } from "../config/model-facing-permission-policy.js";
 import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
 import type { KilnAppConfig } from "../config.js";
 import { defaultBuildSystemPrompt } from "../config.js";
@@ -165,6 +173,9 @@ export interface RunFlags {
   readonly addDir?: string;
   readonly localProvider?: string;
   readonly workers?: number;
+  readonly executionEnvelopePath?: string;
+  readonly disableTools?: boolean;
+  readonly disableMcp?: boolean;
 }
 
 function resolveMode(): SessionMode {
@@ -188,6 +199,46 @@ export function resolveRunBuiltinToolProjection(plan: boolean): {
   return plan
     ? { profile: "read-only", alwaysOnTools: RUN_PLAN_ALWAYS_ON_TOOLS }
     : { profile: "execute", alwaysOnTools: [] };
+}
+
+export function projectRunBuiltinToolOptions(
+  options: DefaultBuiltinToolRegistryOptions,
+  plan: boolean,
+  disableTools: boolean,
+): DefaultBuiltinToolRegistryOptions {
+  if (disableTools) return { ...options, toolProjection: { mode: "strict", alwaysOnTools: [] } };
+  const projection = resolveRunBuiltinToolProjection(plan);
+  return withProgressiveRuntimeToolProjection(options, projection.profile, projection.alwaysOnTools);
+}
+
+export function createRunHostToolSandbox(input: {
+  readonly cwd: string;
+  readonly addDir?: string;
+  readonly sessionId: string;
+  readonly configurationRevisionId: `sha256:${string}`;
+  readonly permissionPolicy: KilnPermissionPolicy;
+  readonly requestedAuthority?: OperatorTurnRequestedAuthority;
+}) {
+  const configuredSandbox = input.permissionPolicy.sandbox ?? "read-only";
+  const sandbox = input.requestedAuthority === "read_only" ? "read-only" : configuredSandbox;
+  const readWrite = sandbox === "workspace-write" || sandbox === "danger-full-access";
+  return createBoundHostToolSandbox({
+    policy: new SandboxPolicy({
+      projectPath: input.cwd,
+      config: {
+        fsPolicy: readWrite ? "read-write" : "read-only",
+        netPolicy: sandbox === "danger-full-access" ? "full" : "none",
+        allowedPaths: sandbox === "danger-full-access"
+          ? []
+          : [input.cwd, ...(input.addDir ? [input.addDir] : [])],
+        deniedPaths: [],
+        allowedDomains: sandbox === "danger-full-access" ? ["*"] : [],
+      },
+    }),
+    leaseId: `cli-run:${input.sessionId}`,
+    configurationRevisionId: input.configurationRevisionId,
+    permissionPolicyDigest: digestKilnPermissionPolicy(input.permissionPolicy),
+  });
 }
 
 export const PLAN_POLICY: KilnPermissionPolicy = {
@@ -1003,15 +1054,19 @@ export async function runCommand(
   const globalConfig = readGlobalConfig();
   const projectConfig = readKilnYamlFile(projectStateBinding.configPath);
   const resolvedKilnConfig = await loadKilnConfig(cwd, { projectStateBinding });
-  const mcpResolution = loadResolvedKilnMcpConfiguration(cwd, { projectStateBinding });
-  if (mcpResolution.diagnostics.length > 0) {
+  const mcpResolution = flags.disableMcp
+    ? undefined
+    : loadResolvedKilnMcpConfiguration(cwd, { projectStateBinding });
+  if (mcpResolution && mcpResolution.diagnostics.length > 0) {
     throw new Error(
       `Canonical MCP configuration is invalid: ${mcpResolution.diagnostics.map((item) => item.code).join(", ")}`,
     );
   }
-  const admittedMcpServers = Object.values(mcpResolution.servers).filter(
-    (server) => server.enabled && server.admission?.state === "admitted",
-  );
+  const admittedMcpServers = mcpResolution
+    ? Object.values(mcpResolution.servers).filter(
+        (server) => server.enabled && server.admission?.state === "admitted",
+      )
+    : [];
   const resolvedAppConfig: KilnAppConfig = resolvedKilnConfig
     ? { ...appConfig, kilnYaml: resolvedKilnConfig }
     : appConfig;
@@ -1155,15 +1210,19 @@ export async function runCommand(
     privateStateRoot: projectStateBinding.projectStateRoot,
   });
   ensurePrivateStateDirectorySync(projectStateBinding.projectStateRoot, projectStateBinding.runtimePath);
-  for (const fileName of [
-    "managed-direct-tool-action-claims.sqlite",
-    "managed-direct-model-round-action-claims.sqlite",
-  ]) {
-    assertPrivateStateFileTargetSync(
-      projectStateBinding.projectStateRoot,
-      join(projectStateBinding.runtimePath, fileName),
-    );
-  }
+  const managedDirectActionClaimPaths = resolveRunManagedDirectActionClaimStorePaths(
+    projectStateBinding.runtimePath,
+    sessionId,
+  );
+  ensurePrivateStateDirectorySync(projectStateBinding.projectStateRoot, managedDirectActionClaimPaths.stateRoot);
+  assertPrivateStateFileTargetSync(
+    projectStateBinding.projectStateRoot,
+    managedDirectActionClaimPaths.toolActionClaimsPath,
+  );
+  assertPrivateStateFileTargetSync(
+    projectStateBinding.projectStateRoot,
+    managedDirectActionClaimPaths.modelRoundClaimsPath,
+  );
   const contextArtifactCachePath = join(projectStateBinding.cachePath, "context-artifacts.json");
   ensurePrivateStateDirectorySync(projectStateBinding.projectStateRoot, projectStateBinding.cachePath);
   assertPrivateStateFileTargetSync(projectStateBinding.projectStateRoot, contextArtifactCachePath);
@@ -1196,11 +1255,11 @@ export async function runCommand(
   }
   const transcriptStore = new TranscriptStore(projectStateBinding);
   const managedDirectToolActionClaims = new SqliteRuntimeToolActionClaimStore({
-    path: join(projectStateBinding.runtimePath, "managed-direct-tool-action-claims.sqlite"),
+    path: managedDirectActionClaimPaths.toolActionClaimsPath,
     privateStateRoot: projectStateBinding.projectStateRoot,
   });
   const managedDirectModelRoundActionClaims = new SqliteRuntimeModelRoundActionClaimStore({
-    path: join(projectStateBinding.runtimePath, "managed-direct-model-round-action-claims.sqlite"),
+    path: managedDirectActionClaimPaths.modelRoundClaimsPath,
     privateStateRoot: projectStateBinding.projectStateRoot,
   });
   const managedDirectAdmissionEvidence = new TranscriptAuthorityAdmissionEvidenceStore(transcriptStore);
@@ -1217,6 +1276,12 @@ export async function runCommand(
   const sessionTokenUsageReader =
     executionOptions.sessionTokenUsageReader ?? createCliTranscriptSessionTokenUsageReader(transcriptStore);
   const sessionTurnBudget = createRuntimeSessionTurnBudgetFromGlobalConfig(globalConfig, sessionTokenUsageReader);
+  const runtimeExecutionEnvelope = flags.executionEnvelopePath
+    ? JSON.parse(await readFile(resolve(flags.executionEnvelopePath), "utf8")) as RuntimeExecutionEnvelope
+    : undefined;
+  const providerTransportAdmission = runtimeExecutionEnvelope?.physicalProviderRequests === undefined
+    ? undefined
+    : new RuntimeProviderTransportBudgetAuthority(runtimeExecutionEnvelope.physicalProviderRequests);
   const resumeStrategyFeedback = continuationSessionId
     ? await inferResumeStrategyFeedback(transcriptStore, preferredProvider)
     : undefined;
@@ -1369,30 +1434,26 @@ export async function runCommand(
   });
   cleanupRegistry.register(async () => boundedWork.close());
   const managedInvocationProofs = createManagedInvocationExecutionProofResolverRef();
-  const runToolProjection = resolveRunBuiltinToolProjection(flags.plan === true);
-  let builtinToolOptions = createSessionBuiltinToolOptions(
-    withProgressiveRuntimeToolProjection(
-      {
-        ...configuredBuiltinToolOptions,
+  const sessionToolOptions = {
+    ...configuredBuiltinToolOptions,
+    workItemStore,
+    goalRunStore,
+    additionalTools: [
+      ...(configuredBuiltinToolOptions.additionalTools ?? []),
+      ...createKilnConfigTools(cwd),
+      ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, {
         workItemStore,
         goalRunStore,
-        additionalTools: [
-          ...(configuredBuiltinToolOptions.additionalTools ?? []),
-          ...createKilnConfigTools(cwd),
-          ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, {
-            workItemStore,
-            goalRunStore,
-            ownerSessionId: effectiveSessionId,
-            managedInvocationProofResolver: managedInvocationProofs.resolve,
-            boundedWorkExecutionAttemptAdmission: boundedWork.admitExecutionAttempt,
-            boundedWorkCandidateCloseout: boundedWork.closeoutCandidate,
-            boundedWorkGoalCloseout: boundedWork.closeoutGoal,
-          }),
-        ],
-      },
-      runToolProjection.profile,
-      runToolProjection.alwaysOnTools,
-    ),
+        ownerSessionId: effectiveSessionId,
+        managedInvocationProofResolver: managedInvocationProofs.resolve,
+        boundedWorkExecutionAttemptAdmission: boundedWork.admitExecutionAttempt,
+        boundedWorkCandidateCloseout: boundedWork.closeoutCandidate,
+        boundedWorkGoalCloseout: boundedWork.closeoutGoal,
+      }),
+    ],
+  };
+  let builtinToolOptions = createSessionBuiltinToolOptions(
+    projectRunBuiltinToolOptions(sessionToolOptions, flags.plan === true, flags.disableTools === true),
   );
   const engineAvailability = resolveEngineAvailabilityMap(globalConfig);
   const managedAgentProviderModels = await discoverManagedAgentProviderModels();
@@ -1412,6 +1473,7 @@ export async function runCommand(
       kilnHome: projectStateBinding.kilnHome,
       builtinToolOptions: () => builtinToolOptions,
       runtimeEnv: env,
+      ...(providerTransportAdmission ? { providerTransportAdmission } : {}),
       canonicalMcpServers: admittedMcpServers,
       runtimeToolActionClaims: managedDirectToolActionClaims,
       readAuthorityAdmission: (request) => managedDirectAdmissionEvidence.readAdmission(request),
@@ -1683,6 +1745,8 @@ export async function runCommand(
     boundedWork: boundedWork.surface,
     runtimeExecutionMode: flags.plan ? ("plan" as const) : ("execute" as const),
     ...(sessionTurnBudget ? { sessionTurnBudget } : {}),
+    ...(runtimeExecutionEnvelope ? { executionEnvelope: runtimeExecutionEnvelope } : {}),
+    ...(providerTransportAdmission ? { providerTransportAdmission } : {}),
     model: effectiveModel,
     ...(admittedRouteCandidates[0]?.deliberationResolution
       ? { deliberationResolution: admittedRouteCandidates[0].deliberationResolution }
@@ -1772,6 +1836,16 @@ export async function runCommand(
   sessionHooks.sessionStart();
   let runResult: Awaited<ReturnType<typeof runSession>>;
   try {
+    const toolSandbox = flags.disableTools === true
+      ? undefined
+      : createRunHostToolSandbox({
+          cwd: context.workingDirectory,
+          addDir: flags.addDir,
+          sessionId: effectiveSessionId,
+          configurationRevisionId: configurationRevision.revisionSetId as `sha256:${string}`,
+          permissionPolicy: config.permissionPolicy,
+          requestedAuthority: flags.requestedAuthority,
+        });
     runResult = await canonicalRunDispatcher.dispatch({
       registry,
       cleanupRegistry,
@@ -1785,6 +1859,7 @@ export async function runCommand(
       env,
       sessionHooks,
       abortSignal: runAbortController.signal,
+      ...(toolSandbox ? { toolSandbox } : {}),
       output: runOutput,
       operatorAdoption: {
         persist: async (event) => {
@@ -1804,6 +1879,13 @@ export async function runCommand(
     const errorMessage = errorToMessage(error);
     runOutput.writeErrorLine(`Error: ${errorMessage}`);
     const cleanupErrorMessage = await cleanupWorktreeForExit();
+    let runtimeCleanupErrorMessage: string | undefined;
+    try {
+      await cleanupRuntimeOnce();
+    } catch (cleanupError) {
+      runtimeCleanupErrorMessage = `Failed to cleanup Runtime owners. ${errorToMessage(cleanupError)}`;
+      runOutput.writeErrorLine(`Error: ${runtimeCleanupErrorMessage}`);
+    }
     emitRunFailureOutput(runOutput, {
       answer: runOutput.capturedAnswer,
       sessionId,
@@ -1814,7 +1896,10 @@ export async function runCommand(
       startedAt,
       startedAtMs: manager.sessionStartTimeMs ?? startedAtMs,
       contextGovernance: previewContextGovernance,
-      lastError: appendCleanupFailure(errorMessage, cleanupErrorMessage),
+      lastError: appendCleanupFailure(
+        appendCleanupFailure(errorMessage, cleanupErrorMessage),
+        runtimeCleanupErrorMessage,
+      ),
       exactArtifacts: context.projectedContext.blocks
         .filter((block) => block.kind === "artifact")
         .map((block) => block.content),
@@ -1834,6 +1919,7 @@ export async function runCommand(
     accumulatedText,
     inputTokens = 0,
     outputTokens = 0,
+    providerRequests = [],
     toolCallCount,
     turnDepth,
     successfulProviderId,
@@ -1886,6 +1972,12 @@ export async function runCommand(
     observedAt: new Date().toISOString(),
     measurement: "runtime_estimate",
     lifecycle: "completed",
+  });
+  const boundExecution = [...executionBindings].reverse().find((binding) => binding.status === "bound");
+  const providerRequestObservations = projectProviderRequestObservations({
+    requests: providerRequests,
+    routeId: boundExecution?.routeId ?? selectedExecutionTarget.targetId,
+    contextUsage,
   });
   if (communicationResolution && runOutput.mode === "human") {
     runOutput.writeTelemetryLine(
@@ -2076,6 +2168,12 @@ export async function runCommand(
 
   if (!sessionSucceeded && lastError) {
     const completedAt = new Date().toISOString();
+    const boundExecution = [...executionBindings].reverse().find((binding) => binding.status === "bound");
+    const failedProviderRequestObservations = projectProviderRequestObservations({
+      requests: providerRequests,
+      routeId: boundExecution?.routeId ?? selectedExecutionTarget.targetId,
+      contextUsage,
+    });
     runOutput.writeErrorLine(`[kiln] All providers failed. Last error: ${lastError}`);
     const cleanupErrorMessage = await cleanupWorktreeForExit();
     emitRunOutput(runOutput, {
@@ -2096,6 +2194,7 @@ export async function runCommand(
       durationMs: Date.now() - (manager.sessionStartTimeMs ?? Date.now()),
       contextGovernance: previewContextGovernance,
       contextUsage,
+      providerRequests: failedProviderRequestObservations,
       lastError: appendCleanupFailure(lastError, cleanupErrorMessage),
       attempts,
       exactArtifacts,
@@ -2283,6 +2382,20 @@ export async function runCommand(
     exitRunCommand(1, executionOptions);
   }
 
+  let managedChildCount = 0;
+  try {
+    const canonicalEvents = canonicalSessionEventsFromTranscript(
+      await transcriptStore.readTranscript(sessionId),
+      sessionId,
+    );
+    managedChildCount = canonicalEvents.filter(
+      (event) => event.kind === "tool_call_started"
+        && (event.toolName === "managed_agent.invoke" || event.toolName === "managed_agent.start"),
+    ).length;
+  } catch {
+    // The JSON contract keeps absent evidence absent when best-effort transcript
+    // persistence is unavailable; benchmark collectors classify that trial invalid.
+  }
   const completedAt = new Date().toISOString();
   const finalRunOutput = {
     answer: accumulatedText,
@@ -2296,6 +2409,7 @@ export async function runCommand(
     inputTokens,
     outputTokens,
     toolCallCount,
+    managedChildCount,
     turnDepth,
     startedAt,
     completedAt,
@@ -2304,6 +2418,7 @@ export async function runCommand(
     contextGovernance: previewContextGovernance,
     contextUsage,
     efficiencyEvidence: cliEfficiencyEvidence,
+    providerRequests: providerRequestObservations,
     lastError,
     attempts,
     verificationResult,
@@ -2387,6 +2502,7 @@ interface RunOutputEmissionInput {
   readonly contextGovernance?: ReturnType<typeof summarizeContextGovernance>;
   readonly contextUsage?: import("@kilnai/gateway-contracts").ContextUsageProjection;
   readonly efficiencyEvidence?: import("@kilnai/gateway-contracts").VerifiedEfficiencyEvidenceProjection;
+  readonly providerRequests?: readonly import("@kilnai/core").ProviderRequestObservation[];
   readonly lastError: string | null;
   readonly attempts: readonly RunSessionAttemptResult[];
   readonly verificationResult?: VerificationResult;
@@ -2417,6 +2533,7 @@ interface RunFailureOutputInput {
   readonly contextGovernance?: ReturnType<typeof summarizeContextGovernance>;
   readonly contextUsage?: import("@kilnai/gateway-contracts").ContextUsageProjection;
   readonly efficiencyEvidence?: import("@kilnai/gateway-contracts").VerifiedEfficiencyEvidenceProjection;
+  readonly providerRequests?: readonly import("@kilnai/core").ProviderRequestObservation[];
   readonly lastError: string;
   readonly attempts?: readonly RunSessionAttemptResult[];
   readonly verificationResult?: VerificationResult;
@@ -2451,6 +2568,7 @@ function emitRunFailureOutput(runOutput: RunOutputController, input: RunFailureO
     contextGovernance: input.contextGovernance,
     contextUsage: input.contextUsage,
     efficiencyEvidence: input.efficiencyEvidence,
+    providerRequests: input.providerRequests,
     lastError: input.lastError,
     attempts: input.attempts ?? [],
     verificationResult: input.verificationResult,

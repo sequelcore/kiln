@@ -358,6 +358,7 @@ describe("NativeHarnessMcpTools", () => {
       "kiln_work_governance_inspect",
       "kiln_capability_inspect",
       "kiln_account_usage_inspect",
+      "kiln_account_usage_refresh",
       "kiln_settings_read",
       "kiln_settings_propose",
       "kiln_settings_apply",
@@ -410,12 +411,59 @@ describe("NativeHarnessMcpTools", () => {
       accounts: [{ provider: "codex-oauth", accountId: "plus", credentialId: "opaque-id", plan: "plus", availability: "available", freshness: "fresh", evidenceState: "fresh", source: "provider-endpoint", confidence: "authoritative", operatorAction: "none", eligibleTargets: ["codex-managed"] }],
       evidence: { authority: "global-execution-catalog", observedAt: OBSERVED_AT },
     }));
-    const server = new NativeHarnessMcpTools({ harness: "codex", accountUsage: { inspect } });
+    const refresh = vi.fn<AccountUsageInspectionService["refresh"]>(async () => ({
+      operation: "account-usage-refresh",
+      accounts: [{ provider: "codex-oauth", accountId: "plus", credentialId: "opaque-id", plan: "plus", availability: "available", freshness: "fresh", evidenceState: "fresh", source: "provider-endpoint", confidence: "authoritative", operatorAction: "none", eligibleTargets: ["codex-managed"] }],
+      evidence: {
+        authority: "global-execution-catalog",
+        observedAt: OBSERVED_AT,
+        refreshedProviders: ["codex-oauth"],
+        failedProviders: [],
+      },
+    }));
+    const server = new NativeHarnessMcpTools({
+      harness: "codex",
+      requestIdentity: () => ({ callerId: "account-operator" }),
+      accountUsage: { inspect, refresh },
+    });
     const result = await server.callTool("kiln_account_usage_inspect", {});
     expect(result.structuredContent).toMatchObject({ accounts: [{ credentialId: "opaque-id", eligibleTargets: ["codex-managed"] }] });
     expect(JSON.stringify(result)).not.toMatch(/token|email|path|raw/i);
     await expect(server.callTool("kiln_account_usage_inspect", { credentialId: "opaque-id" })).resolves.toMatchObject({ isError: true });
     expect(inspect).toHaveBeenCalledTimes(1);
+
+    await expect(server.callTool("kiln_account_usage_refresh", {})).resolves.toMatchObject({
+      structuredContent: {
+        operation: "account-usage-refresh",
+        accounts: [{ evidenceState: "fresh", plan: "plus" }],
+        evidence: { callerId: "account-operator" },
+      },
+    });
+    expect(refresh).toHaveBeenCalledTimes(1);
+    await expect(server.callTool("kiln_account_usage_refresh", { accountId: "plus" }))
+      .resolves.toMatchObject({ isError: true });
+
+    const unauthenticated = new NativeHarnessMcpTools({
+      harness: "codex",
+      requestIdentity: () => { throw new Error("identity unavailable"); },
+      accountUsage: { inspect, refresh },
+    });
+    await expect(unauthenticated.callTool("kiln_account_usage_refresh", {})).resolves.toMatchObject({
+      isError: true,
+      structuredContent: { error: { code: "KILN_ACCOUNT_USAGE_IDENTITY_UNAVAILABLE" } },
+    });
+    expect(refresh).toHaveBeenCalledTimes(1);
+
+    const refreshTool = server.listTools().find((tool) => tool.name === "kiln_account_usage_refresh");
+    expect(refreshTool).toMatchObject({
+      inputSchema: { type: "object", additionalProperties: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    });
   });
 
   it("publishes a stable invoke schema without exposing route configuration", () => {

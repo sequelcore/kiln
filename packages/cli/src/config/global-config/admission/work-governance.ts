@@ -60,7 +60,7 @@ function validateBoundedWorkCeiling(value: unknown): void {
   }
   if (value.maximumLimits !== undefined) {
     if (!isRecord(value.maximumLimits)) throw new KilnYamlError("workGovernance.boundedWorkCeiling.maximumLimits must be an object");
-    const allowed = ["maxExecutionAttempts", "maxManagedInvocations", "maxConcurrentManagedInvocations", "maxChildDepth", "maxReviewRounds", "maxRemediationRounds", "maxToolCalls", "maxActiveDurationMs"];
+    const allowed = ["maxExecutionAttempts", "maxManagedInvocations", "maxConcurrentManagedInvocations", "maxChildDepth", "maxReviewRounds", "maxRemediationRounds"];
     rejectUnknownFields(value.maximumLimits, allowed, "workGovernance.boundedWorkCeiling.maximumLimits");
     for (const [key, limit] of Object.entries(value.maximumLimits)) {
       if (typeof limit !== "number" || !Number.isSafeInteger(limit) || limit < 0 || (key === "maxExecutionAttempts" && limit < 1)) {

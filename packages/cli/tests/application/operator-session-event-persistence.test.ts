@@ -7,7 +7,11 @@ import { createOperatorSessionEventPersistence } from "../../src/application/ope
 import { loadOperatorSessionSummaries } from "../../src/application/operator-session-history.js";
 import { toCanonicalSessionEventPersistedTranscriptEventDraft } from "../../src/application/operator-transcript-projection.js";
 import { type PersistedSessionMeta, SessionStore, TranscriptStore } from "../../src/wrapper/session-store.js";
-import { runtimeCompletedDisposition } from "../fixtures/terminal-disposition.js";
+import {
+  runtimeCompletedDisposition,
+  runtimeFailureDisposition,
+  runtimePausedDisposition,
+} from "../fixtures/terminal-disposition.js";
 
 describe("operator session event persistence", () => {
   const roots: string[] = [];
@@ -83,6 +87,126 @@ describe("operator session event persistence", () => {
         lastRoute: expect.objectContaining({ provider: "codex-oauth" }),
       }),
     ]);
+  });
+
+  it("projects a paused turn as action-required even when an intermediate error was recorded", async () => {
+    const root = await mkdtemp(join(tmpdir(), "kiln-operator-session-paused-"));
+    roots.push(root);
+    const location = { sessionsPath: join(root, "sessions"), privateStateRoot: root };
+    const transcriptStore = new TranscriptStore(location);
+    const persist = createOperatorSessionEventPersistence({
+      sessionStore: new SessionStore(location),
+      transcriptStore,
+      workingDirectory: join(root, "workspace"),
+    });
+    const sessionId = "operator-session-paused";
+    const turnId = `${sessionId}:turn:1`;
+    const timestamp = new Date("2026-08-31T18:50:42.916Z");
+
+    const events = [
+      createSessionEvent<"turn_started">({
+        kilnSessionId: sessionId,
+        sequence: 1,
+        kind: "turn_started",
+        turnId,
+        turnOrdinal: 1,
+        trigger: "user_message",
+        timestamp,
+      }),
+      createSessionEvent<"user_message">({
+        kilnSessionId: sessionId,
+        sequence: 2,
+        kind: "user_message",
+        turnId,
+        messageId: `${turnId}:user`,
+        content: "Continue governed work",
+        timestamp,
+      }),
+      createSessionEvent<"error_recorded">({
+        kilnSessionId: sessionId,
+        sequence: 3,
+        kind: "error_recorded",
+        turnId,
+        errorCode: "RECOVERED_TOOL_ERROR",
+        message: "A recoverable tool attempt failed.",
+        retriable: true,
+        timestamp,
+      }),
+      createSessionEvent<"turn_completed">({
+        kilnSessionId: sessionId,
+        sequence: 4,
+        kind: "turn_completed",
+        turnId,
+        ...runtimePausedDisposition(),
+        timestamp,
+      }),
+    ] satisfies readonly CanonicalSessionEvent[];
+
+    await persist(events.slice(0, 3));
+    const unsettledMeta = await transcriptStore.readMeta(sessionId);
+    expect(unsettledMeta?.tags).not.toContain("error");
+    expect(unsettledMeta?.sessionLedger?.lastError).toBe("A recoverable tool attempt failed.");
+    await persist([events[3]!]);
+
+    const meta = await transcriptStore.readMeta(sessionId);
+    expect(meta).toMatchObject({ lastTurnOutcome: "paused" });
+    expect(meta?.tags).not.toContain("error");
+    expect(meta?.sessionLedger?.currentPhase).toBe("paused");
+    expect(meta?.sessionLedger?.lastError).toBeUndefined();
+  });
+
+  it("keeps error projection turn-scoped and rebuild-equivalent when a new turn opens", async () => {
+    const root = await mkdtemp(join(tmpdir(), "kiln-operator-session-error-scope-"));
+    roots.push(root);
+    const incrementalLocation = { sessionsPath: join(root, "incremental", "sessions"), privateStateRoot: join(root, "incremental") };
+    const rebuiltLocation = { sessionsPath: join(root, "rebuilt", "sessions"), privateStateRoot: join(root, "rebuilt") };
+    const incrementalStore = new TranscriptStore(incrementalLocation);
+    const rebuiltStore = new TranscriptStore(rebuiltLocation);
+    const incrementalPersist = createOperatorSessionEventPersistence({
+      sessionStore: new SessionStore(incrementalLocation),
+      transcriptStore: incrementalStore,
+      workingDirectory: join(root, "workspace"),
+    });
+    const rebuiltPersist = createOperatorSessionEventPersistence({
+      sessionStore: new SessionStore(rebuiltLocation),
+      transcriptStore: rebuiltStore,
+      workingDirectory: join(root, "workspace"),
+    });
+    const sessionId = "operator-session-error-scope";
+    const first = failedTurnEvents({ sessionId, turnOrdinal: 1, sequence: 1, message: "First failure." });
+    const second = failedTurnEvents({ sessionId, turnOrdinal: 2, sequence: 5, message: "Second failure." });
+    const thirdTurnId = `${sessionId}:turn:3`;
+    const thirdStart = createSessionEvent<"turn_started">({
+      kilnSessionId: sessionId,
+      sequence: 9,
+      kind: "turn_started",
+      turnId: thirdTurnId,
+      turnOrdinal: 3,
+      trigger: "user_message",
+      timestamp: new Date("2026-08-31T19:03:00.000Z"),
+    });
+
+    for (const event of [...first, ...second]) await incrementalPersist([event]);
+    const failedMeta = await incrementalStore.readMeta(sessionId);
+    expect(failedMeta?.tags).toContain("error");
+    expect(failedMeta?.sessionLedger).toMatchObject({
+      currentTurnId: `${sessionId}:turn:2`,
+      lastError: "Second failure.",
+      lastErrorTurnId: `${sessionId}:turn:2`,
+    });
+
+    await incrementalPersist([thirdStart]);
+    await rebuiltPersist([...first, ...second, thirdStart]);
+    const [incrementalMeta, rebuiltMeta] = await Promise.all([
+      incrementalStore.readMeta(sessionId),
+      rebuiltStore.readMeta(sessionId),
+    ]);
+    expect(incrementalMeta?.tags).not.toContain("error");
+    expect(incrementalMeta?.sessionLedger?.lastError).toBeUndefined();
+    expect(incrementalMeta?.sessionLedger).toMatchObject({ currentPhase: "interactive", currentTurnId: thirdTurnId });
+    expect(incrementalMeta?.tags).toEqual(rebuiltMeta?.tags);
+    expect(incrementalMeta?.lastTurnOutcome).toBe(rebuiltMeta?.lastTurnOutcome);
+    expect(incrementalMeta?.sessionLedger).toEqual(rebuiltMeta?.sessionLedger);
   });
 
   it("serializes concurrent surface projections under one session owner", async () => {
@@ -534,6 +658,55 @@ function turnEvents(input: {
       ...runtimeCompletedDisposition(),
       outputMessageId: `${turnId}:assistant`,
       timestamp: timestamp(5),
+    }),
+  ];
+}
+
+function failedTurnEvents(input: {
+  readonly sessionId: string;
+  readonly turnOrdinal: number;
+  readonly sequence: number;
+  readonly message: string;
+}): readonly CanonicalSessionEvent[] {
+  const turnId = `${input.sessionId}:turn:${input.turnOrdinal}`;
+  const timestamp = new Date(Date.UTC(2026, 7, 31, 19, input.turnOrdinal));
+  return [
+    createSessionEvent<"turn_started">({
+      kilnSessionId: input.sessionId,
+      sequence: input.sequence,
+      kind: "turn_started",
+      turnId,
+      turnOrdinal: input.turnOrdinal,
+      trigger: "user_message",
+      timestamp,
+    }),
+    createSessionEvent<"provider_routed">({
+      kilnSessionId: input.sessionId,
+      sequence: input.sequence + 1,
+      kind: "provider_routed",
+      turnId,
+      routeId: "codex-default",
+      provider: { provider: "codex-oauth", model: "gpt-5.6-terra" },
+      reason: "test route",
+      timestamp,
+    }),
+    createSessionEvent<"error_recorded">({
+      kilnSessionId: input.sessionId,
+      sequence: input.sequence + 2,
+      kind: "error_recorded",
+      turnId,
+      errorCode: "TEST_FAILURE",
+      message: input.message,
+      retriable: false,
+      timestamp,
+    }),
+    createSessionEvent<"turn_completed">({
+      kilnSessionId: input.sessionId,
+      sequence: input.sequence + 3,
+      kind: "turn_completed",
+      turnId,
+      ...runtimeFailureDisposition(),
+      timestamp,
     }),
   ];
 }

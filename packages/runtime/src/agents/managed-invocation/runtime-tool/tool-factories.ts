@@ -49,6 +49,18 @@ import {
 import { executeManagedAgentOrchestrationTool } from "./orchestration-work-items.js";
 import { managedInvocationCredentialRouteIds } from "./session-event-publishing.js";
 
+const MAX_RUNTIME_TOOL_DESCRIPTION_LENGTH = 16_384;
+const TRUNCATED_RUNTIME_TOOL_DESCRIPTION_MARKER =
+  "\n[Configured catalog detail truncated to the runtime tool-description limit.]\n";
+
+function boundRuntimeToolDescription(description: string): string {
+  if (description.length <= MAX_RUNTIME_TOOL_DESCRIPTION_LENGTH) return description;
+  const remaining = MAX_RUNTIME_TOOL_DESCRIPTION_LENGTH - TRUNCATED_RUNTIME_TOOL_DESCRIPTION_MARKER.length;
+  const prefixLength = Math.ceil(remaining * 0.75);
+  const suffixLength = remaining - prefixLength;
+  return `${description.slice(0, prefixLength)}${TRUNCATED_RUNTIME_TOOL_DESCRIPTION_MARKER}${description.slice(-suffixLength)}`;
+}
+
 export function createManagedAgentInvokeToolDefinition(
   options: ManagedInvocationToolOptions,
 ): ToolDefinition {
@@ -94,7 +106,7 @@ export function createManagedAgentInvokeToolDefinition(
   }
   return {
     ...MANAGED_AGENT_INVOKE_TOOL,
-    description: [
+    description: boundRuntimeToolDescription([
       MANAGED_AGENT_INVOKE_TOOL.description,
       "",
       buildManagedRouteCatalogDescription(options),
@@ -110,7 +122,7 @@ export function createManagedAgentInvokeToolDefinition(
       "Do not put resource_read in requiredToolNames just because contextMode=resources is used; the parent runtime hydrates admitted resourceUris before the child starts, and resource_read is only a child tool when the selected authority profile explicitly allows it.",
       "Use routeId when the user asks for a specific route or when more than one route shares a provider and no selected agentProfile route hint applies. Omit providerRoute.model unless the user explicitly selected an exact configured model.",
       "For broad repository review, long reasoning, or multi-file analysis, choose a route with a sufficient timeout budget or split the work into smaller children.",
-    ].join("\n"),
+    ].join("\n")),
     inputSchema: schema,
   };
 }
@@ -122,11 +134,11 @@ export function createManagedAgentStartToolDefinition(
   return {
     ...invokeDefinition,
     name: MANAGED_AGENT_START_TOOL_NAME,
-    description: [
+    description: boundRuntimeToolDescription([
       MANAGED_AGENT_START_TOOL.description,
       "",
       invokeDefinition.description,
-    ].join("\n"),
+    ].join("\n")),
   };
 }
 
@@ -162,13 +174,13 @@ export function createManagedAgentOrchestrateToolDefinition(
   }
   return {
     ...MANAGED_AGENT_ORCHESTRATE_TOOL,
-    description: [
+    description: boundRuntimeToolDescription([
       MANAGED_AGENT_ORCHESTRATE_TOOL.description,
       "Assign each work item an admitted agentProfile whenever a configured specialist matches. Runtime resolves and validates that profile's route independently for each team member.",
       "Use dependencies to pass completed bounded handoffs and resource URIs to downstream team members. A failed dependency blocks its dependents.",
       "Independent review requires distinct provider/model identities; duplicate aliases of one model do not count as independent evidence.",
       buildManagedAgentSelectionDescription(options),
-    ].join("\n\n"),
+    ].join("\n\n")),
     inputSchema: schema,
   };
 }

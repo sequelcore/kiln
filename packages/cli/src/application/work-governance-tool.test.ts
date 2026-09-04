@@ -2144,6 +2144,7 @@ describe("work-governance-tool", () => {
     expect(workItemStore.get("work-goal-linked")?.goalRunId).toBe("goal-linked");
     expect(goalRunStore.get("goal-linked")?.source).toEqual({ kind: "operator_direct", turnId: canonicalTurnId("session-current", 1) });
     expect(workItemStore.get("work-goal-linked")?.planId).toBeUndefined();
+    expect(goalRunStore.get("goal-linked")?.objective).toBe("Execute linked work.");
 
     const started = await startTool?.execute({
       name: "work_item.execution.start",
@@ -2365,6 +2366,64 @@ describe("work-governance-tool", () => {
     expect(createdGoal?.isError).toBe(true);
     expect(createdGoal?.output).toContain("canonical runtime operator adoption decision");
     expect(goalRunStore.get("goal-no-session")).toBeUndefined();
+  });
+
+  it("keeps architecture-change for work that also mutates the workspace", async () => {
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const updateTool = createWorkGovernanceTools(policy, {
+      workItemStore,
+      goalRunStore: new GoalRunStore({ now: fixedNow }),
+    }).find((candidate) => candidate.name === "work_item.update");
+
+    const result = await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        id: "architecture-write",
+        summary: "Implement an architecture-sensitive runtime change.",
+        workflowProfile: "architecture-change",
+        risk: "high",
+        triggers: ["architecture", "runtime"],
+        access: "approved-write",
+        workClassification: {
+          intents: ["analyze", "code", "review"],
+          artifacts: ["code"],
+          domains: ["software"],
+          evidenceScopes: ["repository"],
+          effects: ["read-only", "mutate-workspace", "execute-command"],
+          modes: ["automate"],
+        },
+        workClassificationProvenance: {
+          sourceKind: "plan-work-item",
+          sourceId: "architecture-write",
+        },
+      },
+    });
+
+    expect(result?.isError).toBe(false);
+    expect(workItemStore.get("architecture-write")).toMatchObject({
+      workflowProfile: "architecture-change",
+      access: "approved-write",
+    });
+  });
+
+  it("exposes one canonical goal objective and omits unsupported bounded-work meters", () => {
+    const tools = createWorkGovernanceTools(policy, {
+      workItemStore: new WorkItemStore({ now: fixedNow }),
+      goalRunStore: new GoalRunStore({ now: fixedNow }),
+    });
+    const goalTool = tools.find((candidate) => candidate.name === "goal.create");
+    const schema = goalTool?.inputSchema as {
+      readonly properties?: Record<string, unknown>;
+      readonly required?: readonly string[];
+    };
+    const contract = schema.properties?.boundedWorkContract as {
+      readonly properties?: { readonly limits?: { readonly properties?: Record<string, unknown> } };
+    };
+
+    expect(schema.properties).not.toHaveProperty("objective");
+    expect(schema.required).not.toContain("objective");
+    expect(contract.properties?.limits?.properties).not.toHaveProperty("maxToolCalls");
+    expect(contract.properties?.limits?.properties).not.toHaveProperty("maxActiveDurationMs");
   });
 
   it("treats null optional work item arrays as omitted", async () => {

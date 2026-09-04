@@ -18,6 +18,7 @@ export const OPERATOR_RUNTIME_MCP_PATH = "/.well-known/kiln/operator-runtime/mcp
 export const OPERATOR_RUNTIME_APPLICATION_PATH = "/.well-known/kiln/operator-runtime/application";
 export const OPERATOR_RUNTIME_HEALTH_PATH = "/.well-known/kiln/operator-runtime/ready";
 export const OPERATOR_RUNTIME_SESSION_PATH = "/.well-known/kiln/operator-runtime/session";
+export const OPERATOR_RUNTIME_SHUTDOWN_PATH = "/.well-known/kiln/operator-runtime/shutdown";
 export const OPERATOR_RUNTIME_CONTROL_TOKEN_HEADER = "x-kiln-control-token";
 export const OPERATOR_RUNTIME_REQUEST_MAX_BYTES = 1_048_576;
 export const OPERATOR_RUNTIME_SESSION_REQUEST_MAX_BYTES = 16_384;
@@ -88,10 +89,16 @@ export interface StartOperatorRuntimeListenerOptions {
 
 export interface OperatorRuntimeListener {
   close(): void;
+  readonly shutdownRequested: Promise<void>;
 }
 
 export type OperatorRuntimeListenerInspection =
   | { readonly state: "ready"; readonly identity: OperatorSupervisorIdentity }
+  | { readonly state: "foreign"; readonly reason: "unauthorized" | "identity-mismatch" | "unexpected-response" }
+  | { readonly state: "stopped" };
+
+export type OperatorRuntimeShutdownResult =
+  | { readonly state: "accepted" }
   | { readonly state: "foreign"; readonly reason: "unauthorized" | "identity-mismatch" | "unexpected-response" }
   | { readonly state: "stopped" };
 
@@ -105,6 +112,8 @@ export async function startOperatorRuntimeListener(
   const identity = parseIdentity(options.identity, options.port);
   const controlTokenDigest = digestControlToken(options.controlToken);
   requireSessionSecret(options.sessionSecret);
+  let resolveShutdownRequested!: () => void;
+  const shutdownRequested = new Promise<void>((resolve) => { resolveShutdownRequested = resolve; });
 
   const fetchHandler: OperatorRuntimeListenerFetch = (request) => handleRequest({
     request,
@@ -116,6 +125,7 @@ export async function startOperatorRuntimeListener(
     onMcpRequest: options.onMcpRequest,
     onApplicationRequest: options.onApplicationRequest,
     onSessionOpen: options.onSessionOpen,
+    requestShutdown: () => queueMicrotask(resolveShutdownRequested),
   });
 
   const listener = options.listen
@@ -124,12 +134,56 @@ export async function startOperatorRuntimeListener(
 
   let closed = false;
   return {
+    shutdownRequested,
     close(): void {
       if (closed) return;
       closed = true;
-      listener.stop(true);
+      listener.stop(false);
     },
   };
+}
+
+export async function requestOperatorRuntimeShutdown(input: {
+  readonly port: number;
+  readonly controlToken: string;
+  readonly identity: OperatorSupervisorIdentity;
+  readonly fetch?: typeof fetch;
+  readonly timeoutMs?: number;
+}): Promise<OperatorRuntimeShutdownResult> {
+  const identity = OperatorSupervisorIdentitySchema.parse(input.identity);
+  if (identity.port !== input.port) return { state: "foreign", reason: "identity-mismatch" };
+  const authority = `127.0.0.1:${input.port}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), input.timeoutMs ?? 1_000);
+  try {
+    const response = await (input.fetch ?? fetch)(`http://${authority}${OPERATOR_RUNTIME_SHUTDOWN_PATH}`, {
+      method: "POST",
+      headers: {
+        host: authority,
+        origin: `http://${authority}`,
+        [OPERATOR_RUNTIME_CONTROL_TOKEN_HEADER]: input.controlToken,
+        "x-kiln-instance-id": identity.instanceId,
+      },
+      cache: "no-store",
+      redirect: "error",
+      signal: controller.signal,
+    });
+    if (response.headers.get("x-kiln-service") !== "operator-runtime") {
+      discardResponseBody(response);
+      return { state: "foreign", reason: "unexpected-response" };
+    }
+    if (response.status === 401) return { state: "foreign", reason: "unauthorized" };
+    if (response.status === 409) return { state: "foreign", reason: "identity-mismatch" };
+    return response.status === 202
+      ? { state: "accepted" }
+      : { state: "foreign", reason: "unexpected-response" };
+  } catch (error) {
+    return isConnectionRefused(error)
+      ? { state: "stopped" }
+      : { state: "foreign", reason: "unexpected-response" };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 /** Inspects only the authenticated private health route and returns closed, non-sensitive states. */
@@ -210,12 +264,14 @@ interface HandleRequestInput {
   readonly onSessionOpen: (
     input: OperatorRuntimeSessionOpenInput,
   ) => OperatorRuntimeSessionOpenResult | Promise<OperatorRuntimeSessionOpenResult>;
+  readonly requestShutdown: () => void;
 }
 
 async function handleRequest(input: HandleRequestInput): Promise<Response> {
   const isHealthRequest = requestPathname(input.request) === OPERATOR_RUNTIME_HEALTH_PATH;
+  const isShutdownRequest = requestPathname(input.request) === OPERATOR_RUNTIME_SHUTDOWN_PATH;
   const boundaryError = validateLoopbackBoundary(input.request, input.port);
-  if (boundaryError) return isHealthRequest ? withOperatorServiceHeader(boundaryError) : boundaryError;
+  if (boundaryError) return isHealthRequest || isShutdownRequest ? withOperatorServiceHeader(boundaryError) : boundaryError;
 
   const url = new URL(input.request.url);
   if (url.pathname === OPERATOR_RUNTIME_HEALTH_PATH) {
@@ -229,6 +285,23 @@ async function handleRequest(input: HandleRequestInput): Promise<Response> {
       return withOperatorServiceHeader(errorResponse(401, "unauthorized"));
     }
     return withOperatorServiceHeader(jsonResponse(input.identity, 200));
+  }
+
+  if (url.pathname === OPERATOR_RUNTIME_SHUTDOWN_PATH) {
+    if (input.request.method !== "POST") {
+      return withOperatorServiceHeader(errorResponse(405, "method_not_allowed"));
+    }
+    if (hasRequestBody(input.request)) {
+      return withOperatorServiceHeader(errorResponse(400, "body_not_allowed"));
+    }
+    if (!hasValidControlToken(input.request.headers, input.controlTokenDigest)) {
+      return withOperatorServiceHeader(errorResponse(401, "unauthorized"));
+    }
+    if (input.request.headers.get("x-kiln-instance-id") !== input.identity.instanceId) {
+      return withOperatorServiceHeader(errorResponse(409, "identity_mismatch"));
+    }
+    input.requestShutdown();
+    return withOperatorServiceHeader(jsonResponse({ status: "accepted" }, 202));
   }
 
   if (url.pathname === OPERATOR_RUNTIME_SESSION_PATH) {

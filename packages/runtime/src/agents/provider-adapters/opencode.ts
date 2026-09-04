@@ -1,8 +1,8 @@
-import { OpenAICompatAdapter } from "./openai-compat.js";
-import type { AgentResponse, CreateMessageOptions } from "@kilnai/core/agents";
+import type { AgentResponse, AgentStreamEvent, CreateMessageOptions } from "@kilnai/core/agents";
 import { safeProviderRequestIdentity } from "@kilnai/core/agents";
 import { KilnError } from "@kilnai/core/engine";
 import type { OpenCodeTier } from "../credential-acquisition/opencode-credentials.js";
+import { OpenAICompatAdapter } from "./openai-compat.js";
 
 export const OPENCODE_ZEN_BASE_URL = "https://opencode.ai/zen/v1";
 export const OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
@@ -35,10 +35,15 @@ export class OpenCodeAdapter extends OpenAICompatAdapter {
     this.defaultModel = defaultModel;
   }
 
-  override createMessage(options: CreateMessageOptions): Promise<AgentResponse> {
-    return options.tools && options.tools.length > 0
-      ? this.createMessageViaStream(options)
-      : super.createMessage(options);
+  override async createMessage(options: CreateMessageOptions): Promise<AgentResponse> {
+    const request = requireOpenCodeGoSession(options, this.tier);
+    return request.tools && request.tools.length > 0
+      ? this.createMessageViaStream(request)
+      : super.createMessage(request);
+  }
+
+  override async *streamMessage(options: CreateMessageOptions): AsyncGenerator<AgentStreamEvent> {
+    yield* super.streamMessage(requireOpenCodeGoSession(options, this.tier));
   }
 
   protected override buildHeaders(
@@ -46,9 +51,10 @@ export class OpenCodeAdapter extends OpenAICompatAdapter {
   ): Record<string, string> {
     const headers = super.buildHeaders(options);
     const identity = safeProviderRequestIdentity(options?.requestIdentity);
+    const sessionId = options?.sessionId?.trim();
     headers["x-opencode-client"] = "kiln";
     headers["User-Agent"] = "kiln/3.0.0-beta.1";
-    if (options?.sessionId) headers["x-opencode-session"] = options.sessionId;
+    if (sessionId) headers["x-opencode-session"] = sessionId;
     if (identity?.projectId) headers["x-opencode-project"] = identity.projectId;
     if (identity?.requestId) headers["x-opencode-request"] = identity.requestId;
     return headers;
@@ -63,6 +69,15 @@ export class OpenCodeAdapter extends OpenAICompatAdapter {
   protected override projectToolSchema(schema: Record<string, unknown>): Record<string, unknown> {
     return isMoonshotModel(this.defaultModel) ? lowerMoonshotSchema(schema) : schema;
   }
+}
+
+function requireOpenCodeGoSession(options: CreateMessageOptions, tier: OpenCodeTier): CreateMessageOptions {
+  if (tier !== "go") return options;
+  const sessionId = options.sessionId?.trim();
+  if (!sessionId) {
+    throw new KilnError("CONFIG_INVALID", "OpenCode Go requests require a non-empty session ID");
+  }
+  return sessionId === options.sessionId ? options : { ...options, sessionId };
 }
 
 function isMoonshotModel(model: string): boolean {

@@ -1,6 +1,7 @@
-import type { ComponentProps } from "react";
-import { CheckCircle2, ChevronDown, CircleAlert, CircleX, LoaderCircle } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { CheckCircle2, ChevronDown, CircleAlert, CircleX, LoaderCircle } from "lucide-react";
+import type { ComponentProps } from "react";
+import { AgentActivityOrb } from "@/components/agent-activity-orb";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 
@@ -22,11 +23,19 @@ const TOOL_STATE_ICONS: Record<ToolState, LucideIcon> = {
 
 function ToolStatus(props: { readonly state: ToolState }) {
   const label = TOOL_STATE_LABELS[props.state];
+  if (props.state === "running") {
+    return (
+      <span className="flex size-5 shrink-0 items-center justify-center" data-slot="ai-tool-status">
+        <AgentActivityOrb state="working" />
+        <span className="sr-only">{label}</span>
+      </span>
+    );
+  }
   const Icon = TOOL_STATE_ICONS[props.state];
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground",
+        "flex size-5 shrink-0 items-center justify-center text-muted-foreground",
         props.state === "paused" ? "text-warning" : null,
         props.state === "failed" ? "text-destructive" : null,
       )}
@@ -35,11 +44,11 @@ function ToolStatus(props: { readonly state: ToolState }) {
       <Icon
         aria-hidden="true"
         className={cn(
-          props.state === "running" ? "motion-safe:animate-spin text-primary" : null,
+          "size-3.5",
           props.state === "completed" ? "text-success" : null,
         )}
       />
-      <span className={props.state === "completed" ? "sr-only" : undefined}>{label}</span>
+      <span className="sr-only">{label}</span>
     </span>
   );
 }
@@ -60,18 +69,22 @@ export function Tool({ className, state, ...props }: ToolProps) {
 }
 
 export type ToolHeaderProps = Omit<ComponentProps<typeof CollapsibleTrigger>, "children"> & {
+  readonly dataRole?: string;
   readonly title: string;
   readonly summary?: string;
   readonly state: ToolState;
   readonly expanded: boolean;
+  readonly expandable: boolean;
   readonly dateTime: string;
   readonly timeLabel: string;
 };
 
 export function ToolHeader({
   className,
+  dataRole,
   dateTime,
   expanded,
+  expandable,
   state,
   summary,
   timeLabel,
@@ -79,19 +92,10 @@ export function ToolHeader({
   ...props
 }: ToolHeaderProps) {
   const stateLabel = TOOL_STATE_LABELS[state];
-  return (
-    <CollapsibleTrigger
-      aria-label={`${title}. ${stateLabel}. ${expanded ? "Hide" : "Show"} details`}
-      className={cn(
-        "group/tool-header flex w-full min-w-0 items-center gap-2 py-1.5 text-left text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring/70",
-        className,
-      )}
-      data-slot="ai-tool-header"
-      type="button"
-      {...props}
-    >
-      <span className="min-w-0 truncate text-xs font-medium text-current">{title}</span>
+  const content = (
+    <>
       <ToolStatus state={state} />
+      <span className="min-w-0 truncate text-xs font-medium text-foreground">{title}</span>
       {summary ? (
         <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground" title={summary}>
           {summary}
@@ -104,10 +108,39 @@ export function ToolHeader({
       >
         {timeLabel}
       </time>
-      <ChevronDown
-        aria-hidden="true"
-        className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[panel-open]/tool-header:rotate-180"
-      />
+      {expandable ? (
+        <ChevronDown
+          aria-hidden="true"
+          className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[panel-open]/tool-header:rotate-180"
+        />
+      ) : null}
+    </>
+  );
+  const headerClassName = cn(
+    "group/tool-header kiln-stream-row flex w-full min-w-0 items-center gap-2 py-1 text-left text-xs text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring/70",
+    className,
+  );
+  if (!expandable) {
+    return (
+      <div
+        className={headerClassName}
+        data-role={dataRole}
+        data-slot="ai-tool-header"
+      >
+        {content}
+      </div>
+    );
+  }
+  return (
+    <CollapsibleTrigger
+      aria-label={`${title}. ${stateLabel}. ${expanded ? "Hide" : "Show"} details`}
+      className={headerClassName}
+      data-role={dataRole}
+      data-slot="ai-tool-header"
+      type="button"
+      {...props}
+    >
+      {content}
     </CollapsibleTrigger>
   );
 }

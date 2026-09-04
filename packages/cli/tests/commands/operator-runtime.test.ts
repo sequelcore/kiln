@@ -68,7 +68,10 @@ describe("operatorRuntimeCommand", () => {
       close: vi.fn(async () => {}),
     };
     const closeListener = vi.fn();
-    const startListener = vi.fn(async () => ({ close: closeListener }));
+    const startListener = vi.fn(async () => ({
+      close: closeListener,
+      shutdownRequested: new Promise<void>(() => undefined),
+    }));
     const registerShutdown = vi.fn();
     const log = vi.fn();
 
@@ -154,7 +157,10 @@ describe("operatorRuntimeCommand", () => {
     ], {
       createLifecycle: () => lifecycle.value,
       createService: vi.fn(() => service),
-      startListener: vi.fn(async () => ({ close: () => { throw new Error("listener close"); } })),
+      startListener: vi.fn(async () => ({
+        close: () => { throw new Error("listener close"); },
+        shutdownRequested: new Promise<void>(() => undefined),
+      })),
       pid: state.pid,
       registerShutdown,
       writeDiagnostic: diagnostic,

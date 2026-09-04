@@ -726,6 +726,7 @@ describe("config-status", () => {
         expect.objectContaining({
           harness: "codex",
           nativeProjection: "install-state",
+          hooks: "unsupported",
         }),
       ]),
     });

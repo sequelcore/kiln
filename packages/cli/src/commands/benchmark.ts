@@ -36,6 +36,7 @@ import {
   FORMAL_SCREENING_EXECUTION_ENVELOPE,
   captureBenchmarkConfigurationAdmission,
   createBenchmarkSessionExecutor,
+  isWriteBenchmarkProfile,
   type BenchmarkConfigurationAdmission,
   type BenchmarkSessionExecutorFlags,
 } from "../application/benchmark-session-executor.js";
@@ -137,7 +138,7 @@ function printHelp(): void {
     "  kiln benchmark tracks",
     "  kiln benchmark readiness --baseline <path>",
     "  kiln benchmark report --baseline <path> --output <path> [--publication-manifest <path>] [--repository-root <path>]",
-    "  kiln benchmark run-internal --profile <id> [--dataset <path>] [--k <n>] [--output <path>] [--target <execution-target-id>] [--accounts <id,id,...>] [--deliberation-level <id> | --deliberation-level-sweep <ids>]",
+    "  kiln benchmark run-internal --profile <id> [--dataset <path>] [--k <n>] [--max-invalid-attempts <n>] [--output <path>] [--target <execution-target-id>] [--accounts <id,id,...>] [--deliberation-level <id> | --deliberation-level-sweep <ids>] [--execution-envelope <path>]",
     "  kiln benchmark run-internal --profile kiln-formal-verification-pilot --k 2 --target <execution-target-id> --accounts <single-account-id>",
     "  kiln benchmark prepare-verifiers",
     "  kiln benchmark project-bfcl --input <path> --output <path>",
@@ -364,9 +365,7 @@ async function runInternalBenchmark(
   if (formalScreeningProfile) {
     validateFormalScreeningFlags(args, profile.minimumK);
   }
-  const writeProfile = profile.id === "kiln-model-roster-backend-write"
-    || profile.id === "kiln-model-roster-frontend-render"
-    || formalScreeningProfile;
+  const writeProfile = isWriteBenchmarkProfile(profile.id);
   const repositoryRoot = dependencies.repositoryRoot ?? resolveProjectRoot().rootPath;
   const projectStateBinding = dependencies.projectStateBinding ?? resolveCommandProjectStateBinding();
   const configurationAdmission = await captureBenchmarkConfigurationAdmission({
@@ -421,6 +420,13 @@ async function runInternalBenchmark(
       benchmarkPairIds,
       join(artifactRoot, "authority-evidence"),
     );
+    const maxInvalidAttempts = readFlag(args, "--max-invalid-attempts") === undefined
+      ? profile.maxInvalidAttempts
+      : parseNonNegativeInteger(readFlag(args, "--max-invalid-attempts")!, "--max-invalid-attempts");
+    const executionProfile = maxInvalidAttempts === profile.maxInvalidAttempts
+      ? profile
+      : { ...profile, maxInvalidAttempts };
+    const executionEnvelope = executorFlags.executionEnvelope ?? BENCHMARK_EXECUTION_ENVELOPE;
     const executor = dependencies.createExecuteItem?.(executorFlags, configurationAdmission)
       ?? dependencies.executeItem
       ?? createBenchmarkSessionExecutor({
@@ -435,7 +441,7 @@ async function runInternalBenchmark(
     const datasetVersion = formalContext?.package.version ?? requiredDatasetVersion(datasetPath);
     const configHash = formalContext
       ? computeFormalScreeningConfigHash({
-          profile,
+          profile: executionProfile,
           dataset,
           datasetVersion,
           k,
@@ -447,7 +453,7 @@ async function runInternalBenchmark(
           screeningConfig: formalContext.config,
         })
       : computeConfigHash({
-          profile,
+          profile: executionProfile,
           datasetName: dataset.name,
           datasetVersion,
           datasetContentHash: hashContent(requireStringValue(datasetContent, "benchmark dataset content")),
@@ -459,9 +465,9 @@ async function runInternalBenchmark(
             postRunFixtureVerification: true,
           } : { mode: "repository-worktree-v1" },
           k,
-          access: profile.access,
+          access: executionProfile.access,
           permissionPolicy: benchmarkPermissionPolicy,
-          executionEnvelope: BENCHMARK_EXECUTION_ENVELOPE,
+          executionEnvelope,
           ...(profile.id === "kiln-model-roster-backend-write" ? {
             strictToolProjection: ["read", "read_many", "grep", "glob", "tree", "stat", "write", "edit", "patch"],
             verifier: {
@@ -498,15 +504,15 @@ async function runInternalBenchmark(
           deliberationMode: deliberationMembers.length > 1
             ? "sweep"
             : deliberationLevel ? "fixed" : "provider-default",
-          scorerNames: profile.requiredScorers,
+          scorerNames: executionProfile.requiredScorers,
         });
     const runner = new BenchmarkBaselineRunner({
-      profile,
+      profile: executionProfile,
       dataset,
       datasetVersion,
       k,
       configHash,
-      scorers: createBenchmarkProfileScorers(profile),
+      scorers: createBenchmarkProfileScorers(executionProfile),
       artifactStore,
       executeItem: requireWorkspaceFixtureEvidence(
         requireDeliberationEvidence(executor, deliberationLevel),
@@ -1180,6 +1186,13 @@ function readExecutorFlags(
     ...(benchmarkEvidenceRoot ? { benchmarkEvidenceRoot } : {}),
     skipGitRepoCheck: args.includes("--skip-git-repo-check"),
     deliberationLevel,
+    ...(readFlag(args, "--execution-envelope")
+      ? {
+          executionEnvelope: JSON.parse(
+            readFileSync(resolve(requireStringValue(readFlag(args, "--execution-envelope"), "execution envelope path")), "utf8"),
+          ) as import("@kilnai/runtime").RuntimeExecutionEnvelope,
+        }
+      : {}),
   };
 }
 
@@ -1273,6 +1286,14 @@ function datasetVersionFromPath(path: string): string {
 function defaultOutputPath(projectStateBinding: ProjectStateBinding, profileId: string, now: Date): string {
   const stamp = now.toISOString().replace(/[:.]/gu, "-");
   return join(projectStateBinding.benchmarksPath, `${profileId}-${stamp}.json`);
+}
+
+function parseNonNegativeInteger(value: string, flag: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`${flag} must be a non-negative integer.`);
+  }
+  return parsed;
 }
 
 function resolveCommandProjectStateBinding(): ProjectStateBinding {

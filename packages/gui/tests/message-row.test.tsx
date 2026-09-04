@@ -137,13 +137,14 @@ describe("MessageRow", () => {
       />,
     );
 
-    const header = container.querySelector('[data-slot="message-header"]');
+    const footer = container.querySelector('[data-slot="message-footer"]');
     const bubbleContent = container.querySelector('[data-slot="bubble-content"]');
     expect(container.querySelector('[data-slot="message-avatar"]')).toBeNull();
-    expect(within(header as HTMLElement).queryByText("Assistant", { exact: true })).not.toBeInTheDocument();
-    expect(header?.querySelector('[data-provider-brand="codex"]')).not.toBeNull();
-    expect(header?.querySelector('[data-provider-brand="claude"]')).toBeNull();
-    expect(header).toHaveClass("min-h-5", "leading-5");
+    expect(container.querySelector('[data-slot="message-header"]')).not.toBeInTheDocument();
+    expect(within(footer as HTMLElement).queryByText("Assistant", { exact: true })).not.toBeInTheDocument();
+    expect(footer?.querySelector('[data-provider-brand="codex"]')).not.toBeNull();
+    expect(footer?.querySelector('[data-provider-brand="claude"]')).toBeNull();
+    expect(footer).toHaveClass("px-0");
     expect(bubbleContent).toHaveClass("group-data-[variant=ghost]/bubble:overflow-visible");
     expect(screen.getByText("Mi team de agentes configurado en Kiln para esta sesión es:")).toBeInTheDocument();
   });
@@ -217,7 +218,9 @@ describe("MessageRow", () => {
       />,
     );
 
-    expect(screen.getByText("Codex OAuth / gpt-5.6-terra")).toBeInTheDocument();
+    expect(screen.getByText("gpt-5.6-terra")).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="message-header"]')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-slot="message-footer"]')).toHaveTextContent("gpt-5.6-terra");
     expect(container.querySelector('[data-provider-brand="codex"]')).not.toBeNull();
   });
 

@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   projectConversationTurnItems,
-  projectToolActivitySummary,
   type ConversationProjectionInput,
   type ConversationProjectionItem,
   formatOperatorEventValue,
@@ -18,8 +17,9 @@ import {
   type WorkflowToolCallActivity,
   type WorkflowWorkItemActivity,
 } from "@kilnai/gateway-contracts";
-import { CheckCircle2, ChevronDown, ChevronUp, CircleAlert, ExternalLink, FileText, Folder, LoaderCircle, Terminal as TerminalIcon } from "lucide-react";
+import { CheckCircle2, ChevronDown, CircleAlert, ExternalLink, FileText, Folder, LoaderCircle, Terminal as TerminalIcon } from "lucide-react";
 import { collapseAllNested, JsonView } from "react-json-view-lite";
+import { AgentActivityOrb } from "@/components/agent-activity-orb";
 import type { ActivityPhase, TimelineEntry, TimelineEventEntry } from "../lib/session-store/index.js";
 import { MarkdownMessageContent, MessageRow } from "./message-row.js";
 import { TranscriptActivityIndicator } from "./transcript-activity-indicator.js";
@@ -28,12 +28,13 @@ import { TranscriptSurface } from "./transcript-surface.js";
 import { VerificationEvidence } from "./verification-evidence.js";
 import { Task, TaskContent, TaskItem, TaskTrigger, type TaskStatus } from "@/components/ai-elements/task";
 import { Tool, ToolContent, ToolHeader, type ToolState } from "@/components/ai-elements/tool";
-import { ToolGroup, ToolGroupItem } from "@/components/ai-elements/tool-group";
+import { ToolGroupItem } from "@/components/ai-elements/tool-group";
 import { Terminal as OutputTerminal } from "@/components/ai-elements/terminal";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   MessageScroller,
   MessageScrollerButton,
@@ -62,7 +63,7 @@ interface TranscriptProps {
 function OperationalTranscriptSurface(props: {
   readonly children: ReactNode;
   readonly dataRole?: string;
-  readonly kind: "tool" | "workflow";
+  readonly kind: "event" | "tool" | "workflow";
 }) {
   return (
     <TranscriptSurface data-role={props.dataRole} kind={props.kind} className="flex justify-start px-1">
@@ -92,13 +93,6 @@ const USD_FORMATTER = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 4,
   maximumFractionDigits: 4,
 });
-const TIMELINE_TONE_CLASSES: Record<TimelineEventEntry["tone"], string> = {
-  info: "border-border bg-card text-foreground",
-  running: "border-border bg-card text-foreground",
-  success: "border-border bg-card text-foreground",
-  warning: "border-border bg-card text-foreground",
-  error: "border-destructive/60 bg-card text-foreground",
-};
 const KILN_JSON_VIEW_STYLE = {
   container: "kiln-json-view",
   childFieldsContainer: "kiln-json-view__children",
@@ -747,43 +741,43 @@ function ToolDiagnosticResult(props: {
   readonly fields: readonly { readonly label: string; readonly value: string }[];
 }) {
   return (
-    <Alert variant="destructive">
-      <CircleAlert aria-hidden="true" />
-      <AlertTitle>{props.title}</AlertTitle>
-      <AlertDescription>
-        <p>{props.diagnostic.message}</p>
-        <MetaList items={props.fields} />
-        {props.diagnostic.recoverable !== undefined || props.diagnostic.suggestedNextTool ? (
-          <dl className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
-            {props.diagnostic.recoverable !== undefined ? (
-              <>
-                <dt>Recovery</dt>
-                <dd className="text-foreground">{props.diagnostic.recoverable ? "Recoverable" : "Manual intervention required"}</dd>
-              </>
-            ) : null}
-            {props.diagnostic.suggestedNextTool ? (
-              <>
-                <dt>Next tool</dt>
-                <dd className="truncate font-mono text-foreground">{props.diagnostic.suggestedNextTool}</dd>
-              </>
-            ) : null}
+    <section aria-label="Tool failure details" className="min-w-0 text-xs leading-5">
+      <div className="flex min-w-0 items-center gap-2">
+        <CircleAlert aria-hidden="true" className="size-3.5 shrink-0 text-destructive" />
+        <p className="truncate font-medium text-destructive">{props.title}</p>
+      </div>
+      <p className="mt-1 text-muted-foreground">{props.diagnostic.message}</p>
+      <MetaList items={props.fields} />
+      {props.diagnostic.recoverable !== undefined || props.diagnostic.suggestedNextTool ? (
+        <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
+          {props.diagnostic.recoverable !== undefined ? (
+            <>
+              <dt className="text-muted-foreground">Recovery</dt>
+              <dd className="text-foreground">{props.diagnostic.recoverable ? "Recoverable" : "Manual intervention required"}</dd>
+            </>
+          ) : null}
+          {props.diagnostic.suggestedNextTool ? (
+            <>
+              <dt className="text-muted-foreground">Next tool</dt>
+              <dd className="truncate font-mono text-foreground">{props.diagnostic.suggestedNextTool}</dd>
+            </>
+          ) : null}
+        </dl>
+      ) : null}
+      {props.diagnostic.requiredInput.length > 0 ? (
+        <div className="mt-2">
+          <p className="font-medium text-foreground">Required input</p>
+          <dl className="mt-1 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-x-3 gap-y-1">
+            {props.diagnostic.requiredInput.map((item) => (
+              <div className="contents" key={item.name}>
+                <dt className="truncate font-mono text-foreground">{item.name}</dt>
+                <dd className="min-w-0 break-words text-muted-foreground">{item.expected}</dd>
+              </div>
+            ))}
           </dl>
-        ) : null}
-        {props.diagnostic.requiredInput.length > 0 ? (
-          <div className="mt-3">
-            <p className="font-medium text-foreground">Required input</p>
-            <dl className="mt-1.5 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-xs">
-              {props.diagnostic.requiredInput.map((item) => (
-                <div className="contents" key={item.name}>
-                  <dt className="truncate font-mono text-foreground">{item.name}</dt>
-                  <dd className="min-w-0 break-words">{item.expected}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-        ) : null}
-      </AlertDescription>
-    </Alert>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -925,7 +919,12 @@ function ToolEventDetails(props: {
   if (presentationDetails.length > 0) {
     return <><MetaList items={presentationDetails} />{terminal}</>;
   }
-  if (!details) return null;
+  return <><MetaList items={toolEventFallbackItems(props.entry)} />{terminal}</>;
+}
+
+function toolEventFallbackItems(entry: TimelineEventEntry): readonly { readonly label: string; readonly value: string }[] {
+  const details = asRecord(entry.details);
+  if (!details) return [];
   const input = asRecord(details.input) ?? details;
   const items: { label: string; value: string }[] = [];
   const status = readString(details.status);
@@ -940,7 +939,29 @@ function ToolEventDetails(props: {
       items.push({ label: key, value: formatted });
     }
   }
-  return <><MetaList items={items} />{terminal}</>;
+  return items;
+}
+
+function toolPresentationHasDetails(entry: TimelineEventEntry): boolean {
+  const presentation = entry.toolPresentation;
+  if (!presentation) return false;
+  return presentation.diagnostic !== undefined
+    || presentation.verification !== undefined
+    || presentation.presentationIntent !== undefined
+    || (presentation.fields?.length ?? 0) > 0
+    || (presentation.searchResults?.length ?? 0) > 0
+    || (presentation.resourceLinks?.length ?? 0) > 0
+    || presentation.preview !== undefined;
+}
+
+function toolEventHasRenderableDetails(entry: TimelineEventEntry): boolean {
+  const details = asRecord(entry.details);
+  const presentationDetails = filterTranscriptToolDetails(entry.presentationDetails ?? [])
+    .filter((item) => item.label !== "Tool");
+  return presentationDetails.length > 0
+    || readString(details?.liveOutput) !== null
+    || toolPresentationHasDetails(entry)
+    || toolEventFallbackItems(entry).length > 0;
 }
 
 function filterTranscriptToolDetails(
@@ -1034,12 +1055,12 @@ function ContinuityEventDetails(props: { readonly entry: TimelineEventEntry }) {
   return <MetaList items={items} />;
 }
 
-function TurnCompletedDetails(props: { readonly entry: TimelineEventEntry }) {
-  const details = asRecord(props.entry.details);
-  if (!details) return null;
+function turnCompletedDetailItems(entry: TimelineEventEntry): readonly { readonly label: string; readonly value: string }[] {
+  const details = asRecord(entry.details);
+  if (!details) return [];
   const authority = asRecord(details.authorityStatus);
   const runtimeContinuity = asRecord(details.runtimeContinuity);
-  const items = [
+  return [
     readString(details.routedProvider) ? { label: "Provider", value: readString(details.routedProvider)! } : null,
     readString(details.routedModel) ? { label: "Model", value: readString(details.routedModel)! } : null,
     readString(runtimeContinuity?.strategy) ? { label: "Continuity", value: readString(runtimeContinuity?.strategy)! } : null,
@@ -1048,7 +1069,10 @@ function TurnCompletedDetails(props: { readonly entry: TimelineEventEntry }) {
     readNumber(details.inputTokens) !== null ? { label: "Input tokens", value: String(readNumber(details.inputTokens)) } : null,
     readNumber(details.outputTokens) !== null ? { label: "Output tokens", value: String(readNumber(details.outputTokens)) } : null,
   ].filter((item): item is { label: string; value: string } => item !== null);
-  return <MetaList items={items} />;
+}
+
+function TurnCompletedDetails(props: { readonly entry: TimelineEventEntry }) {
+  return <MetaList items={turnCompletedDetailItems(props.entry)} />;
 }
 
 function canRenderEventDetails(entry: TimelineEventEntry): boolean {
@@ -1056,14 +1080,16 @@ function canRenderEventDetails(entry: TimelineEventEntry): boolean {
   switch (entry.eventKind) {
     case "tool_call_started":
     case "tool_call_completed":
+      return toolEventHasRenderableDetails(entry);
     case "approval_requested":
     case "approval_resolved":
     case "file_changed":
     case "cost_updated":
     case "provider_routed":
     case "continuity_decided":
-    case "turn_completed":
       return true;
+    case "turn_completed":
+      return turnCompletedDetailItems(entry).length > 0;
     default:
       return false;
   }
@@ -1122,21 +1148,11 @@ function eventIcon(entry: TimelineEventEntry) {
   }[entry.tone];
 }
 
-function eventBadgeVariant(entry: TimelineEventEntry): "outline" | "secondary" | "destructive" {
-  return {
-    info: "outline",
-    running: "secondary",
-    success: "secondary",
-    warning: "outline",
-    error: "destructive",
-  }[entry.tone] as "outline" | "secondary" | "destructive";
-}
-
 function ToolEventCard(props: {
   readonly entry: TimelineEventEntry;
   readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
 }) {
-  const [open, setOpen] = useState(() => shouldAutoOpenToolEventDetails(props.entry));
+  const [open, setOpen] = useState(false);
   const summary = eventSummaryText(props.entry);
   const hasDetails = canRenderEventDetails(props.entry);
   const state: ToolState = props.entry.tone === "running"
@@ -1150,9 +1166,10 @@ function ToolEventCard(props: {
   return (
     <Tool className="flex-1" onOpenChange={setOpen} open={open} state={state}>
       <ToolHeader
-        data-role="tool-event"
+        dataRole="tool-event"
         dateTime={props.entry.createdAt}
         expanded={open}
+        expandable={hasDetails}
         state={state}
         summary={summary ?? undefined}
         timeLabel={new Date(props.entry.createdAt).toLocaleTimeString()}
@@ -1182,25 +1199,21 @@ function ToolActivityGroupRow(props: {
   readonly entries: readonly TimelineEventEntry[];
   readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
 }) {
-  const [operatorOpen, setOperatorOpen] = useState<boolean | null>(null);
-  const open = operatorOpen ?? false;
-  const summary = projectToolActivitySummary(props.entries.map((entry) => ({
-    tone: entry.tone,
-    toolName: toolEventIdentifier(entry),
-  })));
   return (
-    <OperationalTranscriptSurface dataRole="tool-group" kind="tool">
-      <ToolGroup
-        onOpenChange={setOperatorOpen}
-        open={open}
-        summary={summary}
+    <OperationalTranscriptSurface dataRole={props.entries.length === 1 ? "tool" : "tool-group"} kind="tool">
+      <ul
+        aria-label="Tool activity"
+        className="flex min-w-0 flex-col"
+        data-framing="none"
+        data-presentation="task-stream"
+        data-slot="ai-tool-group"
       >
         {props.entries.map((entry) => (
           <ToolGroupItem key={entry.id}>
             <ToolEventCard entry={entry} loadResourceDataUrl={props.loadResourceDataUrl} />
           </ToolGroupItem>
         ))}
-      </ToolGroup>
+      </ul>
     </OperationalTranscriptSurface>
   );
 }
@@ -1209,47 +1222,92 @@ function TimelineEventRow(props: {
   readonly entry: TimelineEventEntry;
   readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
 }) {
+  return (
+    <OperationalTranscriptSurface kind="event">
+      <TimelineEventTrace entry={props.entry} loadResourceDataUrl={props.loadResourceDataUrl} />
+    </OperationalTranscriptSurface>
+  );
+}
+
+function TimelineEventTrace(props: {
+  readonly entry: TimelineEventEntry;
+  readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
+}) {
   const [open, setOpen] = useState(false);
   const Icon = eventIcon(props.entry);
   const hasDetails = canRenderEventDetails(props.entry);
   const summary = eventSummaryText(props.entry);
+  const stateLabel = {
+    info: "Recorded",
+    running: "Running",
+    success: "Completed",
+    warning: "Paused",
+    error: "Failed",
+  }[props.entry.tone];
+  const showSummary = summary && !(props.entry.eventKind === "turn_completed" && props.entry.tone === "success");
+  const headerClassName = "group/event-trace flex w-full min-w-0 items-center gap-2 rounded-sm py-1 text-left text-xs text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/70";
+  const header = (
+    <>
+      <span
+        aria-hidden="true"
+        className="flex size-5 shrink-0 items-center justify-center"
+        data-slot="transcript-activity-identity"
+      >
+        <Icon className={cn(
+          "size-3.5",
+          props.entry.tone === "running" ? "motion-safe:animate-spin text-primary" : null,
+          props.entry.tone === "success" ? "text-success" : null,
+          props.entry.tone === "warning" ? "text-warning" : null,
+          props.entry.tone === "error" ? "text-destructive" : null,
+        )} />
+      </span>
+      <span className="min-w-0 truncate font-medium text-foreground">{props.entry.title}</span>
+      {showSummary ? (
+        <span className="min-w-0 flex-1 truncate text-muted-foreground">{summary}</span>
+      ) : (
+        <span className="flex-1" />
+      )}
+      <time className="sr-only" dateTime={props.entry.createdAt}>
+        {new Date(props.entry.createdAt).toLocaleTimeString()}
+      </time>
+      {hasDetails ? (
+        <ChevronDown
+          aria-hidden="true"
+          className="size-3.5 shrink-0 transition-transform group-data-[panel-open]/event-trace:rotate-180"
+        />
+      ) : null}
+    </>
+  );
 
   return (
-    <TranscriptSurface kind="event" className={cn("rounded-lg border px-3 py-2 shadow-sm", TIMELINE_TONE_CLASSES[props.entry.tone])}>
-      <header className="flex min-w-0 items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-1 items-start gap-2.5">
-          <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-md border border-border bg-background text-muted-foreground" aria-hidden="true">
-            <Icon className={props.entry.tone === "running" ? "animate-spin" : ""} />
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <Badge variant={eventBadgeVariant(props.entry)} className="max-w-full truncate">
-                {props.entry.title}
-              </Badge>
-              <time dateTime={props.entry.createdAt} className="shrink-0 font-mono text-[10px] text-muted-foreground" title={props.entry.createdAt}>
-                {new Date(props.entry.createdAt).toLocaleTimeString()}
-              </time>
-            </div>
-            {summary ? (
-              <p className="mt-1 max-w-full truncate text-sm leading-5 text-muted-foreground">{summary}</p>
-            ) : null}
-          </div>
+    <Collapsible
+      className="w-full min-w-0"
+      data-framing="none"
+      data-presentation="trace"
+      data-role={props.entry.eventKind === "turn_completed" ? "turn-disposition" : "timeline-event"}
+      onOpenChange={setOpen}
+      open={hasDetails && open}
+    >
+      {hasDetails ? (
+        <CollapsibleTrigger
+          aria-label={`${props.entry.title}. ${stateLabel}. ${open ? "Hide" : "Show"} details`}
+          className={headerClassName}
+          data-slot="transcript-activity-header"
+          type="button"
+        >
+          {header}
+        </CollapsibleTrigger>
+      ) : (
+        <div className={headerClassName} data-slot="transcript-activity-header" role="status">
+          {header}
         </div>
-        {hasDetails ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            aria-label={open ? "Hide details" : "Show details"}
-            aria-expanded={open}
-            onClick={() => setOpen((value) => !value)}
-          >
-            {open ? <ChevronUp data-icon="inline-start" /> : <ChevronDown data-icon="inline-start" />}
-          </Button>
-        ) : null}
-      </header>
-      <EventDetails entry={props.entry} open={open} loadResourceDataUrl={props.loadResourceDataUrl} />
-    </TranscriptSurface>
+      )}
+      {hasDetails ? (
+        <CollapsibleContent className="ml-2 min-w-0 border-l border-border/55 py-2 pl-5 text-popover-foreground outline-none data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 motion-safe:transition-opacity">
+          <EventDetails entry={props.entry} open loadResourceDataUrl={props.loadResourceDataUrl} />
+        </CollapsibleContent>
+      ) : null}
+    </Collapsible>
   );
 }
 
@@ -1419,8 +1477,7 @@ function groupRoutineToolItems(
   const grouped: TranscriptRenderItem[] = [];
   let routineRun: Extract<TranscriptProjectionItem, { readonly kind: "event" }>[] = [];
   const flush = () => {
-    if (routineRun.length === 1) grouped.push(routineRun[0]!);
-    if (routineRun.length > 1) {
+    if (routineRun.length > 0) {
       const entryIds = routineRun.map((item) => item.entryId);
       grouped.push({ kind: "tool-group", id: `tool-group:${entryIds.join(":")}`, entryIds });
     }
@@ -1519,35 +1576,30 @@ function WorkflowToolActivityGroup(props: {
   readonly className?: string;
   readonly tools: readonly WorkflowToolCallActivity[];
 }) {
-  const [operatorOpen, setOperatorOpen] = useState<boolean | null>(null);
-  const open = operatorOpen ?? false;
-  const summary = projectToolActivitySummary(props.tools.map((tool) => ({
-    tone: tool.state === "running" ? "running" : tool.state === "failed" ? "error" : "success",
-    toolName: tool.toolName,
-  })));
   return (
     <div className={props.className} data-role="workflow-tool-activity">
-      <ToolGroup
-        onOpenChange={setOperatorOpen}
-        open={open}
-        summary={summary}
+      <ul
+        aria-label="Workflow tool activity"
+        className="flex min-w-0 flex-col"
+        data-framing="none"
+        data-presentation="task-stream"
+        data-slot="ai-tool-group"
       >
         {props.tools.map((tool) => {
-          const Icon = tool.state === "running" ? LoaderCircle : tool.state === "failed" ? CircleAlert : CheckCircle2;
+          const Icon = tool.state === "failed" ? CircleAlert : CheckCircle2;
           return (
             <ToolGroupItem key={tool.toolCallId}>
-              <div className="flex min-w-0 items-center gap-2 px-2 py-2 text-xs">
-                <Icon
-                  aria-hidden="true"
-                  className={cn(
-                    "size-3.5 shrink-0",
-                    tool.state === "running"
-                      ? "motion-safe:animate-spin text-primary"
-                      : tool.state === "failed"
-                        ? "text-destructive"
-                        : "text-success",
+              <div className="kiln-stream-row flex min-w-0 items-center gap-2 py-1 text-xs">
+                <span className="flex size-5 shrink-0 items-center justify-center">
+                  {tool.state === "running" ? (
+                    <AgentActivityOrb state="working" />
+                  ) : (
+                    <Icon
+                      aria-hidden="true"
+                      className={cn("size-3.5", tool.state === "failed" ? "text-destructive" : "text-success")}
+                    />
                   )}
-                />
+                </span>
                 <span className="max-w-[40%] shrink-0 truncate font-mono font-medium text-foreground">{tool.toolName}</span>
                 {tool.summary ? <span className="min-w-0 flex-1 truncate text-muted-foreground">{tool.summary}</span> : null}
                 <span className="sr-only">{formatTaskStatus(tool.state)}</span>
@@ -1555,7 +1607,7 @@ function WorkflowToolActivityGroup(props: {
             </ToolGroupItem>
           );
         })}
-      </ToolGroup>
+      </ul>
     </div>
   );
 }
@@ -1611,6 +1663,7 @@ function WorkflowWorkItemRow(props: {
 }
 
 function WorkflowActivityRow(props: { readonly item: TranscriptWorkflowItem }) {
+  const [operatorOpen, setOperatorOpen] = useState<boolean | null>(null);
   const goal = props.item.goal;
   const workItems = goal?.workItems ?? (props.item.workItem ? [props.item.workItem] : []);
   const title = goal?.goal.objective ?? props.item.workItem?.item.summary ?? "Governed work";
@@ -1619,15 +1672,17 @@ function WorkflowActivityRow(props: { readonly item: TranscriptWorkflowItem }) {
   const description = goal
     ? `${completed} of ${workItems.length} work items completed${goal.statusReason ? `. ${goal.statusReason}` : ""}`
     : props.item.workItem?.item.id;
+  const open = operatorOpen ?? (status !== "completed" && status !== "cancelled");
   return (
     <OperationalTranscriptSurface kind="workflow">
       <Task
         aria-label={goal ? `Goal ${goal.goal.id}` : `Work item ${props.item.workItem?.item.id ?? "unknown"}`}
         className="w-full min-w-0 overflow-hidden"
         data-role="workflow-activity"
-        defaultOpen={false}
+        onOpenChange={setOperatorOpen}
+        open={open}
         status={status}
-        variant="card"
+        variant="stream"
       >
         <TaskTrigger description={description} status={status} title={title} />
         <TaskContent className="transition-opacity duration-150 motion-reduce:transition-none">
@@ -1787,8 +1842,8 @@ function projectTranscriptItems(
   ).filter((item): item is TranscriptProjectionItem => item.kind !== "activity");
 }
 
-function shouldAutoOpenToolEventDetails(entry: TimelineEventEntry): boolean {
-  return entry.eventKind === "tool_call_completed" && entry.tone === "error";
+function shouldRenderTimelineEvent(entry: TimelineEventEntry): boolean {
+  return entry.eventKind !== "turn_completed" || entry.tone !== "success";
 }
 
 function renderTranscriptEntries(
@@ -1824,6 +1879,7 @@ function renderTranscriptEntries(
     if (item.kind === "event") {
       const entry = entriesById.get(item.entryId);
       if (entry?.type !== "event") return null;
+      if (!shouldRenderTimelineEvent(entry)) return null;
       let row: ReactNode;
       if (entry.eventKind === "approval_requested") {
         row = <ApprovalEventRow entry={entry} onApprove={onApprove} onDeny={onDeny} />;
@@ -1840,6 +1896,11 @@ function renderTranscriptEntries(
     }
     const entry = entriesById.get(item.entryId);
     if (entry?.type !== "message") return null;
+    const afterEvents = item.afterEventIds
+      .map((entryId) => entriesById.get(entryId))
+      .filter((candidate): candidate is TimelineEventEntry => (
+        candidate?.type === "event" && shouldRenderTimelineEvent(candidate)
+      ));
     return (
       <MessageScrollerItem
         key={entry.id}
@@ -1848,6 +1909,13 @@ function renderTranscriptEntries(
         scrollAnchor={entry.message.role === "user"}
       >
         <MessageRow
+          afterContent={afterEvents.length > 0 ? (
+            <div className="flex min-w-0 flex-col gap-1">
+              {afterEvents.map((event) => (
+                <TimelineEventTrace entry={event} key={event.id} loadResourceDataUrl={loadResourceDataUrl} />
+              ))}
+            </div>
+          ) : undefined}
           message={entry.message}
           loadResourceDataUrl={loadResourceDataUrl}
         />
@@ -1887,6 +1955,10 @@ export function Transcript(props: TranscriptProps) {
   const projectedItems = projectTranscriptItems(visibleEntries);
   const entriesById = new Map(visibleEntries.map((entry) => [entry.id, entry]));
   const hasLiveActivity = props.activityPhase === "thinking" || props.activityPhase === "tool_running";
+  const hasStructuredLiveActivity = Boolean(
+    props.workflowActivity?.goals.some((goal) => workflowStatus(goal.status) === "in_progress")
+    || props.workflowActivity?.standaloneWorkItems.some(({ item }) => workflowStatus(item.status) === "in_progress"),
+  );
   const liveToolEntries = hasLiveActivity ? projectedItems.flatMap((item): readonly TimelineEventEntry[] => {
     if (item.kind !== "event") return [];
     const entry = entriesById.get(item.entryId);
@@ -1896,7 +1968,7 @@ export function Transcript(props: TranscriptProps) {
   const historicalProjectedItems = projectedItems.filter((item) => (
     item.kind !== "event" || !liveToolEntryIds.has(item.entryId)
   ));
-  const liveActivityPhase = props.loadError === undefined && !hasStreamingAssistant
+  const liveActivityPhase = props.loadError === undefined && !hasStreamingAssistant && !hasStructuredLiveActivity
     ? liveToolEntries.length > 0 || props.activityPhase === "tool_running"
       ? "tool_running"
       : props.activityPhase === "thinking"

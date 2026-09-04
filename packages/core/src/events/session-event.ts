@@ -40,6 +40,7 @@ import type { GoalRun, WorkItem, WorkItemExecutionAttempt, WorkItemMaterializati
 import type { SessionExecutionScope } from "./session-execution-scope.js";
 import type { OperatorAdoptionDecisionAuthority } from "./operator-adoption-decision.js";
 import type { TurnTerminalDisposition } from "../agents/turn-terminal-disposition.js";
+import type { ProviderRequestObservation } from "./provider-request-observation.js";
 
 export type CanonicalSessionEventKind =
   | "turn_started"
@@ -72,6 +73,7 @@ export type CanonicalSessionEventKind =
   | "file_changed"
   | "cost_updated"
   | "context_usage_observed"
+  | "provider_request_observed"
   | "effective_prompt_observed"
   | "lifecycle_attribution_recorded"
   | "work_item_updated"
@@ -446,6 +448,10 @@ export interface CanonicalContextUsageObservedEvent extends SessionEventEnvelope
   readonly contextUsage: ContextUsageProjection;
 }
 
+export interface CanonicalProviderRequestObservedEvent extends SessionEventEnvelope<"provider_request_observed"> {
+  readonly request: ProviderRequestObservation;
+}
+
 export interface CanonicalEffectivePromptObservedEvent extends SessionEventEnvelope<"effective_prompt_observed"> {
   readonly effectivePrompt: EffectivePromptObservation;
 }
@@ -558,6 +564,7 @@ export interface SessionAgentInvocationEvidence {
   readonly diagnostics?: readonly SessionAgentInvocationDiagnosticPointer[];
   readonly usage?: SessionAgentInvocationUsageReport;
   readonly coordinationUsage?: ManagedAgentCoordinationUsageReport;
+  readonly providerRequestObservations?: readonly ProviderRequestObservation[];
   readonly resultHandoff?: SessionAgentInvocationResultHandoff;
   readonly writeAuthority?: ManagedAgentWriteAuthority;
   readonly writeEvidence?: readonly ManagedAgentWriteEvidence[];
@@ -813,6 +820,7 @@ export interface CanonicalSessionEventMap {
   file_changed: CanonicalFileChangedEvent;
   cost_updated: CanonicalCostUpdatedEvent;
   context_usage_observed: CanonicalContextUsageObservedEvent;
+  provider_request_observed: CanonicalProviderRequestObservedEvent;
   effective_prompt_observed: CanonicalEffectivePromptObservedEvent;
   lifecycle_attribution_recorded: CanonicalLifecycleAttributionRecordedEvent;
   work_item_updated: CanonicalWorkItemUpdatedEvent;

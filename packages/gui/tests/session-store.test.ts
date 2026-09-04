@@ -123,6 +123,64 @@ function efficiencyEvidenceFixture(input: {
   };
 }
 
+function providerRequestObservationFixture() {
+  return {
+    version: "v1",
+    requestIndex: 0,
+    providerId: "codex-oauth",
+    modelId: "gpt-5.6-sol",
+    routeId: "codex-primary",
+    deliberation: { state: "observed", status: "exact", selectedLevel: "high" },
+    authority: {
+      state: "observed",
+      requestedAuthority: "read_only",
+      admittedAuthority: "read_only",
+      completeness: "authoritative",
+    },
+    dispatch: {
+      attempt: { state: "observed", value: 2 },
+      retry: { state: "observed", value: true },
+      fallback: { state: "unknown" },
+      outcome: "completed",
+      responseStatus: 200,
+    },
+    usage: {
+      input: { tokens: 2_400, measurement: "provider_reported" },
+      output: { tokens: 120, measurement: "provider_reported" },
+      cacheRead: { tokens: 800, measurement: "provider_reported" },
+      cacheWrite: { tokens: 0, measurement: "provider_reported" },
+    },
+    physicalRegions: [
+      { source: "system", bytes: 1_024, measurement: "measured" },
+      { source: "messages", bytes: 2_048, measurement: "measured" },
+    ],
+    reconciliation: {
+      state: "unknown",
+      providerInputTokens: 2_400,
+      reason: "regional_token_attribution_unavailable",
+    },
+    capacity: {
+      state: "within_capacity",
+      measurement: "estimated",
+      contextWindowTokens: 272_000,
+      contextWindowAuthority: "runtime_observed",
+      estimatedInputTokens: 2_350,
+      outputReserveTokens: 1_024,
+      estimatedTotalTokens: 3_374,
+      estimatedRemainingTokens: 268_626,
+      overflow: false,
+    },
+    cache: {
+      partitionIdentity: { state: "unknown" },
+      regions: [],
+      readTokens: 800,
+      writeTokens: 0,
+      measurement: "provider_reported",
+    },
+    toolCount: 3,
+  } as const;
+}
+
 describe("session-store", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -631,6 +689,61 @@ describe("session-store", () => {
       tone: "warning",
       details: expect.objectContaining({ outcome: "paused" }),
     });
+  });
+
+  it("projects live provider-request evidence into the timeline without raw prompt content", () => {
+    useSessionStore.setState({ status: "running", liveSessionId: "session-provider-live" });
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-provider-live",
+      kilnSessionId: "session-provider-live",
+      sequence: 1,
+      timestamp: "2026-08-31T20:09:22.648Z",
+      kind: "provider_request_observed",
+      turnId: "session-provider-live:turn:1",
+      payload: { request: providerRequestObservationFixture() },
+    });
+
+    expect(useSessionStore.getState().timelineEntries).toContainEqual(expect.objectContaining({
+      eventKind: "provider_request_observed",
+      title: "Provider request observed",
+      summary: "codex-oauth/gpt-5.6-sol Â· attempt 2 Â· completed Â· 2400â†‘ 120â†“",
+      turnId: "session-provider-live:turn:1",
+      presentationDetails: expect.arrayContaining([
+        { label: "Retry", value: "yes" },
+        { label: "Cache read tokens", value: "800" },
+        { label: "Capacity", value: "within_capacity" },
+      ]),
+      details: expect.objectContaining({ requestIndex: 0, toolCount: 3 }),
+    }));
+    expect(JSON.stringify(useSessionStore.getState().timelineEntries)).not.toContain("Hash");
+  });
+
+  it("replays provider-request evidence with the same operator presentation", () => {
+    useSessionStore.getState().viewSessionDetail({
+      id: "session-provider-replay",
+      meta: {
+        kilnSessionId: "session-provider-replay",
+        title: "Provider evidence",
+        task: "Provider evidence",
+        startedAt: "2026-08-31T20:09:00.000Z",
+      },
+      events: [{
+        eventId: "evt-provider-replay",
+        kilnSessionId: "session-provider-replay",
+        sequence: 1,
+        timestamp: "2026-08-31T20:09:22.648Z",
+        kind: "provider_request_observed",
+        turnId: "session-provider-replay:turn:1",
+        payload: { request: providerRequestObservationFixture() },
+      }],
+    });
+
+    expect(useSessionStore.getState().timelineEntries).toContainEqual(expect.objectContaining({
+      eventKind: "provider_request_observed",
+      title: "Provider request observed",
+      summary: "codex-oauth/gpt-5.6-sol Â· attempt 2 Â· completed Â· 2400â†‘ 120â†“",
+      details: expect.objectContaining({ requestIndex: 0, toolCount: 3 }),
+    }));
   });
 
   it.each([

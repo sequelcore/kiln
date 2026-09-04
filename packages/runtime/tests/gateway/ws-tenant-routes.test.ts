@@ -874,7 +874,6 @@ describe("createWsTenantRoutes", () => {
       expect(done.effectivePromptObservation).toMatchObject({
         providerId: "codex-oauth",
         modelId: "gpt-5.6-sol",
-        finalPromptHash: hash("8"),
         componentScopeCounts: { static: 0, dynamic: 1, deferred: 0 },
       });
       expect(JSON.stringify(done.effectivePromptObservation)).not.toContain("private tenant request");

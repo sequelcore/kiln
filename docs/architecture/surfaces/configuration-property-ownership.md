@@ -77,8 +77,6 @@ owner. Generated editor-schema and descriptor projections are committed under
 | `workGovernance.boundedWorkCeiling.maximumLimits.maxChildDepth` | GG | I | C | global maximum | turn | supported |
 | `workGovernance.boundedWorkCeiling.maximumLimits.maxReviewRounds` | GG | I | C | global maximum | turn | supported |
 | `workGovernance.boundedWorkCeiling.maximumLimits.maxRemediationRounds` | GG | I | C | global maximum | turn | supported |
-| `workGovernance.boundedWorkCeiling.maximumLimits.maxToolCalls` | GG | I | C | global maximum | turn | supported |
-| `workGovernance.boundedWorkCeiling.maximumLimits.maxActiveDurationMs` | GG | I | C | global maximum | turn | supported |
 | `workGovernance.boundedWorkCeiling.minimumHarnessCapability` | GG | I | C | global minimum | turn | supported |
 | `engines.<id>.enabled` | G | I | H | engine default; no project override | reconcile | supported |
 | `engines.<id>.billing` | G | I | M | engine metadata | reconcile | supported |

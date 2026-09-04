@@ -34,7 +34,6 @@ import {
   AttachmentMedia,
   AttachmentTitle,
 } from "@/components/ui/attachment";
-import { Badge } from "@/components/ui/badge";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Button } from "@/components/ui/button";
 import {
@@ -175,22 +174,27 @@ function VoiceAudioControls(props: {
   readonly onRequest: (messageId: string) => boolean;
   readonly loadResourceDataUrl?: ResourceDataUrlLoader;
   readonly captionTrackSrc: string;
+  readonly metadata?: ReactNode;
 }) {
   if (props.parts.length > 0) {
     return (
-      <VoiceAudioParts
-        parts={props.parts}
-        loadResourceDataUrl={props.loadResourceDataUrl}
-        captionTrackSrc={props.captionTrackSrc}
-      />
+      <>
+        {props.metadata ? <MessageFooter className="gap-2 px-0">{props.metadata}</MessageFooter> : null}
+        <VoiceAudioParts
+          parts={props.parts}
+          loadResourceDataUrl={props.loadResourceDataUrl}
+          captionTrackSrc={props.captionTrackSrc}
+        />
+      </>
     );
   }
   if (!props.message.sourceMessageId) {
-    return null;
+    return props.metadata ? <MessageFooter className="gap-2 px-0">{props.metadata}</MessageFooter> : null;
   }
   const pending = props.message.voiceSynthesisStatus === "pending";
   return (
-    <MessageFooter className="flex-wrap px-0">
+    <MessageFooter className="flex-wrap gap-1.5 px-0">
+      {props.metadata}
       <Button
         type="button"
         variant="ghost"
@@ -349,7 +353,17 @@ export function MessageRow(props: MessageRowProps) {
   const isAssistant = message.role === "assistant";
   const isOperational = message.role === "tool" || message.role === "error";
   const hasProviderMetadata = assistantProvider !== null && assistantProviderLabel !== null;
-  const hasHeader = nonAssistantRoleLabel !== null || hasProviderMetadata;
+  const hasHeader = nonAssistantRoleLabel !== null;
+  const routeMetadata = hasProviderMetadata ? (
+    <span
+      className="inline-flex min-w-0 items-center gap-1.5 text-[11px] font-normal text-muted-foreground"
+      title={`${assistantProviderLabel}${assistantModel ? ` / ${assistantModel}` : ""}`}
+    >
+      <span className="sr-only">Response route: {assistantProviderLabel}{assistantModel ? `, ${assistantModel}` : ""}</span>
+      <ProviderGlyph providerId={assistantProvider} className="size-3" />
+      <span aria-hidden="true" className="truncate">{assistantModel ?? assistantProviderLabel}</span>
+    </span>
+  ) : undefined;
   const voiceAudioParts = isAssistant ? projectVoiceAudioOutputParts(message.parts ?? []) : [];
   const captionTrackSrc = createAudioCaptionTrackSrc(message.content);
   return (
@@ -363,13 +377,6 @@ export function MessageRow(props: MessageRowProps) {
           {hasHeader ? (
             <MessageHeader className={cn("gap-2 px-0", isUser ? "sr-only" : "")}>
               {nonAssistantRoleLabel ? <span>{nonAssistantRoleLabel}</span> : null}
-              {hasProviderMetadata ? (
-                <Badge variant="outline" className="max-w-full gap-1.5 truncate">
-                  <ProviderGlyph providerId={assistantProvider} className="size-3.5" />
-                  {assistantProviderLabel}
-                  {assistantModel ? ` / ${assistantModel}` : " / —"}
-                </Badge>
-              ) : null}
             </MessageHeader>
           ) : null}
           {isAssistant && props.beforeContent ? (
@@ -406,6 +413,7 @@ export function MessageRow(props: MessageRowProps) {
               onRequest={requestVoiceSynthesis}
               loadResourceDataUrl={props.loadResourceDataUrl}
               captionTrackSrc={captionTrackSrc}
+              metadata={routeMetadata}
             />
           ) : null}
           {isAssistant && props.afterContent ? (

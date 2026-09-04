@@ -46,7 +46,7 @@ describe("global MCP bridge", () => {
     expect(source).not.toMatch(/createOperatorProject|createComposition|projectPath|process\.cwd\(\)/);
   });
 
-  it.each(["codex", "claude", "opencode"] as const)("publishes the stable twelve-tool %s catalog before the supervisor resolves", async (harness) => {
+  it.each(["codex", "claude", "opencode"] as const)("publishes the stable thirteen-tool %s catalog before the supervisor resolves", async (harness) => {
     const deferred = promiseWithResolvers<typeof READY>();
     const fixture = sdkFixture();
     const handle = await startGlobalMcpBridge({
@@ -66,12 +66,13 @@ describe("global MCP bridge", () => {
     });
     expect(fixture.serveStdioOptions).toMatchObject({ legacy: "reject" });
     const response = await fixture.listHandler!({ params: {} }) as { tools: readonly { name: string }[] };
-    expect(response.tools).toHaveLength(12);
+    expect(response.tools).toHaveLength(13);
     expect(response.tools.map((tool) => tool.name)).toEqual([
       "kiln_status_inspect",
       "kiln_work_governance_inspect",
       "kiln_capability_inspect",
       "kiln_account_usage_inspect",
+      "kiln_account_usage_refresh",
       "kiln_settings_read",
       "kiln_settings_propose",
       "kiln_settings_apply",

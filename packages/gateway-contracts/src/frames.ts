@@ -531,6 +531,7 @@ export type OperatorSessionEventKind =
   | "file_changed"
   | "cost_updated"
   | "context_usage_observed"
+  | "provider_request_observed"
   | "effective_prompt_observed"
   | "lifecycle_attribution_recorded"
   | "work_item_updated"

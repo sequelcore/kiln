@@ -47,7 +47,7 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     await page.reload();
     await expect(page.locator("#composer-input")).toBeEnabled({ timeout: COMPOSER_READY_TIMEOUT_MS });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-    await expect(page.getByRole("button", { name: /Execution target selector/ })).toBeVisible({ timeout: 2_000 });
+    await expect(page.getByRole("button", { name: /Model selector/ })).toBeVisible({ timeout: 2_000 });
     const visualRoles = await page.locator("html").evaluate((root) => {
       const style = getComputedStyle(root);
       return {
@@ -71,6 +71,13 @@ test.describe("parity category 5 - theming and visual behavior", () => {
 
     const assistant = page.locator('[data-role="assistant"]', { hasText: "Provider discovery" });
     await expect(assistant.getByText("Provider discovery")).toBeVisible({ timeout: 5_000 });
+    const disposition = assistant.locator('[data-role="turn-disposition"]');
+    await expect(disposition).toHaveCount(0);
+    await expect(assistant.getByText("Turn completed")).toHaveCount(0);
+    await expect(assistant.locator('[data-slot="message-header"]')).toHaveCount(0);
+    const routeFooter = assistant.locator('[data-slot="message-footer"]');
+    await expect(routeFooter).toContainText("Claude");
+    await expect(routeFooter.locator('[data-slot="badge"]')).toHaveCount(0);
     const list = assistant.locator(".markdown-body ul").first();
     await expect(list).toHaveCSS("list-style-type", "disc");
     const table = assistant.locator(".markdown-body table").first();
@@ -166,36 +173,24 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     await expect(rail).toBeHidden();
   });
 
-  test("keeps concurrent tool executions distinct and reduced-motion safe", async ({ page }) => {
+  test("renders canonical tool history as a compact reduced-motion-safe task stream", async ({ page }) => {
     await page.goto("/");
     await waitForGuiReady(page);
-
-    const composer = page.locator("#composer-input");
-    await composer.fill("tool continuity browser check");
-    await composer.press("Enter");
-
-    await expect(page.locator('[data-role="composer-activity-beam"]')).toHaveCount(0);
-    await expect(page.locator('[data-role="composer-activity"]')).toHaveCount(0);
-    await expect(page.locator('[aria-label="Transcript"] [aria-label="Streaming"]')).toHaveCount(0);
-    await expect(page.locator('[aria-label="Transcript"] [role="status"]')).toHaveCount(0);
-
     await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.getByRole("button", { name: /Summarize parity checklist/ }).click();
 
     const activeBeams = page.locator('[data-role="active-tool-beam"]');
     await expect(activeBeams).toHaveCount(0);
 
-    const actionGroup = page.getByRole("button", {
-      name: "Repository inspection needs attention. 2 actions. Show details",
-    });
+    const actionGroup = page.getByRole("list", { name: "Tool activity" });
     await expect(actionGroup).toBeVisible({ timeout: 5_000 });
-    await actionGroup.click();
-
+    await expect(actionGroup).toHaveAttribute("data-presentation", "task-stream");
+    await expect(actionGroup).toHaveAttribute("data-framing", "none");
+    await expect(actionGroup.getByRole("listitem")).toHaveCount(1);
     const completedRow = page.locator('[data-slot="ai-tool"][data-state="completed"]');
-    const failedRow = page.locator('[data-slot="ai-tool"][data-state="failed"]');
     await expect(completedRow).toHaveCount(1, { timeout: 5_000 });
-    await expect(failedRow).toHaveCount(1, { timeout: 5_000 });
-    await expect(completedRow).toContainText("First tool result");
-    await expect(failedRow).toContainText("Second tool failed");
+    await expect(completedRow).toContainText("Persisted parity plan contents");
+    await expect(page.getByRole("button", { name: /\d+ actions/u })).toHaveCount(0);
   });
 
   test("renders paused work item execution as a bounded task instead of JSON", async ({ page }) => {
@@ -212,7 +207,7 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     const task = page.locator('[data-role="workflow-activity"]');
     await expect(task).toBeVisible();
     await expect(task).toHaveAttribute("data-status", "paused");
-    await task.getByRole("button", { name: /Work item execution\. Paused\. inspect-composer-activity-ownership/u }).click();
+    await expect(task).toHaveAttribute("data-variant", "stream");
     await expect(task.getByText("inspect-composer-activity-ownership", { exact: true })).toHaveCount(1);
     await expect(task).toContainText("managedInvocationId is required before starting managed-delegation execution.");
     await expect(task.getByRole("progressbar", { name: "Evidence completion for inspect-composer-activity-ownership" })).toBeVisible();
@@ -255,17 +250,8 @@ test.describe("parity category 5 - theming and visual behavior", () => {
   test("renders structured tool errors as diagnostics inside the shared Tool anatomy", async ({ page }) => {
     await page.goto("/");
     await waitForGuiReady(page);
+    await page.getByRole("button", { name: /Inspect structured tool diagnostic/ }).click();
 
-    const composer = page.locator("#composer-input");
-    await expect(composer).toBeEnabled({ timeout: COMPOSER_READY_TIMEOUT_MS });
-    await composer.fill("structured diagnostic visual check");
-    await composer.press("Enter");
-
-    const actionGroup = page.getByRole("button", {
-      name: "Actions need attention. 1 action. Show details",
-    });
-    await expect(actionGroup).toBeVisible({ timeout: 15_000 });
-    await actionGroup.click();
     const header = page.getByRole("button", { name: /goal\.create\. Failed\./u });
     await expect(header).toBeVisible({ timeout: 15_000 });
     const tool = header.locator("..");
@@ -277,10 +263,12 @@ test.describe("parity category 5 - theming and visual behavior", () => {
       await header.click();
     }
 
-    await expect(tool.getByRole("alert")).toContainText("Invalid input");
-    await expect(tool.getByRole("alert")).toContainText("goal.create cannot combine preferredRouteId and managedAgentProfile.");
-    await expect(tool.getByRole("alert")).toContainText("objective");
-    await expect(tool.getByRole("alert")).toContainText("existing work item id[]");
+    const failureDetails = tool.getByRole("region", { name: "Tool failure details" });
+    await expect(failureDetails).toContainText("Invalid input");
+    await expect(failureDetails).toContainText("goal.create cannot combine preferredRouteId and managedAgentProfile.");
+    await expect(failureDetails).toContainText("objective");
+    await expect(failureDetails).toContainText("existing work item id[]");
+    await expect(tool.getByRole("alert")).toHaveCount(0);
     await expect(tool.getByLabel("JSON output")).toHaveCount(0);
     await expect(tool.getByRole("region", { name: "Text output" })).toHaveCount(0);
   });
@@ -303,17 +291,15 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     await expect(page.getByRole("button", { name: /work_item\.(?:update|execution\.start)/u })).toHaveCount(0);
     await page.keyboard.press("Escape");
 
-    const inspectionGroup = page.getByRole("button", {
-      name: "Repository inspection needs attention. 1 action. Show details",
-    });
-    await expect(inspectionGroup).toBeVisible();
-    await inspectionGroup.click();
     const readHeader = page.getByRole("button", { name: /Failed to read files\. Failed\./u });
     await expect(readHeader).toBeVisible();
+    await readHeader.click();
     const readTool = readHeader.locator("..");
-    await expect(readTool.getByRole("alert")).toContainText("Read failed");
-    await expect(readTool.getByRole("alert")).toContainText("ENOENT");
-    await expect(readTool.getByRole("alert")).toContainText("C:\\repo\\missing.ts");
+    const failureDetails = readTool.getByRole("region", { name: "Tool failure details" });
+    await expect(failureDetails).toContainText("Read failed");
+    await expect(failureDetails).toContainText("ENOENT");
+    await expect(failureDetails).toContainText("C:\\repo\\missing.ts");
+    await expect(readTool.getByRole("alert")).toHaveCount(0);
 
     await expect(page.getByRole("region", { name: "Text output" })).toHaveCount(0);
     await expect(page.getByLabel("JSON output")).toHaveCount(0);

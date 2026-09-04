@@ -134,11 +134,25 @@ function projectSessionMeta(input: {
   const routedProviders = input.events.flatMap((event) => event.kind === "provider_routed" ? [event.provider] : []);
   const latestProvider = routedProviders.at(-1);
   const task = input.existingMeta?.task ?? "interactive";
+  const turnStartedEvents = input.events.filter((event) => event.kind === "turn_started");
+  const latestTurnStarted = turnStartedEvents.at(-1);
+  const activeTurnId = latestTurnStarted?.turnId ?? input.existingMeta?.sessionLedger?.currentTurnId;
+  const latestTurn = input.events
+    .filter(
+      (event): event is Extract<CanonicalSessionEvent, { readonly kind: "turn_completed" }> =>
+        event.kind === "turn_completed" && (activeTurnId === undefined || event.turnId === activeTurnId),
+    )
+    .at(-1);
   const metadata = deriveSessionMetadata({
     task,
     canonicalTitle: canonicalTitle ?? input.existingMeta?.canonicalTitle,
     title: input.existingMeta?.title,
-    tags: input.existingMeta?.tags,
+    // Outcome-derived tags are projections, not durable facts. Recompute the
+    // error tag only when this batch settles a turn; incremental batches must
+    // preserve the most recent settled disposition.
+    tags: latestTurn || latestTurnStarted
+      ? input.existingMeta?.tags?.filter((tag) => tag !== "error")
+      : input.existingMeta?.tags,
     providersUsed: [
       ...(input.existingMeta?.providersUsed ?? []),
       ...routedProviders.map((provider) => provider.provider),
@@ -147,24 +161,14 @@ function projectSessionMeta(input: {
     model: latestProvider?.model,
     hasFileChanges: input.events.some((event) => event.kind === "file_changed"),
     hasApprovals: input.events.some((event) => event.kind === "approval_requested"),
-    hasError: input.events.some((event) => event.kind === "error_recorded"),
+    hasError: latestTurn?.outcome === "failed",
   });
-  const turnStartedEvents = input.events.filter((event) => event.kind === "turn_started");
-  const latestTurnStarted = turnStartedEvents.at(-1);
-  const latestTurn = latestTurnStarted
-    ? input.events
-        .filter(
-          (event): event is Extract<CanonicalSessionEvent, { readonly kind: "turn_completed" }> =>
-            event.kind === "turn_completed" && event.turnId === latestTurnStarted.turnId,
-        )
-        .at(-1)
-    : input.events
-        .filter(
-          (event): event is Extract<CanonicalSessionEvent, { readonly kind: "turn_completed" }> =>
-            event.kind === "turn_completed",
-        )
-        .at(-1);
-  const latestError = input.events.filter((event) => event.kind === "error_recorded").at(-1);
+  const latestError = input.events
+    .filter(
+      (event): event is Extract<CanonicalSessionEvent, { readonly kind: "error_recorded" }> =>
+        event.kind === "error_recorded" && event.turnId === activeTurnId,
+    )
+    .at(-1);
   const executionBindings = dedupeExecutionBindings([
     ...(input.existingMeta?.executionBindings ?? []),
     ...input.executionBindings,
@@ -184,10 +188,21 @@ function projectSessionMeta(input: {
   const turnDepth = (input.existingMeta?.turnDepth ?? 0) + turnStartedEvents.length;
   const hasNewTurn = turnStartedEvents.length > 0;
   const currentPhase = latestTurn
-    ? "completed"
+    ? latestTurn.outcome
     : hasNewTurn
       ? "interactive"
       : (input.existingMeta?.sessionLedger?.currentPhase ?? "interactive");
+  const {
+    lastError: previousLastError,
+    lastErrorTurnId: previousLastErrorTurnId,
+    ...previousSessionLedger
+  } = input.existingMeta?.sessionLedger ?? {};
+  const activePreviousError = previousLastErrorTurnId === activeTurnId ? previousLastError : undefined;
+  const projectedLastError = latestTurn
+    ? latestTurn.outcome === "failed"
+      ? latestError?.message ?? activePreviousError
+      : undefined
+    : latestError?.message ?? activePreviousError;
 
   return {
     ...input.existingMeta,
@@ -226,10 +241,13 @@ function projectSessionMeta(input: {
     toolCount,
     turnDepth,
     sessionLedger: {
-      ...input.existingMeta?.sessionLedger,
+      ...previousSessionLedger,
       currentPhase,
+      ...(activeTurnId ? { currentTurnId: activeTurnId } : {}),
       workingDirectory: input.workingDirectory,
-      ...(latestError ? { lastError: latestError.message } : {}),
+      ...(projectedLastError && activeTurnId
+        ? { lastError: projectedLastError, lastErrorTurnId: activeTurnId }
+        : {}),
       ...(latestProvider ? { lastProvider: latestProvider.provider } : {}),
       toolCallCount: toolCount,
       turnDepth,

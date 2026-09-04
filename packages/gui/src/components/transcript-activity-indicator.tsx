@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
-import { ThinkingOrb, type OrbState } from "thinking-orbs";
+import type { OrbState } from "thinking-orbs";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
+import { AgentActivityOrb } from "./agent-activity-orb.js";
 
 interface TranscriptActivityIndicatorProps {
   readonly phase: "thinking" | "tool_running";
@@ -44,16 +45,7 @@ export function TranscriptActivityIndicator(props: TranscriptActivityIndicatorPr
             className="flex size-5 shrink-0 items-center justify-center"
             data-slot="transcript-activity-identity"
           >
-            <ThinkingOrb
-              aria-hidden="true"
-              data-orb-state={orbState}
-              data-role="activity-orb"
-              role="presentation"
-              size={20}
-              speed={0.82}
-              state={orbState}
-              theme="auto"
-            />
+            <AgentActivityOrb state={orbState} />
           </span>
           <span className="min-w-0 truncate font-medium text-foreground">{label}</span>
           {details ? (

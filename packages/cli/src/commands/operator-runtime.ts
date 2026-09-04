@@ -28,7 +28,10 @@ interface OperatorRuntimeLifecycleSurface extends Omit<GlobalOperatorRuntimeLife
 interface OperatorRuntimeCommandDependencies {
   readonly createLifecycle: () => OperatorRuntimeLifecycleSurface;
   readonly createService: typeof createOperatorRuntimeService;
-  readonly startListener: (options: StartOperatorRuntimeListenerOptions) => Promise<{ close(): void }>;
+  readonly startListener: (options: StartOperatorRuntimeListenerOptions) => Promise<{
+    close(): void;
+    readonly shutdownRequested: Promise<void>;
+  }>;
   readonly pid: number;
   readonly registerShutdown: (close: () => Promise<void>) => void;
   readonly writeDiagnostic: (message: string) => void;
@@ -108,7 +111,7 @@ async function serveGlobalRuntime(
     port: lifecycle.port,
   };
   let service: OperatorRuntimeService | undefined;
-  let listener: { close(): void } | undefined;
+  let listener: { close(): void; readonly shutdownRequested: Promise<void> } | undefined;
   try {
     service = dependencies.createService({ sessionSecret: credentials.sessionSecret });
     listener = await dependencies.startListener({
@@ -133,6 +136,7 @@ async function serveGlobalRuntime(
   }
   const close = createAsyncShutdown(listener, service, dependencies.writeDiagnostic);
   dependencies.registerShutdown(close);
+  void listener.shutdownRequested.then(close);
   dependencies.log(`Operator runtime ready on loopback port ${lifecycle.port}.`);
 }
 

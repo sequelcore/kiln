@@ -81,6 +81,23 @@ describe("PermissionPolicyAuthorizer", () => {
       expect(result.requiresApproval).toBe(false);
     });
 
+    it("honors an explicit allow rule for an observing tool with project-data egress", () => {
+      const auth = new PermissionPolicyAuthorizer({
+        approval: "on-request",
+        tools: [{ tool: "grep", action: "allow" }],
+      });
+      const result = auth.authorize("grep", { ...readOnly, dataEgress: "project-data" });
+      expect(result).toMatchObject({ allowed: true, requiresApproval: false });
+      expect(result.reason).toContain("Explicit tool rule allows");
+    });
+
+    it("honors explicit ask and deny rules", () => {
+      const ask = new PermissionPolicyAuthorizer({ tools: [{ tool: "grep", action: "ask" }] });
+      const deny = new PermissionPolicyAuthorizer({ tools: [{ tool: "read", action: "deny" }] });
+      expect(ask.authorize("grep", readOnly)).toMatchObject({ allowed: false, requiresApproval: true });
+      expect(deny.authorize("read", readOnly)).toMatchObject({ allowed: false, requiresApproval: false });
+    });
+
     it("returns reason string mentioning tool name for gated modes", () => {
       const auth = new PermissionPolicyAuthorizer(makePolicy("on-request"));
       const result = auth.authorize("git", destructive);

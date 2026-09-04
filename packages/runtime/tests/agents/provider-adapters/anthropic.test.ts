@@ -543,6 +543,7 @@ describe("AnthropicAdapter", () => {
 
     it("retries on 529 error", async () => {
       const { APIError } = await import("@anthropic-ai/sdk");
+      const onEvent = vi.fn();
       const error = new (APIError as unknown as new (status: number, message: string) => Error)(
         529,
         "Overloaded",
@@ -552,10 +553,16 @@ describe("AnthropicAdapter", () => {
         .mockRejectedValueOnce(error)
         .mockResolvedValueOnce(makeMessageResponse());
 
-      const response = await adapter.createMessage(makeOptions());
+      const response = await adapter.createMessage(makeOptions({ transportObserver: { onEvent } }));
 
       expect(mockCreate).toHaveBeenCalledTimes(2);
       expect(extractText(response.parts)).toBe("Hello there!");
+      expect(onEvent.mock.calls.map(([event]) => event.type)).toEqual([
+        "request_started",
+        "request_failed",
+        "request_started",
+        "request_completed",
+      ]);
     });
 
     it("throws on 400 error without retry", async () => {

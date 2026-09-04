@@ -9,7 +9,7 @@ test.describe("parity category 3 - cost and telemetry", () => {
     await expect(composer).toBeEnabled({ timeout: 5_000 });
     await expect(page.getByRole("button", { name: "Details" })).toHaveCount(0);
     await expect(page.getByText("field [idle]")).toHaveCount(0);
-    const targetSelector = page.getByRole("button", { name: /Execution target selector/ });
+    const targetSelector = page.getByRole("button", { name: /Model selector/ });
     await targetSelector.click();
     await expect(page.getByRole("option", { name: "DeepSeek Flash, Automatic, Unavailable" })).toBeDisabled();
     await page.keyboard.press("Escape");

@@ -1,10 +1,39 @@
 import { describe, expect, it } from "vitest";
 import { buildTuiTurnPerCallConfig } from "../../src/gateway/tui-gateway.js";
 import { RuntimeManagedAgentInvocationService } from "../../src/agents/managed-invocation/index.js";
-import { withManagedInvocationService, type ManagedInvocationToolOptions } from "../../src/agents/managed-invocation/runtime-tool/index.js";
+import {
+  createManagedAgentInvokeToolDefinition,
+  createManagedAgentOrchestrateToolDefinition,
+  createManagedAgentStartToolDefinition,
+  withManagedInvocationService,
+  type ManagedInvocationToolOptions,
+} from "../../src/agents/managed-invocation/runtime-tool/index.js";
 import { assertManagedToolResult, createAttachedRuntimeBuiltinToolSurface, makeSession, makeAdapter, makeSurface, makeManagedRoute } from "./managed-invocation-tool-test-fixture.js";
 
 describe("managed invocation runtime tool", () => {
+  it("bounds configured catalog detail in every dynamic tool description", () => {
+    const options: ManagedInvocationToolOptions = {
+      routes: [],
+      agentCatalog: Array.from({ length: 400 }, (_, index) => ({
+        name: `catalog-agent-${index}`,
+        role: `Repository specialist ${index}`,
+        goal: `Inspect repository evidence for bounded ownership question ${index}`,
+        tier: "reasoning" as const,
+        authorityProfileId: `authority:catalog-agent-${index}`,
+        access: "read-only" as const,
+      })),
+    };
+
+    for (const definition of [
+      createManagedAgentInvokeToolDefinition(options),
+      createManagedAgentStartToolDefinition(options),
+      createManagedAgentOrchestrateToolDefinition(options),
+    ]) {
+      expect(definition.description.length).toBeLessThanOrEqual(16_384);
+      expect(definition.description).toContain("truncated to the runtime tool-description limit");
+    }
+  });
+
   it("admits Codex parent read-only invocation through explicit OpenCode adapter capability", async () => {
     const adapter = makeAdapter({
       adapterDescriptorId: "adapter:opencode-go:cli-harness",

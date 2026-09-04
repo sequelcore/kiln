@@ -265,6 +265,8 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toContain(KILN_CONTROL_PLANE_SERVER_INSTRUCTIONS);
     expect(skill?.instructions).toMatch(/Discover the available Kiln control-plane tools/);
     expect(skill?.instructions).toMatch(/status, work governance,\s+and capability evidence/);
+    expect(skill?.instructions).toMatch(/canonical all-account refresh/);
+    expect(skill?.instructions).toMatch(/without provider,\s+account, or credential selectors/);
     expect(skill?.instructions).toMatch(/stable idempotency key for the\s+logical request/);
     expect(skill?.instructions).toMatch(/Accepted means admitted for asynchronous work, not completed/);
     expect(skill?.instructions).toMatch(/status, result, cancellation, and replay/);

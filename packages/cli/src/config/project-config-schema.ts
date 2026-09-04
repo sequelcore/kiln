@@ -106,8 +106,6 @@ const boundedWorkCeiling = strictObject({
     maxChildDepth: Type.ReadonlyOptional(Type.Number()),
     maxReviewRounds: Type.ReadonlyOptional(Type.Number()),
     maxRemediationRounds: Type.ReadonlyOptional(Type.Number()),
-    maxToolCalls: Type.ReadonlyOptional(Type.Number()),
-    maxActiveDurationMs: Type.ReadonlyOptional(Type.Number()),
   })),
   minimumHarnessCapability: Type.ReadonlyOptional(Type.Union([
     Type.Literal("authoritative"),

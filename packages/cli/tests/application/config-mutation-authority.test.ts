@@ -1094,6 +1094,69 @@ describe("config mutation authority", () => {
     expect(readFileSync(globalConfigPath(), "utf-8")).toBe(before);
   });
 
+  it("refreshes only provenance-bound target evidence through explicit approval", async () => {
+    const state = admittedTargetState();
+    seedGlobalConfigWithTargetCatalog(state.intent);
+    writeExecutionTargetEvidenceSnapshot({ globalConfigPath: globalConfigPath(), snapshot: state.evidence });
+    const expectedRevision = `sha256:${createHash("sha256").update(readFileSync(globalConfigPath(), "utf-8")).digest("hex")}`;
+    const renewedEvidence = {
+      ...state.evidence,
+      targets: state.evidence.targets.map((target) => target.kind === "direct" ? {
+        ...target,
+        discovery: {
+          ...target.discovery,
+          evidenceRevision: `sha256:${"d".repeat(64)}` as const,
+          observedAt: "2098-01-01T00:00:00.000Z",
+          expiresAt: "2099-01-01T00:00:00.000Z",
+        },
+        dataPolicyEvidence: {
+          ...target.dataPolicyEvidence,
+          sourceDigest: `sha256:${"e".repeat(64)}` as const,
+          observedAt: "2098-01-01T00:00:00.000Z",
+          expiresAt: "2099-01-01T00:00:00.000Z",
+        },
+        economics: {
+          ...target.economics,
+          priceEvidence: {
+            ...target.economics.priceEvidence,
+            evidence: {
+              ...target.economics.priceEvidence.evidence,
+              sourceDigest: `sha256:${"e".repeat(64)}` as const,
+              observedAt: "2098-01-01T00:00:00.000Z",
+              validUntil: "2099-01-01T00:00:00.000Z",
+            },
+          },
+        },
+      } : target),
+    };
+    const renewedRevision = executionTargetEvidenceRevision(renewedEvidence);
+    writeExecutionTargetEvidenceSnapshot({ globalConfigPath: globalConfigPath(), snapshot: renewedEvidence });
+
+    const record = propose("target.refresh_evidence", {
+      evidenceRevision: renewedRevision,
+      priorEvidenceRevision: state.intent.evidenceRevision,
+      expectedRevision,
+    });
+    expect(record.proposal.status).toBe("valid");
+    expect(record.proposal.authorityImpact).toBe("unknown");
+    expect(record.proposal.approvalRequired).toBe(true);
+
+    const approval = approveConfigMutation({ projectPath: tempDir, proposalId: record.proposal.proposalId });
+    const result = await applyConfigMutation({
+      projectPath: tempDir,
+      proposalId: record.proposal.proposalId,
+      approvalId: approval.approvalId,
+      requester: "operator",
+      reconcile: reconcileOk,
+      readEffectiveState: async () => undefined,
+    });
+
+    expect(result.settlement.outcome).toBe("committed");
+    const config = parse(readFileSync(globalConfigPath(), "utf-8")) as KilnGlobalConfig;
+    expect(config.targetCatalog?.evidenceRevision).toBe(renewedRevision);
+    expect(config.targetCatalog?.targets).toEqual(state.intent.targets);
+  });
+
   it("derives native import approval from the permission delta and preserves YAML comments", async () => {
     mkdirSync(join(globalHome, "kiln"), { recursive: true });
     const before = [

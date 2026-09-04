@@ -26,6 +26,8 @@ export type {
   ProviderRequestCacheRegionEvidence,
   ProviderRequestCacheRegionSource,
   ProviderRequestEvidence,
+  ProviderRequestPhysicalAttemptEvidence,
+  ProviderRequestTokenAttributionEstimate,
   ProviderRequestToolMaterializationDecision,
   ProviderRequestToolMaterializationDecisionEvidence,
   ProviderRequestToolProjectionEvidence,
@@ -191,6 +193,7 @@ export interface CostUpdateEvent extends KilnEvent {
   readonly cacheWriteTokens: number;
   readonly totalCostUsd: number;
   readonly costEvidence?: ExecutionCostEvidence;
+  readonly providerRequests?: readonly import("./execution-session-event.js").ProviderRequestEvidence[];
   readonly byRoleModel: Record<string, {
     model: string;
     provider?: string;
@@ -720,6 +723,15 @@ export type {
   ContextUsageState,
   ContextWindowAuthority,
 } from "./context-usage-projection.js";
+export type {
+  ModelRequestCapacityEvidence,
+  ProviderRequestDispatchObservation,
+  ProviderRequestObservation,
+  ProviderRequestObservedTokenQuantity,
+  ProviderRequestPhysicalRegionObservation,
+  ProviderRequestReconciliationObservation,
+  ProviderRequestUnknownDispatchEvidence,
+} from "./provider-request-observation.js";
 export {
   projectCostUpdatedEventToLifecycleLedger,
   projectManagedAgentCoordinationUsageAllocations,

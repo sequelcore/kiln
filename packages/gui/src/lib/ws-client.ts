@@ -428,6 +428,136 @@ const GuiBrowserSessionStateSchema = z.object({
   error: z.string().optional(),
 });
 
+const ProviderRequestObservedTokenQuantitySchema = z.discriminatedUnion("measurement", [
+  z.object({
+    tokens: z.number().int().nonnegative(),
+    measurement: z.enum(["estimated", "provider_reported"]),
+  }).strict(),
+  z.object({ measurement: z.literal("unknown") }).strict(),
+]);
+const ProviderRequestAttemptSchema = z.union([
+  z.object({ state: z.literal("unknown") }).strict(),
+  z.object({ state: z.literal("observed"), value: z.number().int().positive() }).strict(),
+]);
+const ProviderRequestRetrySchema = z.union([
+  z.object({ state: z.literal("unknown") }).strict(),
+  z.object({ state: z.literal("observed"), value: z.boolean() }).strict(),
+]);
+
+const ProviderRequestObservationSchema = z.object({
+  version: z.literal("v1"),
+  requestIndex: z.number().int().nonnegative(),
+  providerId: z.string().min(1),
+  modelId: z.string().min(1),
+  routeId: z.string().min(1).optional(),
+  deliberation: z.union([
+    z.object({ state: z.literal("unknown") }).strict(),
+    z.object({
+      state: z.literal("observed"),
+      status: z.enum(["exact", "defaulted", "clamped"]),
+      selectedLevel: z.string().min(1),
+    }).strict(),
+  ]),
+  authority: z.union([
+    z.object({ state: z.literal("unknown") }).strict(),
+    z.object({
+      state: z.literal("observed"),
+      requestedAuthority: z.enum(["planning", "auto", "read_only", "audited", "destructive"]),
+      admittedAuthority: z.enum(["fail_closed", "read_only", "idempotent", "audited", "destructive", "unknown"]),
+      completeness: z.enum(["authoritative", "partial"]),
+    }).strict(),
+  ]),
+  dispatch: z.object({
+    attempt: ProviderRequestAttemptSchema,
+    retry: ProviderRequestRetrySchema,
+    fallback: z.object({ state: z.literal("unknown") }).strict(),
+    outcome: z.enum(["completed", "failed", "response_received", "unknown"]).optional(),
+    responseStatus: z.number().int().min(100).max(599).optional(),
+    failurePhase: z.enum(["headers", "first_byte", "chunk_idle", "transport"]).optional(),
+  }).strict(),
+  usage: z.object({
+    input: ProviderRequestObservedTokenQuantitySchema,
+    output: ProviderRequestObservedTokenQuantitySchema,
+    cacheRead: ProviderRequestObservedTokenQuantitySchema,
+    cacheWrite: ProviderRequestObservedTokenQuantitySchema,
+  }).strict(),
+  physicalRegions: z.array(z.object({
+    source: z.enum(["system", "messages", "tool_schema"]),
+    bytes: z.number().int().nonnegative(),
+    measurement: z.literal("measured"),
+  }).strict()),
+  regionalTokenAttribution: z.array(z.object({
+    source: z.enum(["required_prompt", "governed_context", "tool_schema", "conversation", "tool_result"]),
+    tokens: z.number().int().nonnegative(),
+    measurement: z.literal("estimated"),
+  }).strict()).optional(),
+  reconciliation: z.discriminatedUnion("state", [
+    z.object({
+      state: z.literal("estimated"),
+      providerInputTokens: z.number().int().nonnegative(),
+      attributedInputTokens: z.number().int().nonnegative(),
+      unresolvedRemainderTokens: z.number().int().nonnegative(),
+      reason: z.literal("provider_total_not_regionally_measured"),
+    }).strict(),
+    z.object({
+      state: z.literal("unknown"),
+      providerInputTokens: z.number().int().nonnegative().optional(),
+      reason: z.enum(["regional_token_attribution_unavailable", "provider_usage_unavailable"]),
+    }).strict(),
+  ]),
+  capacity: z.discriminatedUnion("state", [
+    z.object({
+      state: z.literal("capacity_unknown"),
+      contextWindowTokens: z.number().int().positive().optional(),
+      contextWindowAuthority: z.enum(["provider_reported", "runtime_observed", "inferred", "unknown"]),
+      reason: z.enum(["request_token_estimate_unavailable", "context_capacity_unavailable", "output_reserve_unavailable"]),
+    }).strict(),
+    z.object({
+      state: z.enum(["within_capacity", "overflow"]),
+      measurement: z.literal("estimated"),
+      contextWindowTokens: z.number().int().positive(),
+      contextWindowAuthority: z.enum(["provider_reported", "runtime_observed", "inferred", "unknown"]),
+      estimatedInputTokens: z.number().int().nonnegative(),
+      outputReserveTokens: z.number().int().nonnegative(),
+      estimatedTotalTokens: z.number().int().nonnegative(),
+      estimatedRemainingTokens: z.number().int().nonnegative(),
+      overflow: z.boolean(),
+    }).strict(),
+  ]),
+  cache: z.object({
+    partitionIdentity: z.object({ state: z.literal("unknown") }).strict(),
+    regions: z.array(z.object({
+      source: z.enum(["tool_schema", "system", "messages"]),
+      stability: z.enum(["stable", "volatile"]),
+      bytes: z.number().int().nonnegative(),
+      includedInStablePrefix: z.boolean(),
+    }).strict()),
+    readTokens: z.number().int().nonnegative().optional(),
+    writeTokens: z.number().int().nonnegative().optional(),
+    measurement: z.enum(["estimated", "provider_reported", "unknown"]),
+  }).strict(),
+  toolCount: z.number().int().nonnegative(),
+  effectivePrompt: z.object({
+    version: z.literal("v1"),
+    estimatedTokens: z.number().int().nonnegative(),
+    componentCount: z.number().int().nonnegative(),
+    componentScopeCounts: z.object({
+      static: z.number().int().nonnegative(),
+      dynamic: z.number().int().nonnegative(),
+      deferred: z.number().int().nonnegative(),
+    }).strict(),
+  }).strict().optional(),
+  conversationProjection: z.object({
+    policyId: z.literal("tool-result-clearing-v1"),
+    originalToolResultCount: z.number().int().nonnegative(),
+    projectedToolResultCount: z.number().int().nonnegative(),
+    originalToolResultTokens: z.number().int().nonnegative(),
+    projectedToolResultTokens: z.number().int().nonnegative(),
+    clearedToolResultCount: z.number().int().nonnegative(),
+    overflow: z.boolean(),
+  }).strict().optional(),
+}).strict();
+
 const GuiSessionEventSchema = z.object({
   eventId: z.string(),
   kilnSessionId: z.string(),
@@ -463,6 +593,7 @@ const GuiSessionEventSchema = z.object({
     "file_changed",
     "cost_updated",
     "context_usage_observed",
+    "provider_request_observed",
     "effective_prompt_observed",
     "lifecycle_attribution_recorded",
     "work_item_updated",
@@ -505,6 +636,9 @@ const GuiSessionEventSchema = z.object({
 }).superRefine((event, ctx) => {
   if (event.kind === "context_usage_observed" && !ContextUsageProjectionSchema.safeParse(event.payload.contextUsage).success) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "context_usage_observed requires a valid contextUsage projection" });
+  }
+  if (event.kind === "provider_request_observed" && !ProviderRequestObservationSchema.safeParse(event.payload.request).success) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "provider_request_observed requires valid content-free evidence" });
   }
   if (event.kind === "effective_prompt_observed" && !EffectivePromptObservationSchema.safeParse(event.payload.effectivePrompt).success) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "effective_prompt_observed requires valid content-free evidence" });
@@ -860,7 +994,7 @@ export class GuiWsClient {
       const frame = GuiInboundFrameSchema.parse(parsed);
       this.options.onFrame(frame);
     } catch {
-      console.warn("[GuiWsClient] Invalid inbound frame:", raw);
+      console.warn("[GuiWsClient] Invalid inbound frame rejected.");
     }
   }
 

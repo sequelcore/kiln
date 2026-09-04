@@ -125,6 +125,14 @@ observation time, and route identity; see
 [`harness-integration-capabilities.md`](../surfaces/harness-integration-capabilities.md).
 Missing evidence is never upgraded into an assumption of compliance.
 
+A model-facing contract tool exposes a metric ceiling only when its composed
+authority can measure and reserve that metric. The default attached goal tool
+therefore omits tool-call and active-duration ceilings while the SQLite
+authority reports those observations as unavailable. Core retains the typed
+metrics for capable integrations; the current surface rejects unmeasurable
+limits at its schema boundary instead of admitting work that must immediately
+pause.
+
 Formal-verification capability follows the same rule. CLI composition derives
 one availability observation from the validated global Dafny registration and
 fixes it on the Runtime authority instance. When an adopted revision contains

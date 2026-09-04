@@ -4,6 +4,7 @@ import type {
   BenchmarkItemExecutor,
   DeliberationResolution,
   ModelDeliberationCapabilities,
+  ProviderRequestObservation,
 } from "@kilnai/core";
 import type { BenchmarkItemExecutionContext } from "@kilnai/core/eval";
 import {
@@ -18,6 +19,7 @@ import {
 import {
   getProjectContextArtifactCache,
   ProviderModelRouteHealthStore,
+  RuntimeProviderTransportBudgetAuthority,
   discoverClaudeCliModelDiscovery,
   discoverCodexCliModelDiscovery,
   discoverGuiDirectProviderModelDiscovery,
@@ -80,6 +82,7 @@ import {
   resolveManagedInvocationToolOptions,
 } from "../config/managed-agent-routes.js";
 import { createOperatorSurfaceEconomicAuthority } from "./operator-surface-economic-authority.js";
+import { projectProviderRequestObservations } from "./provider-request-observation-projection.js";
 import { SessionHooks } from "./session-hooks.js";
 import { runSession } from "./run-session.js";
 import { createCanonicalRunSessionDispatcher } from "./canonical-run-session-dispatcher.js";
@@ -168,10 +171,15 @@ const FORMAL_SCREENING_PROTOCOL_HASH = digestCanonicalValue({
   },
 });
 const WRITE_BENCHMARK_PROFILE_IDS = new Set([
+  "kiln-managed-coding-agent",
   "kiln-model-roster-backend-write",
   "kiln-model-roster-frontend-render",
   "kiln-formal-verification-pilot",
 ]);
+
+export function isWriteBenchmarkProfile(profileId: string): boolean {
+  return WRITE_BENCHMARK_PROFILE_IDS.has(profileId);
+}
 const WRITE_BENCHMARK_TOOLS = ["read", "read_many", "grep", "glob", "tree", "stat", "write", "edit", "patch"] as const;
 
 export interface BenchmarkSessionExecutorFlags {
@@ -183,6 +191,7 @@ export interface BenchmarkSessionExecutorFlags {
   readonly benchmarkEvidenceRoot?: string;
   readonly skipGitRepoCheck?: boolean;
   readonly deliberationLevel?: string;
+  readonly executionEnvelope?: import("@kilnai/runtime").RuntimeExecutionEnvelope;
 }
 
 export interface BenchmarkSessionExecutorOptions {
@@ -239,6 +248,12 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
   return async (input, context) => {
     const startedAt = Date.now();
     const isFormalScreening = context.profile.id === "kiln-formal-verification-pilot";
+    const executionEnvelope: import("@kilnai/runtime").RuntimeExecutionEnvelope = isFormalScreening
+      ? FORMAL_SCREENING_EXECUTION_ENVELOPE
+      : options.flags?.executionEnvelope ?? BENCHMARK_EXECUTION_ENVELOPE;
+    const providerTransportAdmission = executionEnvelope.physicalProviderRequests === undefined
+      ? undefined
+      : new RuntimeProviderTransportBudgetAuthority(executionEnvelope.physicalProviderRequests);
     const recordedRepeatIndex = isFormalScreening ? context.runIndex : context.repeatIndex;
     const formalScreeningCase = isFormalScreening
       ? resolveFormalScreeningCase(options.formalScreeningPackage, options.formalScreeningConfig, context)
@@ -260,7 +275,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
           repositoryRoot,
           context.item.metadata?.workspaceFixture,
         );
-    const writeMode = WRITE_BENCHMARK_PROFILE_IDS.has(context.profile.id);
+    const writeMode = isWriteBenchmarkProfile(context.profile.id);
     configurationAdmissionPromise ??= captureBenchmarkConfigurationAdmission({
       repositoryRoot,
       appConfig: options.appConfig,
@@ -301,6 +316,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     let workspaceChanges: BenchmarkWriteWorkspaceChanges | undefined;
     let observedVerification: BackendBenchmarkVerification | FrontendBenchmarkVerification | undefined;
     let expectedRouteId: string | undefined;
+    const sessionId = randomUUID();
     try {
     const sessionInput = benchmarkWorkspace.kind === "synthetic-fixture"
       ? [
@@ -391,7 +407,6 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       privateStateRoot: projectStateBinding.projectStateRoot,
     });
     const benchmarkCleanupRegistry = new CleanupRegistry();
-    const sessionId = randomUUID();
     const benchmarkSessionsPath = join(benchmarkEvidenceRoot, "sessions");
     const benchmarkRuntimePath = join(benchmarkEvidenceRoot, "runtime");
     const benchmarkCachePath = join(benchmarkEvidenceRoot, "cache", "context-artifacts.json");
@@ -559,9 +574,8 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
           kilnHome: projectStateBinding.kilnHome,
           builtinToolOptions: () => builtinToolOptions,
           runtimeEnv: env,
-          executionEnvelope: isFormalScreening
-            ? FORMAL_SCREENING_EXECUTION_ENVELOPE
-            : BENCHMARK_EXECUTION_ENVELOPE,
+          executionEnvelope,
+          ...(providerTransportAdmission ? { providerTransportAdmission } : {}),
           runtimeToolActionClaims: managedDirectToolActionClaims,
           runtimeModelRoundActionClaims: managedDirectModelRoundActionClaims,
           readAuthorityAdmission: (request) => managedDirectAdmissionEvidence.readAdmission(request),
@@ -598,9 +612,8 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       skipGitRepoCheck: options.flags?.skipGitRepoCheck,
       builtinToolOptions,
       managedInvocation: managedInvocationAttachment,
-      executionEnvelope: isFormalScreening
-        ? FORMAL_SCREENING_EXECUTION_ENVELOPE
-        : BENCHMARK_EXECUTION_ENVELOPE,
+      executionEnvelope,
+      ...(providerTransportAdmission ? { providerTransportAdmission } : {}),
       requestedAuthority: writeMode ? "destructive" as const : "read_only" as const,
       model: effectiveModel,
       deliberationResolution: executionDeliberation,
@@ -643,23 +656,21 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       env,
       sessionHooks,
       ...(formalAbortController ? { abortSignal: formalAbortController.signal } : {}),
-      ...(writeLease ? {
-        toolSandbox: createBoundHostToolSandbox({
-          policy: new SandboxPolicy({
-            projectPath: writeLease.rootPath,
-            config: {
-              fsPolicy: "read-write",
-              netPolicy: "none",
-              allowedPaths: [writeLease.rootPath],
-              deniedPaths: [],
-              allowedDomains: [],
-            },
-          }),
-          leaseId: writeLease.leaseId,
-          configurationRevisionId: configurationAdmission.configurationRevision.revisionSetId as `sha256:${string}`,
-          permissionPolicyDigest: digestKilnPermissionPolicy(permissionPolicy),
+      toolSandbox: createBoundHostToolSandbox({
+        policy: new SandboxPolicy({
+          projectPath: writeLease?.rootPath ?? cwd,
+          config: {
+            fsPolicy: writeLease ? "read-write" : "read-only",
+            netPolicy: "none",
+            allowedPaths: [writeLease?.rootPath ?? cwd],
+            deniedPaths: [],
+            allowedDomains: [],
+          },
         }),
-      } : {}),
+        leaseId: writeLease?.leaseId ?? `benchmark-read-only:${sessionId}`,
+        configurationRevisionId: configurationAdmission.configurationRevision.revisionSetId as `sha256:${string}`,
+        permissionPolicyDigest: digestKilnPermissionPolicy(permissionPolicy),
+      }),
       output: runOutput,
       operatorAdoption,
     };
@@ -773,6 +784,16 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       return [`${routeIdentity}: ${attempt.error}`];
     });
     const boundExecution = [...result.executionBindings].reverse().find((binding) => binding.status === "bound");
+    const observedRouteId = boundExecution?.routeId ?? expectedRouteId;
+    const parentProviderRequestObservations = projectProviderRequestObservations({
+      requests: result.providerRequests ?? [],
+      ...(observedRouteId ? { routeId: observedRouteId } : {}),
+    });
+    const managedInvocations = collectManagedInvocationMetadata(result.transcript);
+    const providerRequestObservations = [
+      ...parentProviderRequestObservations,
+      ...managedInvocations.flatMap((invocation) => readManagedProviderRequestObservations(invocation)),
+    ];
     const executionIdentityMismatch = boundExecution !== undefined
       && ((expectedRouteId !== undefined && boundExecution.routeId !== expectedRouteId)
         || (scheduledAccountOverrideId !== undefined && boundExecution.accountId !== scheduledAccountOverrideId));
@@ -874,6 +895,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
              ? { status: "valid" }
              : { status: "invalid", reason: "route-unavailable" },
       metadata: {
+        sessionId,
         activeAgentId: context.profile.id,
         runIndex: context.runIndex,
         repeatIndex: recordedRepeatIndex,
@@ -893,6 +915,8 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         costEvidence: result.finalCostEvidence,
         sessionSucceeded: result.sessionSucceeded,
         providerRequests: result.providerRequests,
+        providerRequestObservations,
+        managedInvocations,
         deliberationResolution,
         ...(isFormalScreening ? {
           formalScreeningArm,
@@ -924,6 +948,42 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
             } : {}),
           }];
         }),
+        toolResultDiagnostics: result.transcript.flatMap((entry) => {
+          if (entry.event.type !== "tool_result") return [];
+          const metadata = entry.event.metadata
+            && typeof entry.event.metadata === "object"
+            && !Array.isArray(entry.event.metadata)
+            ? entry.event.metadata as Record<string, unknown>
+            : undefined;
+          const errorCode = typeof metadata?.errorCode === "string" ? metadata.errorCode : undefined;
+          const status = typeof metadata?.status === "string" ? metadata.status : undefined;
+          const kind = typeof metadata?.kind === "string" ? metadata.kind : undefined;
+          const lifecycleState = typeof metadata?.lifecycleState === "string" ? metadata.lifecycleState : undefined;
+          const diagnosticClassifications = Array.isArray(metadata?.diagnostics)
+            ? metadata.diagnostics.flatMap((diagnostic) => {
+                if (!diagnostic || typeof diagnostic !== "object" || Array.isArray(diagnostic)) return [];
+                const classification = "classification" in diagnostic && typeof diagnostic.classification === "string"
+                  ? diagnostic.classification
+                  : undefined;
+                const diagnosticKind = "kind" in diagnostic && typeof diagnostic.kind === "string"
+                  ? diagnostic.kind
+                  : undefined;
+                return classification || diagnosticKind
+                  ? [{ ...(classification ? { classification } : {}), ...(diagnosticKind ? { kind: diagnosticKind } : {}) }]
+                  : [];
+              })
+            : [];
+          if (entry.event.isError !== true && !errorCode && !status) return [];
+          return [{
+            name: entry.event.toolName,
+            isError: entry.event.isError === true,
+            ...(errorCode ? { errorCode } : {}),
+            ...(status ? { status } : {}),
+            ...(kind ? { kind } : {}),
+            ...(lifecycleState ? { lifecycleState } : {}),
+            ...(diagnosticClassifications.length > 0 ? { diagnosticClassifications } : {}),
+          }];
+        }),
         exactArtifacts: result.exactArtifacts,
         ...(result.lastError ? { policyViolations: [result.lastError] } : {}),
         ...(routeFailures.length > 0 ? { routeFailures } : {}),
@@ -946,6 +1006,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         outputTokens: 0,
         trial: { status: "invalid", reason: "account-route-unavailable" },
         metadata: {
+          sessionId,
           activeAgentId: context.profile.id,
           runIndex: context.runIndex,
           repeatIndex: recordedRepeatIndex,
@@ -1122,6 +1183,40 @@ function closeBuiltinResources(options: {
   } catch {
     // fail-open cleanup
   }
+}
+
+function collectManagedInvocationMetadata(transcript: readonly unknown[]): readonly Record<string, unknown>[] {
+  const byInvocationId = new Map<string, Record<string, unknown>>();
+  for (const entry of transcript) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry) || !("event" in entry)) continue;
+    const event = entry.event;
+    if (!event || typeof event !== "object" || Array.isArray(event) || !("metadata" in event)) continue;
+    const metadata = event.metadata;
+    if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) continue;
+    const record = metadata as Record<string, unknown>;
+    if (record.kind !== "managed-invocation" || typeof record.invocationId !== "string") continue;
+    const prior = byInvocationId.get(record.invocationId);
+    if (!prior || record.providerRequestObservations !== undefined) {
+      byInvocationId.set(record.invocationId, record);
+    }
+  }
+  return [...byInvocationId.values()];
+}
+
+function readManagedProviderRequestObservations(
+  metadata: Record<string, unknown>,
+): readonly ProviderRequestObservation[] {
+  if (!Array.isArray(metadata.providerRequestObservations)) return [];
+  return metadata.providerRequestObservations.filter(
+    (observation): observation is ProviderRequestObservation => Boolean(
+      observation
+      && typeof observation === "object"
+      && !Array.isArray(observation)
+      && "version" in observation
+      && observation.version === "v1"
+      && "managedInvocation" in observation,
+    ),
+  );
 }
 
 async function recordDirectRouteHealth(

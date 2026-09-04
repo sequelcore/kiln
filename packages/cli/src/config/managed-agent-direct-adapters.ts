@@ -54,6 +54,7 @@ export interface ManagedDirectProviderAdapterFactoryOptions {
   readonly runtimeEnv?: EnvMap;
   readonly processEnv?: EnvMap;
   readonly executionEnvelope?: ExecutionEnvelopeSource;
+  readonly providerTransportAdmission?: import("@kilnai/core").ProviderTransportAdmission;
   readonly canonicalMcpServers?: readonly ResolvedMcpServer[];
   readonly createMcpClient?: (server: ResolvedMcpServer) => {
     readonly serverName: string;
@@ -177,6 +178,7 @@ export function createManagedDirectProviderAdapterFactory(
       capabilityMap: runtimeCapabilities,
       toolAuthority: builtinToolSurface.toolAuthority,
       ...(executionEnvelope ? { executionEnvelope } : {}),
+      ...(options.providerTransportAdmission ? { providerTransportAdmission: options.providerTransportAdmission } : {}),
       economicIdentity: committedRequest.commitment.reservation.selectedIdentity,
       ...(executionBinding ? { executionBinding } : {}),
       ...(profile.writeAllowed === true ? { writeAuthority: LIVE_PROVEN_DIRECT_WRITE_AUTHORITY } : {}),

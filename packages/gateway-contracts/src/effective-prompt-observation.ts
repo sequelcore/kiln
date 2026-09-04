@@ -89,25 +89,11 @@ export const CommunicationResolutionSchema = z.object({
   identity: contentIdentity,
 }).strict();
 
-const EffectivePromptComponentEvidenceSchema = z.object({
-  id: contentIdentity,
-  revision: contentIdentity,
-  scope: z.enum(["static", "dynamic", "deferred"]),
-  estimatedTokens: nonNegativeInteger,
-  provenance: z.object({
-    source: contentIdentity,
-    contextBlockId: contentIdentity.optional(),
-    contextSource: contentIdentity.optional(),
-    auditDecision: z.enum(["admitted", "deferred"]).optional(),
-  }).strict(),
-}).strict();
-
 export const EffectivePromptObservationSchema = z.object({
   version: z.literal("v1"),
   requestIndex: nonNegativeInteger,
   providerId: z.string().trim().min(1),
   modelId: z.string().trim().min(1),
-  finalPromptHash: contentIdentity,
   estimatedTokens: nonNegativeInteger,
   componentCount: nonNegativeInteger,
   componentScopeCounts: z.object({
@@ -115,26 +101,14 @@ export const EffectivePromptObservationSchema = z.object({
     dynamic: nonNegativeInteger,
     deferred: nonNegativeInteger,
   }).strict(),
-  effectivePrompt: z.object({
-    version: z.literal("v1"),
-    components: z.array(EffectivePromptComponentEvidenceSchema),
-    finalPromptHash: contentIdentity,
-    estimatedTokens: nonNegativeInteger,
-  }).strict(),
   communicationResolution: CommunicationResolutionSchema.optional(),
   evidenceIdentity: contentIdentity,
 }).strict().superRefine((value, ctx) => {
   const scopeTotal = value.componentScopeCounts.static
     + value.componentScopeCounts.dynamic
     + value.componentScopeCounts.deferred;
-  if (scopeTotal !== value.componentCount || value.effectivePrompt.components.length !== value.componentCount) {
+  if (scopeTotal !== value.componentCount) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Effective prompt component counts must agree." });
-  }
-  if (
-    value.effectivePrompt.finalPromptHash !== value.finalPromptHash
-    || value.effectivePrompt.estimatedTokens !== value.estimatedTokens
-  ) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Effective prompt summary must match its evidence." });
   }
 });
 

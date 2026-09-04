@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createHash } from "node:crypto";
 import {
   type ProviderAdapter,
+  defineDeliberationLevelId,
   resolveCommunicationIntent,
   ToolCache,
   type ToolDefinition,
@@ -128,6 +129,7 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
     const orchestrator = new RuntimeSessionOrchestrator({
       provider,
       model: "unknown",
+      maxTokens: 1_024,
       tools: [TOOL_DEF],
       builtinTools: new Map([["get_weather", toolFn]]),
       capabilityMap: makeCapabilityMap(60),
@@ -175,6 +177,21 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
     ]);
     expect(result.providerRequests?.[0]?.messageBytes).toBeGreaterThan(0);
     expect(result.providerRequests?.[0]?.toolSchemaBytes).toBeGreaterThan(0);
+    expect(result.providerRequests?.[0]?.outputReserveTokens).toBe(1_024);
+    expect(result.providerRequests?.[0]?.tokenAttributionEstimate).toMatchObject({
+      measurement: "estimated",
+      governedContextTokens: expect.any(Number),
+      toolResultTokens: 0,
+    });
+    const firstAttribution = result.providerRequests?.[0]?.tokenAttributionEstimate;
+    expect(firstAttribution?.totalInputTokens).toBe(
+      (firstAttribution?.requiredPromptTokens ?? 0)
+      + (firstAttribution?.governedContextTokens ?? 0)
+      + (firstAttribution?.toolSchemaTokens ?? 0)
+      + (firstAttribution?.conversationTokens ?? 0)
+      + (firstAttribution?.toolResultTokens ?? 0),
+    );
+    expect(result.providerRequests?.[1]?.tokenAttributionEstimate?.toolResultTokens).toBeGreaterThan(0);
     expect(result.providerRequests?.[0]?.systemHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
     expect(result.providerRequests?.[0]?.effectivePrompt?.finalPromptHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
     const sentSystem = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[0]![0].system;
@@ -205,7 +222,7 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
       .toEqual(expect.not.arrayContaining([expect.objectContaining({ serialized: expect.any(String) })]));
     expect(result.providerRequests?.[0]?.cachePartition.hash).toMatch(/^sha256:[a-f0-9]{64}$/u);
     expect(result.providerRequests?.[0]?.cachePartition.dimensions.map((dimension) => dimension.source))
-      .toEqual(["tenant", "route", "policy", "authority"]);
+      .toEqual(["tenant", "account", "route", "policy", "authority"]);
     expect(result.providerRequests?.[0]?.cachePartition.dimensions.every((dimension) =>
       /^sha256:[a-f0-9]{64}$/u.test(dimension.hash)
     )).toBe(true);
@@ -220,7 +237,7 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
     expect(result.outputTokens).toBe(100);
   });
 
-  it("partitions identical stable prefixes by tenant route policy and authority", () => {
+  it("partitions identical stable prefixes by tenant account route policy and authority", () => {
     const base = {
       system: "stable system",
       messages: [{ role: "user", parts: [{ type: "text", text: "volatile turn" }] }],
@@ -228,6 +245,7 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
       toolCount: 1,
       cachePartition: {
         tenantId: "tenant-a",
+        accountId: "account-a",
         provider: "codex-oauth",
         model: "gpt-5.5",
         policyIdentity: { version: "policy-v1" },
@@ -241,6 +259,10 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
     const tenantB = measureProviderRequestRegions({
       ...base,
       cachePartition: { ...base.cachePartition, tenantId: "tenant-b" },
+    });
+    const accountB = measureProviderRequestRegions({
+      ...base,
+      cachePartition: { ...base.cachePartition, accountId: "account-b" },
     });
     const routeB = measureProviderRequestRegions({
       ...base,
@@ -264,16 +286,134 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
     const original = measureProviderRequestRegions(base);
 
     expect(tenantB.stablePrefixHash).toBe(original.stablePrefixHash);
+    expect(accountB.stablePrefixHash).toBe(original.stablePrefixHash);
     expect(routeB.stablePrefixHash).toBe(original.stablePrefixHash);
     expect(policyB.stablePrefixHash).toBe(original.stablePrefixHash);
     expect(authorityB.stablePrefixHash).toBe(original.stablePrefixHash);
     expect(new Set([
       original.cachePartition.hash,
       tenantB.cachePartition.hash,
+      accountB.cachePartition.hash,
       routeB.cachePartition.hash,
       policyB.cachePartition.hash,
       authorityB.cachePartition.hash,
-    ])).toHaveLength(5);
+    ])).toHaveLength(6);
+  });
+
+  it("does not partition equivalent continued requests by ephemeral turn identity", async () => {
+    const provider = {
+      name: "mock",
+      createMessage: vi.fn().mockResolvedValue({
+        parts: textParts("done"),
+        inputTokens: 10,
+        outputTokens: 2,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        toolCalls: [],
+        stopReason: "end_turn",
+      }),
+      streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+    } satisfies ProviderAdapter;
+    const session = makeSession();
+    const orchestrator = new RuntimeSessionOrchestrator({ provider, model: "unknown" });
+
+    const first = await orchestrator.processMessage(
+      session,
+      textParts("same input"),
+      undefined,
+      undefined,
+      claimConfig(session, provider, {
+        modelRoutingPolicy: {
+          rankingEvidence: [{
+            source: "benchmark-probe",
+            task: "same input",
+            provider: "mock",
+            model: "unknown",
+            rank: 1,
+            expiresAt: "2026-09-01T18:00:00.000Z",
+          }],
+        },
+      }),
+    );
+    const second = await orchestrator.processMessage(
+      session,
+      textParts("same input"),
+      undefined,
+      undefined,
+      claimConfig(session, provider, {
+        modelRoutingPolicy: {
+          rankingEvidence: [{
+            source: "benchmark-probe",
+            task: "same input",
+            provider: "mock",
+            model: "unknown",
+            rank: 1,
+            expiresAt: "2026-09-01T19:00:00.000Z",
+          }],
+        },
+      }),
+    );
+
+    expect(second.providerRequests?.[0]?.cachePartition.dimensions)
+      .toEqual(first.providerRequests?.[0]?.cachePartition.dimensions);
+  });
+
+  it("retains the selected deliberation level as content-free request evidence", () => {
+    const low = defineDeliberationLevelId("low");
+    const evidence = measureProviderRequestRegions({
+      system: "stable system",
+      messages: [],
+      tools: [],
+      toolCount: 0,
+      cachePartition: {
+        deliberationResolution: {
+          status: "exact",
+          selectedLevel: low,
+          requested: { mode: "fixed", preferredLevel: low, onUnsupported: "deny" },
+          source: "operator",
+        },
+        authority: {
+          requestedAuthority: "read_only",
+          admittedAuthority: "read_only",
+          completeness: "authoritative",
+        },
+      },
+    });
+
+    expect(evidence.deliberation).toEqual({ status: "exact", selectedLevel: "low" });
+    expect(evidence.authority).toEqual({
+      requestedAuthority: "read_only",
+      admittedAuthority: "read_only",
+      completeness: "authoritative",
+    });
+  });
+
+  it("does not partition equivalent routes by refreshed capability provenance", () => {
+    const low = defineDeliberationLevelId("low");
+    const request = (observedAt: string) => measureProviderRequestRegions({
+      system: "stable system",
+      messages: [],
+      tools: [],
+      toolCount: 0,
+      cachePartition: {
+        provider: "codex-oauth",
+        model: "gpt-5.6-luna",
+        deliberationResolution: {
+          status: "exact",
+          selectedLevel: low,
+          requested: { mode: "fixed", preferredLevel: low, onUnsupported: "deny" },
+          source: "operator",
+          capabilityEvidence: {
+            sourceIdentity: "codex-oauth/gpt-5.6-luna",
+            sourceRevision: "revision-1",
+            observedAt,
+          },
+        },
+      },
+    });
+
+    expect(request("2026-09-04T15:00:00.000Z").cachePartition)
+      .toEqual(request("2026-09-04T15:01:00.000Z").cachePartition);
   });
 
   it("partitions provider requests by the approved context policy selection", async () => {

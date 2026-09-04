@@ -50,6 +50,8 @@ const runtimeMocks = vi.hoisted(() => ({
   processMessage: vi.fn(),
   orchestratorConstructor: vi.fn(),
   emitApprovalReceived: vi.fn(),
+  usageSnapshot: vi.fn(),
+  providerRequestSnapshot: vi.fn(),
   addUserMessage: vi.fn(),
   addAssistantMessage: vi.fn(),
   attachedToolSurfaceOptions: vi.fn(),
@@ -348,6 +350,9 @@ vi.mock("@kilnai/runtime", () => {
       }
       processMessage = runtimeMocks.processMessage;
       emitApprovalReceived = runtimeMocks.emitApprovalReceived;
+      usageSnapshot = runtimeMocks.usageSnapshot;
+      providerRequestSnapshot = runtimeMocks.providerRequestSnapshot;
+      model = "gpt-5.6-luna";
     },
     RuntimeSession: MockRuntimeSession,
     CodexOAuthCredentialPoolService: class MockCodexOAuthCredentialPoolService {
@@ -893,6 +898,15 @@ describe("ProviderSession.run()", () => {
     vi.mocked(prepareOperatorAdoptionTurn).mockReset();
     runtimeMocks.orchestratorConstructor.mockReset();
     runtimeMocks.emitApprovalReceived.mockReset();
+    runtimeMocks.usageSnapshot.mockReset();
+    runtimeMocks.usageSnapshot.mockReturnValue({
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+    });
+    runtimeMocks.providerRequestSnapshot.mockReset();
+    runtimeMocks.providerRequestSnapshot.mockReturnValue([]);
     runtimeMocks.addUserMessage.mockReset();
     runtimeMocks.addAssistantMessage.mockReset();
     runtimeMocks.attachedToolSurfaceOptions.mockReset();
@@ -2719,6 +2733,51 @@ describe("ProviderSession.run()", () => {
     expect(requireCompletedExecutionSessionEvent(events).disposition).toEqual(runtimeFailureDisposition());
   });
 
+  it("projects provider request evidence when the Runtime provider turn fails after dispatch", async () => {
+    const providerRequests = [{
+      requestIndex: 0,
+      providerResponseObserved: true,
+      providerId: "codex-oauth",
+      modelId: "gpt-5.6-luna",
+      inputTokens: 120,
+      outputTokens: 15,
+      cacheReadTokens: 20,
+      cacheWriteTokens: 0,
+      cumulativeInputTokens: 120,
+      cumulativeOutputTokens: 15,
+      cumulativeCacheReadTokens: 20,
+      cumulativeCacheWriteTokens: 0,
+    }];
+    runtimeMocks.usageSnapshot.mockReturnValue({
+      inputTokens: 120,
+      outputTokens: 15,
+      cacheReadTokens: 20,
+      cacheWriteTokens: 0,
+    });
+    runtimeMocks.providerRequestSnapshot.mockReturnValue(providerRequests);
+    runtimeMocks.processMessage.mockRejectedValueOnce(new Error("no progress"));
+
+    const session = new ProviderSession(baseConfig({
+      provider: "codex-oauth",
+      model: "gpt-5.6-luna",
+      executionMode: "kiln-executable",
+    }));
+    const events = await collectEvents(session.run({ prompt: "inspect repository" }));
+
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "cost_update",
+      inputTokens: 120,
+      outputTokens: 15,
+      cacheReadTokens: 20,
+      providerRequests,
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "error",
+      code: "EXECUTABLE_SESSION_ERROR",
+      message: "no progress",
+    }));
+  });
+
   it("preserves retryability when an executable provider request fails transiently", async () => {
     runtimeMocks.processMessage.mockRejectedValueOnce(new KilnError(
       "PROVIDER_UNAVAILABLE",
@@ -2743,6 +2802,59 @@ describe("ProviderSession.run()", () => {
       isRetryable: true,
     });
     expect(requireCompletedExecutionSessionEvent(events).disposition).toEqual(runtimeFailureDisposition());
+  });
+
+  it("reports a classified managed-task cause after a committed tool action", async () => {
+    const cause = new Error("route_unavailable") as Error & { code: string; operatorAction: string };
+    cause.name = "AgentTaskApplicationError";
+    cause.code = "route_unavailable";
+    cause.operatorAction = "Restore the exact admitted managed route.";
+    const committed = new Error(
+      "The Runtime tool action was claimed; its effect outcome is not safely replayable.",
+      { cause },
+    );
+    committed.name = "RuntimeToolActionCommittedError";
+    runtimeMocks.processMessage.mockRejectedValueOnce(committed);
+
+    const session = new ProviderSession(baseConfig({
+      provider: "codex-oauth",
+      model: "gpt-5.6-luna",
+      executionMode: "kiln-executable",
+    }));
+    const events = await collectEvents(session.run({ prompt: "delegate repository inspection" }));
+
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "error",
+      code: "EXECUTABLE_SESSION_ERROR",
+      message: "The Runtime tool action was claimed; its effect outcome is not safely replayable. Cause: route_unavailable. Restore the exact admitted managed route.",
+    }));
+  });
+
+  it("reports a classified managed-task cause through nested committed tool actions", async () => {
+    const cause = new Error("route_unavailable") as Error & { code: string; operatorAction: string };
+    cause.name = "AgentTaskApplicationError";
+    cause.code = "route_unavailable";
+    cause.operatorAction = "Restore the exact admitted managed route.";
+    const inner = new Error("inner committed action", { cause });
+    inner.name = "RuntimeToolActionCommittedError";
+    const outer = new Error(
+      "The Runtime tool action was claimed; its effect outcome is not safely replayable.",
+      { cause: inner },
+    );
+    outer.name = "RuntimeToolActionCommittedError";
+    runtimeMocks.processMessage.mockRejectedValueOnce(outer);
+
+    const session = new ProviderSession(baseConfig({
+      provider: "codex-oauth",
+      model: "gpt-5.6-luna",
+      executionMode: "kiln-executable",
+    }));
+    const events = await collectEvents(session.run({ prompt: "delegate repository inspection" }));
+
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "error",
+      message: "The Runtime tool action was claimed; its effect outcome is not safely replayable. Cause: route_unavailable. Restore the exact admitted managed route.",
+    }));
   });
 
   it("reports the sanitized provider cause without retrying a claimed model round", async () => {

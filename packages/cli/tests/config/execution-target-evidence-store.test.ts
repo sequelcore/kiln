@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  assertExecutionTargetEvidenceRenewal,
   defineExecutionTargetEvidenceSnapshot,
   executionTargetEvidenceRevision,
   projectExecutionTargetCatalogFromIntent,
@@ -98,6 +99,48 @@ describe("execution target managed evidence", () => {
       globalConfigPath,
       revision: written.revision,
     })).toThrow(/digest/u);
+  });
+
+  it("admits provenance-only renewal and rejects authority-material drift", () => {
+    const current = evidenceSnapshot();
+    const renewed = {
+      ...current,
+      targets: current.targets.map((target) => ({
+        ...target,
+        discovery: {
+          ...target.discovery,
+          evidenceRevision: `sha256:${"e".repeat(64)}` as const,
+          observedAt: "2027-08-20T00:00:00.000Z",
+          expiresAt: "2028-08-20T00:00:00.000Z",
+        },
+        dataPolicyEvidence: {
+          ...target.dataPolicyEvidence,
+          sourceDigest: `sha256:${"f".repeat(64)}` as const,
+          observedAt: "2027-08-20T00:00:00.000Z",
+          expiresAt: "2028-08-20T00:00:00.000Z",
+        },
+        economics: {
+          ...target.economics,
+          priceEvidence: {
+            ...target.economics.priceEvidence,
+            evidence: {
+              ...target.economics.priceEvidence.evidence,
+              sourceDigest: `sha256:${"f".repeat(64)}` as const,
+              observedAt: "2027-08-20T00:00:00.000Z",
+              validUntil: "2028-08-20T00:00:00.000Z",
+            },
+          },
+        },
+      })),
+    };
+    expect(() => assertExecutionTargetEvidenceRenewal(current, renewed)).not.toThrow();
+    expect(() => assertExecutionTargetEvidenceRenewal(current, {
+      ...renewed,
+      targets: renewed.targets.map((target) => ({
+        ...target,
+        dataPolicyEvidence: { ...target.dataPolicyEvidence, trainingPosture: "permitted" as const },
+      })),
+    })).toThrow(/authority-bearing material/u);
   });
 });
 

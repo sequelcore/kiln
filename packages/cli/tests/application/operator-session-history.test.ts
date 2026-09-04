@@ -265,6 +265,22 @@ describe("Operator session history", () => {
       source: { actor: "assistant", surface: "gui" },
       payload: { messageId: "msg-2", delta: "hello" },
     });
+    await appendTranscript(transcriptStore, sessionId, {
+      eventId: "evt-provider-request",
+      kilnSessionId: sessionId,
+      sequence: 2,
+      timestamp: "2026-04-22T18:59:36.000Z",
+      kind: "provider_request_observed",
+      source: { actor: "runtime", surface: "runtime" },
+      payload: {
+        request: {
+          version: "v1",
+          requestIndex: 0,
+          providerId: "codex-oauth",
+          modelId: "gpt-5.6-sol",
+        },
+      },
+    });
 
     const detail = await loadSessionDetail(transcriptStore, sessionId);
 
@@ -275,6 +291,17 @@ describe("Operator session history", () => {
       timestamp: "2026-04-22T18:59:35.000Z",
       kind: "assistant_delta",
       payload: { messageId: "msg-2", delta: "hello" },
+    });
+    expect(detail?.events[1]).toMatchObject({
+      eventId: "evt-provider-request",
+      kind: "provider_request_observed",
+      payload: {
+        request: {
+          version: "v1",
+          providerId: "codex-oauth",
+          modelId: "gpt-5.6-sol",
+        },
+      },
     });
   });
 

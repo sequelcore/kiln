@@ -5,7 +5,7 @@ test.describe("parity category 9 - canonical execution targets", () => {
     await page.goto("/");
     await waitForGuiReady(page);
 
-    const targetSelector = page.getByRole("button", { name: /Execution target selector/ });
+    const targetSelector = page.getByRole("button", { name: /Model selector/ });
     await targetSelector.click();
     await expect(page.getByRole("combobox", { name: "Search execution targets" })).toBeVisible();
 

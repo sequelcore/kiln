@@ -16,12 +16,12 @@ describe("Runtime execution envelope convergence", () => {
     expect(resolved.convergence).toEqual({
       policyId: RUNTIME_DEFAULT_TURN_CONVERGENCE_POLICY_ID,
       configurationHash: RUNTIME_DEFAULT_TURN_CONVERGENCE_POLICY_INPUT.configurationHash,
-      providerRequests: 10,
-      toolRounds: 8,
-      toolCalls: 24,
-      cumulativeInputTokens: 256_000,
-      elapsedMs: 600_000,
-      activeMs: 600_000,
+      providerRequests: 40,
+      toolRounds: 32,
+      toolCalls: 128,
+      cumulativeInputTokens: 2_000_000,
+      elapsedMs: 7_200_000,
+      activeMs: 7_200_000,
       recoveryAttempts: 3,
       consecutiveNoProgressSteps: 3,
     });
@@ -44,10 +44,11 @@ describe("Runtime execution envelope convergence", () => {
       consecutiveNoProgressSteps: 9,
     } as const;
 
-    const resolved = resolveRuntimeExecutionEnvelope({ convergence: explicit });
+    const resolved = resolveRuntimeExecutionEnvelope({ convergence: explicit, physicalProviderRequests: 8 });
 
     expect(resolved.convergence).toEqual(explicit);
     expect(resolved.convergence).not.toBe(RUNTIME_DEFAULT_TURN_CONVERGENCE_POLICY);
+    expect(resolved.physicalProviderRequests).toBe(8);
   });
 
   it("rejects invalid convergence and conversation values at the Runtime boundary", () => {
@@ -71,6 +72,9 @@ describe("Runtime execution envelope convergence", () => {
     expect(() => resolveRuntimeExecutionEnvelope({
       conversation: { toolResults: { triggerToolResultTokens: 0, retainRecentToolResults: 1 } },
     })).toThrow("triggerToolResultTokens must be a positive integer");
+
+    expect(() => resolveRuntimeExecutionEnvelope({ physicalProviderRequests: 0 }))
+      .toThrow("physicalProviderRequests must be a positive safe integer");
   });
 
   it("keeps conversation projection independent from convergence resolution", () => {

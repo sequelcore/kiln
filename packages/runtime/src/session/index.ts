@@ -1,4 +1,8 @@
 export { RuntimeSession } from "./runtime-session.js";
+export {
+  projectProviderRequestObservation,
+  projectProviderRequestObservations,
+} from "./runtime-session-event-ledger.js";
 export type { RuntimeSessionConfig, SerializedSessionData, AgentTurnEntry } from "./runtime-session.js";
 export {
   PORTABLE_INVOCATION_SETTLEMENT_SCHEMA,
@@ -215,6 +219,10 @@ export type {
   PreparedOperatorAdoptionTurn,
 } from "./operator-adoption-authority.js";
 export { RuntimeSessionTurnBudgetService } from "./session-turn-budget-authority.js";
+export {
+  RuntimeProviderTransportBudgetAuthority,
+  RuntimeProviderTransportBudgetExceededError,
+} from "./provider-transport-admission.js";
 export type {
   RuntimeSessionTokenUsageReader,
   RuntimeSessionTurnBudgetAuthority,

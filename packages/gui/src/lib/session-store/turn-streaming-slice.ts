@@ -384,6 +384,29 @@ function handleEffectivePromptObserved(ctx: SessionEventContext): void {
   });
 }
 
+function handleProviderRequestObserved(ctx: SessionEventContext): void {
+  const { set, get, event, payload } = ctx;
+  const presentation = presentOperatorEventPayload(event.kind, payload);
+  set({
+    timelineEntries: [
+      ...get().timelineEntries,
+      {
+        id: `timeline:${event.eventId}`,
+        type: "event",
+        eventKind: event.kind,
+        createdAt: event.timestamp,
+        sequence: event.sequence,
+        ...timelineTurnId(event),
+        title: presentation.title,
+        summary: presentation.summary,
+        tone: presentation.tone,
+        presentationDetails: presentation.details,
+        details: payload.request,
+      },
+    ],
+  });
+}
+
 function handleWorkItemTimelineEvent(ctx: SessionEventContext): void {
   const { set, get, event, payload } = ctx;
   const presentation = presentOperatorEventPayload(event.kind, payload);
@@ -632,6 +655,7 @@ const SESSION_EVENT_HANDLERS: Partial<Record<OperatorSessionEventKind, (ctx: Ses
   context_usage_observed: handleContextUsageObserved,
   cost_updated: handleCostUpdated,
   lifecycle_attribution_recorded: handleLifecycleAttributionRecorded,
+  provider_request_observed: handleProviderRequestObserved,
   effective_prompt_observed: handleEffectivePromptObserved,
   agent_invocation_requested: handleAgentInvocationRequested,
   agent_invocation_started: handleAgentInvocationStarted,

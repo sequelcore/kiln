@@ -195,6 +195,7 @@ export interface ProviderCreateConfig {
   readonly runtimeExecutionMode?: "execute" | "plan";
   readonly sessionTurnBudget?: RuntimeSessionTurnBudgetAuthority;
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
+  readonly providerTransportAdmission?: import("@kilnai/core").ProviderTransportAdmission;
   /** Provider-neutral managed child result contract. */
   readonly structuredOutputSchema?: Readonly<Record<string, unknown>>;
   /**
@@ -1240,6 +1241,9 @@ function createDirectProviderSession(
       ? { sessionTurnBudget: config.sessionTurnBudget }
       : {}),
     ...(config.executionEnvelope ? { executionEnvelope: config.executionEnvelope } : {}),
+    ...(config.providerTransportAdmission
+      ? { providerTransportAdmission: config.providerTransportAdmission }
+      : {}),
     ...(config.communicationIntent ? { communicationIntent: config.communicationIntent } : {}),
     ...(config.authorityAdmissionContext ? {
       mcpClients: config.authorityAdmissionContext.mcpClients,

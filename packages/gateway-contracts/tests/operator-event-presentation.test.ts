@@ -2187,6 +2187,57 @@ describe("operator event presentation", () => {
     expect(operatorEventTargetsSurface(cost, "activity_panel")).toBe(true);
   });
 
+  it("presents provider-request dispatch, usage, and capacity evidence without raw request data", () => {
+    const presentation = presentOperatorEventPayload("provider_request_observed", {
+      request: {
+        version: "v1",
+        requestIndex: 0,
+        providerId: "codex-oauth",
+        modelId: "gpt-5.6-sol",
+        routeId: "codex-primary",
+        deliberation: { state: "observed", status: "exact", selectedLevel: "high" },
+        authority: {
+          state: "observed",
+          requestedAuthority: "read_only",
+          admittedAuthority: "read_only",
+          completeness: "authoritative",
+        },
+        dispatch: {
+          attempt: { state: "observed", value: 2 },
+          retry: { state: "observed", value: true },
+          fallback: { state: "unknown" },
+          outcome: "completed",
+          responseStatus: 200,
+        },
+        usage: {
+          input: { tokens: 2_400, measurement: "provider_reported" },
+          output: { tokens: 120, measurement: "provider_reported" },
+          cacheRead: { tokens: 800, measurement: "provider_reported" },
+          cacheWrite: { tokens: 0, measurement: "provider_reported" },
+        },
+        capacity: { state: "within_capacity" },
+      },
+    });
+
+    expect(presentation).toMatchObject({
+      title: "Provider request observed",
+      summary: "codex-oauth/gpt-5.6-sol Â· attempt 2 Â· completed Â· 2400â†‘ 120â†“",
+      tone: "info",
+      conversationDisposition: "none",
+    });
+    expect(presentation.details).toEqual(expect.arrayContaining([
+      { label: "Route", value: "codex-primary" },
+      { label: "Deliberation", value: "high / exact" },
+      { label: "Authority", value: "read_only / read_only" },
+      { label: "Attempt", value: "2" },
+      { label: "Retry", value: "yes" },
+      { label: "Cache read tokens", value: "800" },
+      { label: "Capacity", value: "within_capacity" },
+    ]));
+    expect(JSON.stringify(presentation)).not.toContain("system");
+    expect(operatorEventTargetsSurface(presentation, "conversation_inline")).toBe(false);
+  });
+
   it("presents lifecycle attribution without exposing raw ledger syntax inline", () => {
     const presentation = presentOperatorEventPayload("lifecycle_attribution_recorded", {
       ledger: {

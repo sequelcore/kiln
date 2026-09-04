@@ -41,9 +41,19 @@ export interface ExecutionSessionToolResultResourceLink {
 
 export interface ProviderRequestEvidence {
   readonly requestIndex: number;
+  readonly providerResponseObserved?: boolean;
   /** Route that produced this request, including retries and fallbacks. */
   readonly providerId: string;
   readonly modelId: string;
+  readonly deliberation?: {
+    readonly status: "exact" | "defaulted" | "clamped";
+    readonly selectedLevel: string;
+  };
+  readonly authority?: {
+    readonly requestedAuthority: "planning" | "auto" | "read_only" | "audited" | "destructive";
+    readonly admittedAuthority: "fail_closed" | "read_only" | "idempotent" | "audited" | "destructive" | "unknown";
+    readonly completeness: "authoritative" | "partial";
+  };
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly cacheReadTokens: number;
@@ -57,6 +67,9 @@ export interface ProviderRequestEvidence {
   readonly systemBytes: number;
   readonly messageBytes: number;
   readonly toolSchemaBytes: number;
+  readonly tokenAttributionEstimate?: ProviderRequestTokenAttributionEstimate;
+  readonly outputReserveTokens?: number;
+  readonly physicalAttempts?: readonly ProviderRequestPhysicalAttemptEvidence[];
   readonly systemHash: string;
   readonly messageHash: string;
   readonly toolSchemaHash: string;
@@ -73,6 +86,24 @@ export interface ProviderRequestEvidence {
   readonly communicationResolution?: CommunicationResolution;
   readonly stopReason?: string;
   readonly contextUsage?: ContextUsageRawEvidence;
+}
+
+export interface ProviderRequestPhysicalAttemptEvidence {
+  readonly attempt: number;
+  readonly retry: boolean;
+  readonly outcome: "completed" | "failed" | "response_received" | "unknown";
+  readonly responseStatus?: number;
+  readonly failurePhase?: "headers" | "first_byte" | "chunk_idle" | "transport";
+}
+
+export interface ProviderRequestTokenAttributionEstimate {
+  readonly measurement: "estimated";
+  readonly requiredPromptTokens: number;
+  readonly governedContextTokens: number;
+  readonly toolSchemaTokens: number;
+  readonly conversationTokens: number;
+  readonly toolResultTokens: number;
+  readonly totalInputTokens: number;
 }
 
 export interface ProviderRequestToolProjectionEvidence {
@@ -124,6 +155,7 @@ export interface ProviderRequestCacheRegionEvidence {
 
 export type ProviderRequestCachePartitionDimensionSource =
   | "tenant"
+  | "account"
   | "route"
   | "policy"
   | "authority";

@@ -2373,6 +2373,29 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     });
   });
 
+  it("emits model_routed for the committed default target without a model router", async () => {
+    const eventBus = makeEventBus();
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      model: "fixture-model",
+      eventBus,
+    });
+
+    await orchestrator.processMessage(makeSession(), textParts("hello"));
+
+    const modelRoutedEvents = emittedEvents(eventBus).filter(
+      (call: unknown[]) => (call[0] as { type: string }).type === "model_routed",
+    );
+    expect(modelRoutedEvents).toHaveLength(1);
+    expect(modelRoutedEvents[0]?.[0]).toMatchObject({
+      type: "model_routed",
+      provider: "default",
+      model: "fixture-model",
+      reason: "Committed execution target",
+      selectionMode: "explicit-operator-only",
+    });
+  });
+
   it("fails open when router throws", async () => {
     const router: ModelRouter = {
       route: vi.fn().mockImplementation(() => {

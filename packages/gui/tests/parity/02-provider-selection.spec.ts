@@ -5,7 +5,7 @@ test.describe("parity category 2 - execution target selection", () => {
     await page.goto("/");
     await waitForGuiReady(page);
 
-    const targetSelector = page.getByRole("button", { name: /Execution target selector/ });
+    const targetSelector = page.getByRole("button", { name: /Model selector/ });
     await expect(targetSelector).toHaveAttribute("aria-label", /Current selection: Claude/);
 
     await targetSelector.click();
@@ -27,7 +27,7 @@ test.describe("parity category 2 - execution target selection", () => {
     await page.goto("/");
     await waitForGuiReady(page);
 
-    const targetSelector = page.getByRole("button", { name: /Execution target selector/ });
+    const targetSelector = page.getByRole("button", { name: /Model selector/ });
     await expect(targetSelector).toHaveAttribute("aria-label", /Current selection: Claude/);
 
     const composer = page.locator("#composer-input");
