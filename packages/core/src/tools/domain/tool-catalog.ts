@@ -12,6 +12,20 @@ const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 50;
 const SOURCE_PACKAGE = "@kilnai/core";
 const SNAPSHOT_IDENTITY_REVISION = "tool-catalog/v1";
+const BUILTIN_TOOL_CATALOG_CONTRIBUTION_KEYS = [
+  "definition",
+  "effectEnvelope",
+  "sourcePackage",
+  "aliases",
+] as const;
+const TOOL_CATALOG_DEFINITION_KEYS = [
+  "name",
+  "description",
+  "inputSchema",
+  "outputSchema",
+  "strict",
+  "tags",
+] as const;
 
 export type ToolCatalogAuthority = "read_only" | "destructive" | "standard";
 export type ToolCatalogSearchReason =
@@ -159,7 +173,15 @@ interface ToolCatalogIndexInternalOptions {
 
 /** Normalize and deeply freeze one inert catalog contribution at the Core boundary. */
 export function normalizeBuiltinToolCatalogContribution(input: unknown): BuiltinToolCatalogContribution {
-  if (!isPlainRecord(input) || !hasOnlyKeys(input, ["definition", "effectEnvelope", "sourcePackage", "aliases"])) {
+  if (!isPlainRecord(input)) {
+    throw new TypeError("Builtin tool catalog contribution has an unsupported shape.");
+  }
+  assertDataPropertyDescriptors(
+    input,
+    BUILTIN_TOOL_CATALOG_CONTRIBUTION_KEYS,
+    "Builtin tool catalog contribution",
+  );
+  if (!hasOnlyKeys(input, BUILTIN_TOOL_CATALOG_CONTRIBUTION_KEYS)) {
     throw new TypeError("Builtin tool catalog contribution has an unsupported shape.");
   }
 
@@ -583,7 +605,11 @@ function normalizeToolDefinitionDigest(value: unknown): ToolDefinitionDigest {
 }
 
 function normalizeToolDefinitionShape(input: unknown): ToolCatalogDefinitionShape {
-  if (!isPlainRecord(input) || !hasOnlyKeys(input, ["name", "description", "inputSchema", "outputSchema", "strict", "tags"])) {
+  if (!isPlainRecord(input)) {
+    throw new TypeError("Builtin tool definition has an unsupported shape.");
+  }
+  assertDataPropertyDescriptors(input, TOOL_CATALOG_DEFINITION_KEYS, "Builtin tool definition");
+  if (!hasOnlyKeys(input, TOOL_CATALOG_DEFINITION_KEYS)) {
     throw new TypeError("Builtin tool definition has an unsupported shape.");
   }
   if (typeof input.name !== "string" || input.name.trim().length === 0) {
@@ -825,6 +851,19 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
+}
+
+function assertDataPropertyDescriptors(
+  value: Record<string, unknown>,
+  allowedKeys: readonly string[],
+  context: string,
+): void {
+  for (const key of allowedKeys) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor && !("value" in descriptor)) {
+      throw new TypeError(`${context}.${key} contains an accessor property.`);
+    }
+  }
 }
 
 function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {

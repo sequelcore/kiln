@@ -2388,6 +2388,133 @@ describe("RuntimeSessionOrchestrator - tool execution", () => {
       },
     );
 
+    it.each(["during disclosure admission readback", "before a later projected request"] as const)(
+      "keeps the selected provider definition immutable %s",
+      async (mutationTiming) => {
+        const catalogTool: ToolDefinition = {
+          name: "tool_catalog_search",
+          description: "Searches the tool catalog",
+          inputSchema: {},
+          tags: new Set(),
+        };
+        const deferredTool: ToolDefinition = {
+          name: "browser_session_start",
+          description: "Starts a browser session",
+          inputSchema: {
+            type: "object",
+            properties: { initial: { type: "string" } },
+          },
+          strict: true,
+          tags: new Set(["browser", "mutation"]),
+        };
+        const mutateOriginalDefinition = () => {
+          const properties = deferredTool.inputSchema.properties as Record<string, unknown>;
+          properties.substituted = { type: "boolean" };
+          (deferredTool.tags as Set<string>).add("substituted");
+        };
+        const receivedSelectedDigests: string[] = [];
+        let providerCall = 0;
+        const provider: ProviderAdapter = {
+          name: "mock",
+          createMessage: vi.fn().mockImplementation((request: { readonly tools?: readonly ToolDefinition[] }) => {
+            providerCall += 1;
+            const selected = request.tools?.find(({ name }) => name === deferredTool.name);
+            if (selected) receivedSelectedDigests.push(digestToolDefinition(selected));
+            if (providerCall === 1) {
+              return Promise.resolve({
+                parts: textParts("finding the browser tool"),
+                inputTokens: 100,
+                outputTokens: 50,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                toolCalls: [{
+                  id: "catalog-search-immutable-definition",
+                  name: catalogTool.name,
+                  input: { exact: deferredTool.name, includeSchemas: true },
+                }],
+                stopReason: "tool_use",
+              });
+            }
+            if (providerCall === 2) {
+              if (mutationTiming === "before a later projected request") {
+                mutateOriginalDefinition();
+              }
+              return Promise.resolve({
+                parts: textParts("using the selected browser tool"),
+                inputTokens: 100,
+                outputTokens: 50,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                toolCalls: [{ id: "immutable-selected-call", name: deferredTool.name, input: {} }],
+                stopReason: "tool_use",
+              });
+            }
+            return Promise.resolve({
+              parts: textParts("done"),
+              inputTokens: 100,
+              outputTokens: 50,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              toolCalls: [],
+              stopReason: "end_turn",
+            });
+          }) as unknown as ProviderAdapter["createMessage"],
+          streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+        };
+        const selectedExecutor = vi.fn().mockResolvedValue({ output: "browser-session", isError: false });
+        const session = makeSession();
+        const linkedForSession = linkedLegacyToolFixture({
+          session,
+          provider,
+          catalogTool,
+          deferredTool,
+          deferredExecutor: selectedExecutor,
+        });
+        const catalogSearch = vi.fn().mockResolvedValue({
+          output: JSON.stringify({ tools: [deferredTool.name] }),
+          isError: false,
+          metadata: linkedForSession.metadata,
+        });
+        const dispatch = linkedForSession.config.runtimeModelRoundDispatch!;
+        let admissionReadbacks = 0;
+        const config: PerCallToolConfig = Object.freeze({
+          ...linkedForSession.config,
+          runtimeModelRoundDispatch: {
+            ...dispatch,
+            readAdmission: async () => {
+              admissionReadbacks += 1;
+              if (mutationTiming === "during disclosure admission readback" && admissionReadbacks === 2) {
+                mutateOriginalDefinition();
+              }
+              return dispatch.readAdmission();
+            },
+          },
+        });
+        const orchestrator = new RuntimeSessionOrchestrator({
+          provider,
+          model: "unknown",
+          tools: [catalogTool],
+          materializableTools: new Map([[deferredTool.name, deferredTool]]),
+          materializableToolBindings: new Map([[deferredTool.name, linkedForSession.binding]]),
+          toolCatalogSnapshotId: LEGACY_CATALOG_SNAPSHOT_ID,
+          capabilityMap: new Map([[deferredTool.name, linkedForSession.binding.capability]]),
+          builtinTools: new Map([
+            [catalogTool.name, catalogSearch],
+            [deferredTool.name, selectedExecutor],
+          ]),
+        });
+
+        await orchestrator.processMessage(session, textParts("start a browser"), undefined, undefined, config);
+
+        expect(receivedSelectedDigests).toEqual([
+          linkedForSession.binding.definitionDigest,
+          linkedForSession.binding.definitionDigest,
+        ]);
+        expect(digestToolDefinition(deferredTool)).not.toBe(linkedForSession.binding.definitionDigest);
+        expect(selectedExecutor).toHaveBeenCalledTimes(1);
+      },
+    );
+
     it("scopes provider request materializable tool projection to the per-call allowlist", async () => {
       const catalogTool: ToolDefinition = {
         name: "tool_catalog_search",

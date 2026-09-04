@@ -6,6 +6,7 @@ import type { EffectiveAuthorityAdmissionBundle } from "../../src/session/effect
 import {
   admitProgressiveTool,
   createMaterializableRuntimeToolBinding,
+  isMaterializableRuntimeToolBindingIntact,
   type MaterializableRuntimeToolBinding,
 } from "../../src/session/progressive-tool-admission.js";
 
@@ -32,16 +33,18 @@ describe("admitProgressiveTool", () => {
 
     expect(first.executableAdmissionId).toBe(second.executableAdmissionId);
     expect(first.definitionDigest).toBe(second.definitionDigest);
-    expect(first.definition).toBe(WRITE_TOOL);
-    expect(second.definition).toBe(WRITE_TOOL);
+    expect(first.definition).not.toBe(WRITE_TOOL);
+    expect(second.definition).not.toBe(WRITE_TOOL);
+    expect(digestToolDefinition(first.definition)).toBe(digestToolDefinition(WRITE_TOOL));
+    expect(digestToolDefinition(second.definition)).toBe(digestToolDefinition(WRITE_TOOL));
   });
 
   it("admits the exact frozen binding under the current catalog and authority", () => {
     const result = admit([READ_TOOL]);
 
     expect(result.decision).toBe("admitted");
-    expect(result.tools).toEqual([READ_TOOL, WRITE_TOOL]);
-    expect(result.tools[1]).toBe(WRITE_TOOL);
+    expect(result.tools.map((candidate) => candidate.name)).toEqual(["read", "write"]);
+    expect(result.tools[1]).toBe(WRITE_BINDING.definition);
     expect(result.binding).toBe(WRITE_BINDING);
   });
 
@@ -115,6 +118,55 @@ describe("admitProgressiveTool", () => {
     expect(tools).toEqual([READ_TOOL]);
     expect([...bindings]).toEqual(originalEntries);
     expect([...allowlist]).toEqual(["read", "write"]);
+  });
+
+  it("binds a detached deeply immutable provider definition for continued rounds", () => {
+    const inputSchema = {
+      type: "object",
+      properties: { payload: { type: "string", examples: ["original"] } },
+      additionalProperties: false,
+    };
+    const outputSchema = { type: "object", properties: { ok: { type: "boolean" } } };
+    const tags = new Set(["development", "write"]);
+    const callerDefinition: ToolDefinition = {
+      name: "mutable",
+      description: "mutable tool",
+      inputSchema,
+      outputSchema,
+      tags,
+    };
+    const bound = binding(callerDefinition, EXECUTOR);
+    const originalDigest = bound.definitionDigest;
+
+    inputSchema.properties.payload.type = "number";
+    inputSchema.properties.payload.examples.push("changed");
+    outputSchema.properties.ok.type = "string";
+    tags.add("mutated");
+
+    expect(bound.definition).not.toBe(callerDefinition);
+    expect(bound.definition.inputSchema).not.toBe(inputSchema);
+    expect(bound.definition.outputSchema).not.toBe(outputSchema);
+    expect(bound.definition.tags).not.toBe(tags);
+    expect(digestToolDefinition(bound.definition)).toBe(originalDigest);
+    expect([...bound.definition.tags]).toEqual(["development", "write"]);
+    expect(bound.definition.inputSchema).toMatchObject({
+      properties: { payload: { type: "string", examples: ["original"] } },
+    });
+    expect(bound.definition.outputSchema).toMatchObject({
+      properties: { ok: { type: "boolean" } },
+    });
+    expect(Object.isFrozen(bound.definition.inputSchema)).toBe(true);
+    expect(Object.isFrozen((bound.definition.inputSchema.properties as Record<string, unknown>).payload)).toBe(true);
+    expect(Object.isFrozen(bound.definition.outputSchema)).toBe(true);
+    expect(Object.isFrozen(bound.definition.tags)).toBe(true);
+    expect(isMaterializableRuntimeToolBindingIntact(bound)).toBe(true);
+
+    expect(() => {
+      (bound.definition.tags as Set<string>).add("forbidden");
+    }).toThrow(TypeError);
+    expect(digestToolDefinition(bound.definition)).toBe(originalDigest);
+    expect(isMaterializableRuntimeToolBindingIntact(bound)).toBe(true);
+    expect(isMaterializableRuntimeToolBindingIntact(bound, callerDefinition)).toBe(false);
   });
 });
 

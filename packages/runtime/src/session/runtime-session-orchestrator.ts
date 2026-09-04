@@ -43,6 +43,7 @@ import {
 } from "../capabilities/runtime-capability-composition.js";
 import {
   admitProgressiveTool,
+  isMaterializableRuntimeToolBindingIntact,
   readProgressiveToolCatalogMaterializationSelection,
   type MaterializableRuntimeToolBinding,
   type ProgressiveToolAdmissionDecision,
@@ -546,6 +547,7 @@ export class RuntimeSessionOrchestrator {
     );
     let projectedRoundTools = routing.effectiveTools;
     let pendingMaterializationDecisions: readonly ProviderRequestToolMaterializationDecisionEvidence[] = [];
+    const linkedLexicalBindings = new Map<string, MaterializableRuntimeToolBinding>();
 
     let managedInvocationTransitionReserveUsed = false;
     let deferredDisclosureReserve: DeferredDisclosureReserve | undefined;
@@ -808,6 +810,11 @@ export class RuntimeSessionOrchestrator {
       // Verify it before dispatch so a rotated authority bundle, substituted
       // binding, or projected-definition drift cannot be sent to the provider
       // and only discovered during post-request telemetry.
+      verifyLinkedLexicalProjectionLifetime({
+        canonicalTools: projectedRoundTools,
+        requestTools: toolsForRound,
+        bindings: linkedLexicalBindings,
+      });
       verifyLexicalMaterializationDecisions({
         projectedTools: toolsForRound,
         materializationDecisions: pendingMaterializationDecisions,
@@ -1224,6 +1231,16 @@ export class RuntimeSessionOrchestrator {
       );
       projectedRoundTools = progressiveAdmission.tools;
       pendingMaterializationDecisions = progressiveAdmission.decisions;
+      for (const decision of progressiveAdmission.decisions) {
+        if ((decision.decision !== "materialized" && decision.decision !== "already_materialized")
+          || decision.toolName === "<redacted>"
+          || decision.lexicalBinding === undefined) continue;
+        const binding = this.deps.materializableToolBindings?.get(decision.toolName);
+        if (!binding || !isMaterializableRuntimeToolBindingIntact(binding)) {
+          throw new Error(`Lexical materialization binding drifted for '${decision.toolName}'.`);
+        }
+        linkedLexicalBindings.set(decision.toolName, binding);
+      }
       if (progressiveAdmission.materializedLexicalToolNames.length > 0) {
         deferredDisclosureReserve = {
           toolNames: new Set(progressiveAdmission.materializedLexicalToolNames),
@@ -2153,6 +2170,31 @@ function materializableDefinitions(
     }
   }
   return definitions;
+}
+
+function verifyLinkedLexicalProjectionLifetime(input: {
+  readonly canonicalTools: readonly ToolDefinition[] | undefined;
+  readonly requestTools: readonly ToolDefinition[] | undefined;
+  readonly bindings: ReadonlyMap<string, MaterializableRuntimeToolBinding>;
+}): void {
+  for (const [toolName, binding] of input.bindings) {
+    const canonicalMatches = (input.canonicalTools ?? []).filter((tool) => tool.name === toolName);
+    if (canonicalMatches.length !== 1) {
+      throw new Error(`Linked lexical ToolDefinition lifetime mismatch for '${toolName}'.`);
+    }
+    const canonicalDefinition = canonicalMatches[0]!;
+    if (!isMaterializableRuntimeToolBindingIntact(binding, canonicalDefinition)) {
+      throw new Error(`Linked lexical ToolDefinition lifetime mismatch for '${toolName}'.`);
+    }
+    const requestMatches = (input.requestTools ?? []).filter((tool) => tool.name === toolName);
+    if (requestMatches.length > 1) {
+      throw new Error(`Provider request lexical ToolDefinition lifetime mismatch for '${toolName}'.`);
+    }
+    const requestDefinition = requestMatches[0];
+    if (requestDefinition && !isMaterializableRuntimeToolBindingIntact(binding, requestDefinition)) {
+      throw new Error(`Provider request lexical ToolDefinition lifetime mismatch for '${toolName}'.`);
+    }
+  }
 }
 
 function mergeRuntimeBuiltinTools(

@@ -139,6 +139,55 @@ describe("ToolCatalogIndex", () => {
     expect(retained?.toolDefinitionDigest).toBe(digestToolDefinition(contribution.definition));
   });
 
+  it("rejects contribution outer accessors without invoking them", () => {
+    const fields = ["definition", "effectEnvelope", "sourcePackage", "aliases"] as const;
+    for (const field of fields) {
+      let getterInvocations = 0;
+      const contribution = catalogContribution("managed_contribution_accessor");
+      Object.defineProperty(contribution, field, {
+        configurable: true,
+        enumerable: true,
+        get() {
+          getterInvocations += 1;
+          return undefined;
+        },
+        set() {
+          throw new Error("setter must not be invoked");
+        },
+      });
+
+      expect(() => ToolCatalogIndex.fromTools([], undefined, {
+        catalogContributions: [contribution],
+      })).toThrow(/accessor property/i);
+      expect(getterInvocations).toBe(0);
+    }
+  });
+
+  it("rejects definition outer accessors without invoking them", () => {
+    const fields = ["name", "description", "inputSchema", "outputSchema", "strict", "tags"] as const;
+    for (const field of fields) {
+      let getterInvocations = 0;
+      const contribution = catalogContribution("managed_definition_accessor");
+      const definition = { ...contribution.definition } as BuiltinToolCatalogContribution["definition"];
+      Object.defineProperty(definition, field, {
+        configurable: true,
+        enumerable: true,
+        get() {
+          getterInvocations += 1;
+          return undefined;
+        },
+        set() {
+          throw new Error("setter must not be invoked");
+        },
+      });
+
+      expect(() => ToolCatalogIndex.fromTools([], undefined, {
+        catalogContributions: [{ ...contribution, definition }],
+      })).toThrow(/accessor property/i);
+      expect(getterInvocations).toBe(0);
+    }
+  });
+
   it("rejects executable or accessor-backed contribution schema values without invoking accessors", () => {
     let getterInvocations = 0;
     const accessorSchema: Record<string, unknown> = { type: "object" };
