@@ -57,16 +57,26 @@ invocation boundary and the evidence it accepts from them.
 ## How the pieces fit
 
 ```text
-Operator Workspace / CLI / TUI ---+
-Applications / channels -----------+-- Kiln Runtime / Gateway
-                                              |
-                           +------------------+------------------+
-                           |                                     |
-                           v                                     v
-                 first-party agent loop              external harness adapter
-                           |                                     |
-                           v                                     v
-              provider + Kiln-owned tools          Codex / Claude / OpenCode
+Operator Workspace / CLI / TUI
+Applications / channels
+              |
+              v
+     Kiln Runtime / Gateway
+              |
+      admitted execution
+              |
+     +--------+--------+
+     |                 |
+     v                 v
+ First-party      External harness
+  execution          invocation
+     |                 |
+     v                 v
+Kiln agent loop   Harness-owned loop
+     |                 |
+     v                 v
+Provider +        Codex / Claude Code /
+Kiln tools        OpenCode
 ```
 
 The first-party path is independently useful and does not require an external
