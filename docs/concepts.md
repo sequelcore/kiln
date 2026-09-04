@@ -1,8 +1,8 @@
 # Core concepts
 
-Kiln is a control plane for governed AI work. It sits between an operator's
-intent and the systems that perform the work, then applies policy before,
-during, and after execution.
+Kiln is a governed agent runtime and operator workspace for bounded AI work.
+Its control plane sits between an operator's intent and the systems that
+perform the work, then applies policy before, during, and after execution.
 
 This page introduces the vocabulary used throughout the documentation. The
 linked architecture pages define the exact contracts.
@@ -23,6 +23,22 @@ describes the feedback-and-regulation contracts above. *Biological* describes
 some of the research lineage behind mechanisms such as layered safety,
 attention, memory revision, and coordination. The term is an architectural
 frame, not a claim that Kiln is an organism.
+
+## First-party and external execution
+
+Kiln supports two execution relationships:
+
+- In first-party execution, Kiln Runtime owns the bounded model-and-tool agent
+  loop and invokes an admitted provider with Kiln-owned tools.
+- In external-harness execution, Kiln admits and supervises a bounded
+  invocation of Codex, Claude Code, OpenCode, or another supported harness. The
+  harness owns its internal loop; Kiln owns the surrounding work lifecycle and
+  decides which returned evidence is sufficient.
+
+Both relationships consume the same canonical authority, routing, work,
+evidence, recovery, and completion contracts. External-harness support is
+optional: Kiln's first-party execution path works without another harness
+installed.
 
 ## Admission
 

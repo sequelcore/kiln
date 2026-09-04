@@ -12,6 +12,12 @@ work execution loop around it: admission, route and attachment selection,
 authority, context, evidence, approval, review, recovery, replay, and canonical
 completion.
 
+For first-party direct-provider execution, Kiln Runtime also owns the bounded
+inner model-and-tool loop. For external-harness execution, Kiln owns the
+admitted invocation boundary and accepted evidence while the harness retains
+its private provider calls, tools, retries, subagents, and scheduling. The two
+routes share governance contracts; they do not claim equivalent enforcement.
+
 This doctrine refines [`identity.md`](identity.md),
 [`work-governance.md`](work-governance.md),
 [`coordination.md`](../coordination/coordination.md), and

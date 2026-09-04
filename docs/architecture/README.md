@@ -2,12 +2,14 @@
 
 This directory is the modular architecture source of truth for Kiln.
 
-Kiln is a biocybernetic control plane for autonomous agent sessions. Its
-contracts are expressed through cybernetic control structures, and its
-architecture is informed by biological and neural regulation. The architecture
-is documented by concern, not as a single monolith, and grouped into
-subfolders below so no single directory holds more than a handful of
-unrelated documents.
+Kiln is a governed agent runtime and operator workspace for bounded AI work.
+Its architecture is a biocybernetic control plane for autonomous agent
+sessions: Kiln Runtime owns first-party model-and-tool loops, while external
+harnesses retain their internal loops when attached through bounded adapters.
+The control contracts are expressed through cybernetic structures and informed
+by biological and neural regulation. The architecture is documented by concern,
+not as a single monolith, and grouped into subfolders below so no single
+directory holds more than a handful of unrelated documents.
 
 ## Core (`core/`)
 

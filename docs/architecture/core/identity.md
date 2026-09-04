@@ -2,8 +2,9 @@
 
 ## Executive Thesis
 
-Kiln is a domain-agnostic, biocybernetic AI control plane that governs the
-lifecycle of autonomous agent sessions.
+Kiln is a governed agent runtime and operator workspace for bounded AI work.
+Architecturally, it is a domain-agnostic, biocybernetic control plane that
+governs the lifecycle of autonomous agent sessions.
 
 The canonical framing is a cybernetic control system that maintains a bounded
 operational envelope around agents that act through providers, tools, channels,
@@ -18,11 +19,19 @@ failure containment.
 
 ## What Kiln Is
 
+- A first-party governed agent runtime that can execute bounded model-and-tool
+  loops without requiring an external coding harness.
+- An operator workspace for starting, supervising, inspecting, approving, and
+  completing governed work.
 - A biocybernetic regulatory control plane for autonomous AI agents.
 - A multi-tenant gateway that owns session lifecycle, context governance, tool
   execution gates, safety enforcement, memory scoping, and cost regulation.
 - A domain-agnostic engine whose domain behavior is declared in configuration
   and instantiated at runtime.
+
+Codex, Claude Code, OpenCode, and other external harnesses are optional
+execution adapters. They are not Kiln's product center or canonical state
+owners.
 
 In deployment docs, "gateway" means the App Gateway unless explicitly qualified:
 the `startGateway(gateway.yaml)` process that loads bound `app.yaml` files and
@@ -51,11 +60,13 @@ not a replacement for the control-plane identity.
 Kiln operates as a control plane that senses state, compares it to configured
 setpoints, and applies corrections through controlled actuators.
 
-Two runtime variants may exist inside the gateway process, but they are runtime
-variants, not separate identities:
+Two execution variants may exist inside the gateway process, but they are
+routes through one product and control plane, not separate identities:
 
-- subprocess runtime: agent subprocess execution
-- provider-adapter runtime: direct API session execution
+- **provider-adapter runtime:** first-party direct-provider execution;
+  `RuntimeSessionOrchestrator` owns the bounded model-and-tool loop
+- **subprocess runtime:** invocation of an external harness; the harness owns
+  its private agent loop while Kiln governs the admitted invocation boundary
 
 Both share the same control responsibilities:
 
@@ -64,6 +75,11 @@ Both share the same control responsibilities:
 - memory system
 - cost and budget tracking
 - event emission
+
+Kiln therefore owns the governed work loop in both variants. It owns the inner
+agent loop only during first-party Runtime execution. It does not claim control
+over hidden provider calls, tools, retries, subagents, or scheduling inside an
+external harness.
 
 For the full surface taxonomy, see [`runtime-surfaces.md`](../surfaces/runtime-surfaces.md).
 
@@ -91,6 +107,12 @@ For the full surface taxonomy, see [`runtime-surfaces.md`](../surfaces/runtime-s
 | `operational envelope` | The bounded region of safe, budgeted, acceptable operation. |
 | `operational mode` | The current system mode that controls tool access, approvals, and behavior. |
 | `active shared medium` | Shared state that influences coordination through retention, damping, permeability, and decay. |
+| `governed work loop` | The wider lifecycle of admission, authority, routing, execution, evidence, review, recovery, and completion owned by Kiln. |
+| `Kiln agent loop` | The Runtime-owned model-and-tool loop used for first-party execution. |
+| `direct-provider route` | A first-party route from Kiln Runtime to an admitted provider and Kiln-owned tools. |
+| `external harness` | A coding or agent product, such as Codex, Claude Code, or OpenCode, that retains its own internal loop. |
+| `harness adapter` | The bounded integration through which Kiln invokes or exposes governed capabilities to an external harness. |
+| `Operator Workspace` | Kiln's primary human surface for governed work. |
 
 ## Identity Rules
 
@@ -99,9 +121,12 @@ For the full surface taxonomy, see [`runtime-surfaces.md`](../surfaces/runtime-s
   explicit control-plane behavior.
 - Kiln may use biocybernetic, neurotech, and cyberpunk language for product and
   brand expression when that language remains grounded in the architecture.
-- Define Kiln by control-plane responsibilities before product surfaces.
+- Define Kiln by its first-party Runtime, Operator Workspace, and control-plane
+  responsibilities before optional harness integrations.
 - Keep biological and neural language tied to explicit mechanisms.
 - Keep downstream product surfaces subordinate to the shared runtime contract.
+- Do not describe external harnesses as Kiln's runtime or imply control over
+  their private agent loops.
 
 ## Visual Identity
 
