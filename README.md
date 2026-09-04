@@ -5,7 +5,7 @@
 <h1 align="center">Kiln</h1>
 
 <p align="center">
-  A control plane for governed AI work across agent harnesses and application surfaces.
+  A governed agent runtime and operator workspace for bounded AI work.
 </p>
 
 <p align="center">
@@ -21,22 +21,28 @@
 > baseline is branch `dev` on Windows 11 x64; closed issue
 > [#103](https://github.com/sequelcore/kiln/issues/103) records its exact commit.
 
-Kiln gives applications, operators, and native coding harnesses one place to
-decide what AI work may run, which target and account may execute it, what
-context and tools it may receive, and what evidence must remain afterward.
+Kiln executes bounded AI work through its first-party Runtime and gives
+operators and applications one place to decide what may run, which target and
+account may execute it, what context and tools it may receive, and what
+evidence must remain afterward.
 
-It is not another agent loop or a generic model proxy. Codex, Claude Code,
-OpenCode, the Kiln CLI, and application gateways keep their own interfaces.
-Kiln provides the shared execution and governance layer beneath them.
+Kiln combines a Runtime-owned model-and-tool loop with the wider control plane
+that governs authority, routing, evidence, recovery, and completion. Codex,
+Claude Code, and OpenCode can also attach as optional execution adapters. They
+retain their own interfaces and internal agent loops; Kiln governs the admitted
+invocation boundary and the evidence it accepts from them.
 
 ## What Kiln provides
 
+- **First-party governed execution.** Kiln Runtime can run bounded
+  model-and-tool sessions directly through admitted providers and Kiln-owned
+  tools, without requiring an external coding harness.
 - **Canonical execution routing.** Operator surfaces and managed workers select
   governed execution targets instead of copying provider, model, account, and
   fallback policy into every client.
-- **Cross-harness model access.** The local Model Gateway exposes admitted
-  virtual models to Codex, Claude Code, and OpenCode while preserving each
-  harness's own tools, permissions, and session model.
+- **Optional harness integration.** The local Model Gateway and harness
+  adapters expose admitted routes to Codex, Claude Code, and OpenCode while
+  preserving each harness's own tools, permissions, and session model.
 - **Bounded authority.** Admission, approval, tool, credential, and action-effect
   boundaries fail closed when required evidence is missing or contradictory.
 - **Coordinated work.** Goals, work items, managed children, dependencies, and
@@ -51,19 +57,22 @@ Kiln provides the shared execution and governance layer beneath them.
 ## How the pieces fit
 
 ```text
-Codex / Claude Code / OpenCode -- Model Gateway -+
-CLI / TUI / GUI -------------- Operator Runtime -+-- Kiln Runtime
-Apps / channels ------------------ App Gateway ---+        |
-                                                          v
-                                             admitted execution target
-                                                          |
-                                                          v
-                                             provider + fenced account
+Operator Workspace / CLI / TUI ---+
+Applications / channels -----------+-- Kiln Runtime / Gateway
+                                              |
+                           +------------------+------------------+
+                           |                                     |
+                           v                                     v
+                 first-party agent loop              external harness adapter
+                           |                                     |
+                           v                                     v
+              provider + Kiln-owned tools          Codex / Claude / OpenCode
 ```
 
-The interfaces do not become interchangeable. They share Kiln's execution
-target catalog, policy, capacity, and evidence while retaining their native agent
-loops and capabilities.
+The first-party path is independently useful and does not require an external
+harness. When an external harness is selected, Kiln admits and supervises the
+invocation without claiming control over the harness's hidden provider calls,
+tools, retries, subagents, or scheduling.
 
 ## Project state
 

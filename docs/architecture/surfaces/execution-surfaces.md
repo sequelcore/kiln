@@ -26,6 +26,10 @@ for the governance-framework evidence.
 Kiln should be good enough that an operator naturally says: "I will open Kiln
 and do the work there."
 
+That experience must be independently useful through Kiln Runtime's
+first-party agent loop. Installing Codex, Claude Code, OpenCode, or another
+external harness is optional.
+
 The Operator Workspace is not a wrapper console and not a transcript viewer. It
 is the place where the operator can see governed work, sessions, managed
 children, resources, approvals, gateway targets, config health, route health,
