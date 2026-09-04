@@ -29,15 +29,16 @@ roadmap reorganization.
 
 | Order | Track | State | Priority | Next bounded work |
 | --- | --- | --- | --- | --- |
-| 1 | [11 - Capability Fabric](11-capability-fabric.md) | In progress | High | Slice 5 now has typed `vision.analyze`, configured managed materialization, and local Agent Task composition; carry its verified contract into the Slice 6 artifact-continuity handoff without claiming cross-harness artifact continuity. |
-| 2 | [08 - Kiln Connect Pairing And Sessions](08-remote-operator-pairing.md) | Ready | Normal | Begin Slice 0 when Capability Fabric reaches a blocker or the remote-access need becomes current again. |
-| 3 | [08.5 - Kiln Connect Remote Connectivity](08.5-remote-operator-connectivity.md) | Queued | Normal | Slice 0 is complete; later connectivity slices wait on Roadmap 08 session identity. |
-| 4 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Research | Normal | The narrow Roadmap 11 dependency is admitted; broader prompt evaluation remains behind higher-priority Ready work. |
-| 5 | [06.5 - End-To-End Harness Efficiency](06.5-end-to-end-harness-efficiency.md) | Research | Normal | Define the production-path benchmark and attribution contract after higher-priority Ready work; optimization waits on a measured bottleneck. |
-| 6 | [07 - Stack Governance Plane](07-stack-governance-plane.md) | Research | Normal | Define read-only fixtures and the typed stack-policy contract after higher-priority Ready work. |
-| 7 | [09 - Rust Optimization Guardrail](09-rust-optimization-guardrail.md) | Guardrail | Conditional | Admit no implementation without a module-specific ADR and parity benchmark. |
-| 8 | [08.75 - Inbound Agent Workers](08.75-inbound-agent-workers.md) | Research | Deferred | Its bounded verification surface remains independently useful but is not the default ahead of the Ready track. |
-| 9 | [10 - Native Operator Surface](10-native-operator-surface.md) | Deferred | Deferred | Reassess the product need only after every other executable roadmap track is closed. |
+| 1 | [11 - Capability Fabric](11-capability-fabric.md) | In progress | High | Complete Slice 6 artifact continuity; then yield execution priority to Roadmap 11.5 before starting Slices 7 and 8. |
+| 2 | [11.5 - Interactive Automation Contract And Provider Cutover](11.5-interactive-automation-contract-and-provider-cutover.md) | Queued | High | After Roadmap 11 Slice 6, begin Slice 0 containment and truthful pre-dispatch capability exposure. |
+| 3 | [08 - Kiln Connect Pairing And Sessions](08-remote-operator-pairing.md) | Ready | Normal | Begin Slice 0 when higher-priority work reaches a blocker or the remote-access need becomes current again. |
+| 4 | [08.5 - Kiln Connect Remote Connectivity](08.5-remote-operator-connectivity.md) | Queued | Normal | Slice 0 is complete; later connectivity slices wait on Roadmap 08 session identity. |
+| 5 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Research | Normal | The narrow Roadmap 11 dependency is admitted; broader prompt evaluation remains behind higher-priority Ready work. |
+| 6 | [06.5 - End-To-End Harness Efficiency](06.5-end-to-end-harness-efficiency.md) | Research | Normal | Define the production-path benchmark and attribution contract after higher-priority Ready work; optimization waits on a measured bottleneck. |
+| 7 | [07 - Stack Governance Plane](07-stack-governance-plane.md) | Research | Normal | Define read-only fixtures and the typed stack-policy contract after higher-priority Ready work. |
+| 8 | [09 - Rust Optimization Guardrail](09-rust-optimization-guardrail.md) | Guardrail | Conditional | Admit no implementation without a module-specific ADR and parity benchmark. |
+| 9 | [08.75 - Inbound Agent Workers](08.75-inbound-agent-workers.md) | Research | Deferred | Its bounded verification surface remains independently useful but is not the default ahead of the Ready track. |
+| 10 | [10 - Native Operator Surface](10-native-operator-surface.md) | Deferred | Deferred | Reassess the product need only after every other executable roadmap track is closed. |
 
 ## Dependency Rules
 
@@ -91,6 +92,13 @@ roadmap reorganization.
   authority-linked next-round materialization for the first verification
   vertical. Slice 4 now supplies its exact-schema portable invocation,
   CLI/local execution, conservative replay, and terminal-settlement boundary.
+- `11.5` owns interactive browser and desktop execution ports, truthful
+  capability exposure, provider conformance, the Playwright and desktop-driver
+  cutovers, isolated desktop admission, and legacy-provider removal. It consumes
+  Roadmap `11`'s capability catalog and Slice 6 artifact continuity without
+  creating another catalog or lifecycle owner. Roadmap `11` Slices 7 and 8 wait
+  on `11.5`; provider adapters and whole-task harness routes cannot redefine
+  Capability Fabric semantics.
 - Configuration discoverability, desired intent, effective-value explanation,
   governed mutation, activation planning, and cross-surface settings parity
   are stable architecture. Project-state relocation is tracked by

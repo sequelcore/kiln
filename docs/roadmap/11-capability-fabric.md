@@ -11,9 +11,11 @@ vertical, and `vision.analyze` is the first agent-backed vertical. The permanent
 `verification-evidence` builtin projects to supported native skill targets with
 an ordinary-command fallback. The 2026-08-28 operator priority decision moves
 this track ahead of Roadmap 08; remote pairing remains Ready but is no longer
-the current operational priority.
+the current operational priority. The 2026-09-04 operator decision completes
+Slice 6 before yielding priority to Roadmap 11.5; Slices 7 and 8 then resume
+against its proven first-party interactive automation contracts.
 Created: 2026-08-14
-Reprioritized: 2026-08-28
+Reprioritized: 2026-09-04
 
 ## Objective
 
@@ -675,9 +677,14 @@ executor, and any produced result; cancellation or failed access cannot become
 a successful result; unsupported surface presentation never changes execution
 truth.
 
+After this slice closes, execution priority moves to
+[Roadmap 11.5](11.5-interactive-automation-contract-and-provider-cutover.md).
+Slices 7 and 8 resume only after its first-party interactive automation
+contracts and provider cutovers satisfy their promotion gates.
+
 ### Slice 7 - Cross-Surface Promotion
 
-Status: Blocked on vertical proofs.
+Status: Blocked on vertical proofs and Roadmap 11.5.
 
 Project the same catalog, search, approval, progress, provenance, and artifact
 semantics into CLI, GUI, TUI, SDK, Codex, Claude, and OpenCode V2. Native wire
@@ -723,7 +730,8 @@ requirement.
 
 ### Slice 8 - Capability-Aware Orchestration Promotion
 
-Status: Blocked on Slices 3 through 7 and stable work-governance contracts.
+Status: Blocked on Slices 3 through 7, Roadmap 11.5, and stable work-governance
+contracts.
 
 Replace the current orchestration assumption that a parent first chooses
 direct work or a worker with a capability-first decision. The parent declares
