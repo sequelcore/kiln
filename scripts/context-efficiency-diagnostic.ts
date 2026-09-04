@@ -1,8 +1,9 @@
-import { createHash } from "node:crypto";
+import { projectContextEfficiencyProviderEvidence, hasSettledContextEfficiencyProviderEvidence } from "./context-efficiency-provider-evidence.js";
+import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { cpus, tmpdir, totalmem } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
@@ -14,6 +15,27 @@ import {
   readGlobalConfig,
   readGlobalExecutionTargetAuthority,
 } from "../packages/cli/src/config/global-config.js";
+import {
+  createContextEfficiencyReportIntegrity,
+  digestContextEfficiencySchedule,
+  type ContextEfficiencyFrozenReportIdentity,
+} from "./context-efficiency-report-integrity.js";
+import {
+  evaluateContextEfficiencyTrialBudget,
+  sumContextEfficiencyObservedUsage,
+  type ContextEfficiencyPhysicalRequestUsage,
+} from "./context-efficiency-trial-budget.js";
+import {
+  evaluateContextEfficiencyTaskOracle,
+  hasUnsettledManagedChildInvocation,
+  type ContextEfficiencyTaskOracleEvidence,
+} from "./context-efficiency-task-oracles.js";
+import {
+  digestContextEfficiencyCanonicalValue as digestCanonicalValue,
+  digestContextEfficiencyProtocol,
+  freezeContextEfficiencyProtocol,
+} from "./context-efficiency-protocol.js";
+import { resolveProjectStateBinding } from "../packages/cli/src/application/project-state-root.js";
 
 const FORBIDDEN_EVIDENCE_KEYS = new Set([
   "systemHash",
@@ -44,6 +66,8 @@ export interface ContextEfficiencyCollectedTrial {
   readonly invalidReason?: ContextEfficiencyInvalidReason;
   readonly invalidDiagnostic?: ContextEfficiencyInvalidDiagnostic;
   readonly output?: unknown;
+  readonly dispatchEvidence?: "not_dispatched" | "observed" | "unknown";
+  readonly reservedMaximumProviderRequests?: number;
 }
 
 export type ContextEfficiencyInvalidReason =
@@ -63,16 +87,23 @@ export type ContextEfficiencyInvalidDiagnostic =
   | "unstructured_command_failure"
   | "unclassified_predispatch_failure";
 
-class ContextEfficiencyInvalidTrialError extends Error {
+export class ContextEfficiencyInvalidTrialError extends Error {
   override readonly name = "ContextEfficiencyInvalidTrialError";
+  readonly dispatchEvidence: "not_dispatched" | "observed" | "unknown";
+  readonly output?: unknown;
 
   constructor(
     readonly reason: ContextEfficiencyInvalidReason,
     message: string,
     readonly diagnostic?: ContextEfficiencyInvalidDiagnostic,
-    options?: ErrorOptions,
+    options?: ErrorOptions & {
+      readonly dispatchEvidence?: "not_dispatched" | "observed" | "unknown";
+      readonly output?: unknown;
+    },
   ) {
     super(message, options);
+    this.dispatchEvidence = options?.dispatchEvidence ?? "unknown";
+    this.output = options?.output;
   }
 }
 
@@ -106,6 +137,7 @@ export interface ContextEfficiencyStrategyDispatcher {
   runConversation(input: {
     readonly trial: ContextEfficiencyScheduledTrial;
     readonly task: Readonly<Record<string, unknown>>;
+    readonly checkpoint?: (output: unknown) => Promise<void>;
   }): Promise<ContextEfficiencyStrategyResult>;
   runInternalBenchmark(input: {
     readonly trial: ContextEfficiencyScheduledTrial;
@@ -294,13 +326,16 @@ export function createProductionContextEfficiencyDispatcher(input: {
   readonly manifest: unknown;
   readonly commandRunner?: ContextEfficiencyCommandRunner;
   readonly worktreeFingerprint?: () => Promise<string>;
+  readonly now?: () => number;
 }): ProductionContextEfficiencyDispatcher {
   const repositoryRoot = resolve(input.repositoryRoot);
   const identity = readManifestIdentity(input.manifest);
   const commandRunner = input.commandRunner ?? createBunContextEfficiencyCommandRunner();
   const worktreeFingerprint = input.worktreeFingerprint
     ?? (() => computeGitWorktreeFingerprint(repositoryRoot));
+  const now = input.now ?? (() => Math.floor(performance.now()));
   let generatedFixtureRoot: string | undefined;
+  let generatedFixtureChecksum: string | undefined;
   const generatedFixturePaths = new Map<string, string>();
   const executionEnvelopePaths = new Map<string, string>();
 
@@ -333,6 +368,7 @@ export function createProductionContextEfficiencyDispatcher(input: {
           "infrastructure_failure",
           "Diagnostic command failed before canonical provider dispatch.",
           classifyPredispatchFailure(parsed),
+          { dispatchEvidence: "not_dispatched" },
         );
       }
       const diagnostic = result.stderr.trim() || result.stdout.trim() || "no diagnostic output";
@@ -376,6 +412,10 @@ export function createProductionContextEfficiencyDispatcher(input: {
         { cause: error },
       );
     }
+    if (!hasSettledContextEfficiencyProviderEvidence(envelope.telemetry.providerRequests ?? [])) {
+      throw new ContextEfficiencyInvalidTrialError("collector_failure", "Provider dispatch settlement remains unknown.", undefined,
+        { output: envelope, dispatchEvidence: "unknown" });
+    }
     assertFrozenRunIdentity(envelope, identity);
     const afterWorktree = await worktreeFingerprint();
     return {
@@ -394,32 +434,89 @@ export function createProductionContextEfficiencyDispatcher(input: {
         : undefined;
       const envelope = await runCliEnvelope(trial, task, continuationSessionId, generatedFixturePath);
       return {
-        output: applyTrialBudgetEvaluation(withTaskEvaluation(envelope, task, repositoryRoot), trial),
+        output: applyTrialBudgetEvaluation(withTaskEvaluation({ ...envelope,
+          oracleEvidence: {
+            ...(envelope.oracleEvidence ?? {}),
+            ...(generatedFixturePath === undefined ? {} : {
+              answerVerified: envelope.answer?.trim() === generatedFixtureChecksum,
+            }),
+          },
+        }, task, repositoryRoot), trial),
         continuationSessionId: envelope.telemetry.sessionId,
       };
     },
 
-    async runConversation({ trial, task }) {
+    async runConversation({ trial, task, checkpoint }) {
       const oracle = requireRecord(task.oracle, "conversation oracle");
       const scriptPath = resolve(repositoryRoot, requireString(oracle.scriptFixture, "conversation script fixture"));
       const script = parseJsonOutput(await readFile(scriptPath, "utf8"), "conversation script fixture");
-      if (!isRecord(script) || !Array.isArray(script.turns) || script.turns.length === 0) {
-        throw new Error("Conversation script fixture has no turns.");
+      if (!isRecord(script) || !Array.isArray(script.turns) || script.turns.length !== 8
+        || script.turns.length > trial.budgets.maximumProviderRequests || oracle.maximumToolCalls !== 0) {
+        throw new ContextEfficiencyInvalidTrialError(
+          "collector_failure", "Conversation requires eight no-tool turns with a physical allocation for each.",
+          undefined, { dispatchEvidence: "not_dispatched" },
+        );
       }
       let continuationSessionId: string | undefined;
       const envelopes: RunEnvelope[] = [];
+      const startedAt = now();
+      let stopped = false;
       for (const rawTurn of script.turns) {
+        const decision = evaluateContextEfficiencyTrialBudget({
+          limits: { timeoutMs: trial.timeoutMs, ...trial.budgets },
+          elapsedMs: now() - startedAt,
+          toolCallCount: envelopes.reduce((sum, envelope) => sum + envelope.telemetry.toolCallCount, 0),
+          managedChildCount: envelopes.reduce((sum, envelope) => sum + envelope.telemetry.managedChildCount, 0),
+          failed: envelopes.some((envelope) => !envelope.telemetry.sessionSucceeded),
+          physicalRequests: readPhysicalUsage(envelopes),
+        });
+        if (decision.kind === "stop") { stopped = true; break; }
         const turn = requireRecord(rawTurn, "conversation turn");
-        const envelope = await runCliEnvelope(
-          trial,
-          { ...task, input: requireString(turn.message, "conversation turn message") },
-          continuationSessionId,
-        );
+        let envelope: RunEnvelope;
+        try {
+          envelope = await runCliEnvelope(
+            {
+              ...trial,
+              timeoutMs: decision.allocation.remainingElapsedMs,
+              budgets: { ...trial.budgets,
+                maximumCumulativeInputTokens: decision.allocation.remainingInputTokens,
+                maximumCumulativeOutputTokens: decision.allocation.remainingOutputTokens,
+              },
+            },
+            { ...task, input: requireString(turn.message, "conversation turn message") },
+            continuationSessionId,
+          );
+        } catch (error) {
+          if (envelopes.length === 0) throw error;
+          throw new ContextEfficiencyInvalidTrialError(
+            error instanceof ContextEfficiencyInvalidTrialError ? error.reason : "infrastructure_failure",
+            "Conversation interrupted; prior completed turns retained and remaining settlement is unknown.",
+            error instanceof ContextEfficiencyInvalidTrialError ? error.diagnostic : undefined,
+            { cause: error, output: mergeConversationEnvelopes(envelopes), dispatchEvidence: "unknown" },
+          );
+        }
         continuationSessionId = envelope.telemetry.sessionId;
         envelopes.push(envelope);
+        await checkpoint?.(mergeConversationEnvelopes(envelopes));
+        if (!envelope.telemetry.sessionSucceeded || envelope.telemetry.toolCallCount !== 0
+          || envelope.telemetry.managedChildCount !== 0) { stopped = true; break; }
       }
+      if (envelopes.length === 0) {
+        throw new ContextEfficiencyInvalidTrialError(
+          "infrastructure_failure", "Conversation allocation exhausted before dispatch.", undefined,
+          { dispatchEvidence: "not_dispatched" },
+        );
+      }
+      const merged = mergeConversationEnvelopes(envelopes);
+      const completed = !stopped && envelopes.length === script.turns.length;
       const output = applyTrialBudgetEvaluation(
-        withTaskEvaluation(mergeConversationEnvelopes(envelopes), task, repositoryRoot),
+        withTaskEvaluation({
+          ...merged,
+          telemetry: { ...merged.telemetry, durationMs: now() - startedAt,
+            sessionSucceeded: completed && merged.telemetry.sessionSucceeded },
+          diagnostics: { ...merged.diagnostics,
+            lastError: completed ? merged.diagnostics.lastError : "Conversation stopped at a trial-wide tripwire." },
+        }, task, repositoryRoot),
         trial,
       );
       return { output, ...(continuationSessionId ? { continuationSessionId } : {}) };
@@ -447,7 +544,23 @@ export function createProductionContextEfficiencyDispatcher(input: {
           { cause: error },
         );
       }
+      if (!hasSettledContextEfficiencyProviderEvidence(projected.telemetry.providerRequests ?? [])) {
+        throw new ContextEfficiencyInvalidTrialError("collector_failure", "Provider dispatch settlement remains unknown.", undefined,
+          { output: projected, dispatchEvidence: "unknown" });
+      }
       assertFrozenRunIdentity(projected, identity);
+      if (hasUnsettledManagedChildInvocation(projected.oracleEvidence?.managedInvocations)) {
+        throw new ContextEfficiencyInvalidTrialError(
+          "collector_failure", "Managed child settlement remains unknown; halt collection.", undefined,
+          { output: projected, dispatchEvidence: "unknown" },
+        );
+      }
+      if (projected.canonicalTrialStatus !== "valid") {
+        throw new ContextEfficiencyInvalidTrialError(
+          "infrastructure_failure", "Canonical benchmark trial was invalid.", undefined,
+          { output: projected, dispatchEvidence: projected.telemetry.providerRequests?.length ? "observed" : "not_dispatched" },
+        );
+      }
       const envelope = applyTrialBudgetEvaluation(withTaskEvaluation(projected, task, repositoryRoot), trial);
       return { output: envelope, continuationSessionId: envelope.telemetry.sessionId };
     },
@@ -468,7 +581,7 @@ export function createProductionContextEfficiencyDispatcher(input: {
     if (existing) return existing;
     const fixtureManifestPath = join(
       repositoryRoot,
-      "packages/core/evals/fixtures/context-efficiency-diagnostic-v1/tool-result-generation.json",
+      "packages/core/evals/fixtures/context-efficiency-post-fix-v1/tool-result-generation.json",
     );
     const fixtureManifest = requireRecord(
       parseJsonOutput(await readFile(fixtureManifestPath, "utf8"), "generated fixture manifest"),
@@ -483,18 +596,19 @@ export function createProductionContextEfficiencyDispatcher(input: {
     for (let shard = 1; shard <= shardCount; shard += 1) {
       let content = "";
       for (let line = 1; line <= linesPerShard; line += 1) {
-        content += `shard-${String(shard).padStart(2, "0")}:line-${String(line).padStart(4, "0")}:kiln-context-efficiency-diagnostic-v1\n`;
+        content += `shard-${String(shard).padStart(2, "0")}:line-${String(line).padStart(4, "0")}:${requireString(identity.toolFixtureSeed, "frozen tool fixture seed")}\n`;
       }
       chunks.push(content);
       await writeFile(join(fixturePath, `shard-${String(shard).padStart(2, "0")}.txt`), content, "utf8");
     }
     const concatenated = chunks.join("");
     const digest = `sha256:${createHash("sha256").update(concatenated).digest("hex")}`;
-    if (digest !== fixtureManifest.orderedConcatenationSha256
-      || Buffer.byteLength(concatenated) !== fixtureManifest.orderedConcatenationBytes) {
-      throw new Error("Generated fixture does not match its frozen checksum and byte count.");
-    }
-    await writeFile(join(fixturePath, "manifest.json"), `${JSON.stringify(fixtureManifest, null, 2)}\n`, "utf8");
+    generatedFixtureChecksum = digest;
+    await writeFile(join(fixturePath, "manifest.json"), `${JSON.stringify({
+      schemaVersion: "kiln-post-fix-tool-fixture-v1",
+      shardCount, linesPerShard,
+      checksumAlgorithm: "SHA-256 of UTF-8 shard contents concatenated in ascending filename order",
+    }, null, 2)}\n`, "utf8");
     generatedFixturePaths.set(key, fixturePath);
     return fixturePath;
   }
@@ -537,25 +651,11 @@ export function createProductionContextEfficiencyDispatcher(input: {
   }
 }
 
-function digestCanonicalValue(value: unknown): string {
-  return `sha256:${createHash("sha256").update(stableStringify(value), "utf8").digest("hex")}`;
-}
-
-function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  if (isRecord(value)) {
-    return `{${Object.entries(value)
-      .filter(([, entry]) => entry !== undefined)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, entry]) => `${JSON.stringify(key)}:${stableStringify(entry)}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
-}
-
 interface RunEnvelope {
   readonly schemaVersion: "kiln.run.output.v1";
   readonly answer?: string;
+  readonly oracleEvidence?: ContextEfficiencyTaskOracleEvidence;
+  readonly canonicalTrialStatus?: string;
   readonly telemetry: {
     readonly sessionId: string;
     readonly sessionSucceeded: boolean;
@@ -567,6 +667,7 @@ interface RunEnvelope {
     readonly managedChildCount: number;
     readonly durationMs: number;
     readonly providerRequests?: readonly Record<string, unknown>[];
+    readonly readToolEvidence?: ContextEfficiencyTaskOracleEvidence["readToolEvidence"];
   };
   readonly diagnostics: {
     readonly lastError: string | null;
@@ -574,6 +675,7 @@ interface RunEnvelope {
     readonly authorityPassed?: boolean;
     readonly requestedAuthority?: string;
     readonly workspaceUnchanged?: boolean;
+    readonly oracleReasonCodes?: readonly string[];
   };
 }
 
@@ -613,6 +715,9 @@ export function collectContextEfficiencyTrials(trials: readonly ContextEfficienc
       condition: trial.condition,
       repetition: trial.repetition,
       attempt: trial.attempt ?? 1,
+      ...(trial.dispatchEvidence ? { dispatchEvidence: trial.dispatchEvidence } : {}),
+      ...(trial.reservedMaximumProviderRequests === undefined
+        ? {} : { reservedMaximumProviderRequests: trial.reservedMaximumProviderRequests }),
     };
     if (validity === "invalid") {
       return {
@@ -620,6 +725,9 @@ export function collectContextEfficiencyTrials(trials: readonly ContextEfficienc
         validity,
         invalidReason: trial.invalidReason ?? "infrastructure_failure",
         ...(trial.invalidDiagnostic ? { invalidDiagnostic: trial.invalidDiagnostic } : {}),
+        ...(trial.output === undefined ? {} : {
+          run: projectContentFreeRunEvidence(validateContextEfficiencyRunEnvelope(trial.output)),
+        }),
       };
     }
     return {
@@ -629,14 +737,90 @@ export function collectContextEfficiencyTrials(trials: readonly ContextEfficienc
     };
   });
   return {
-    schemaVersion: "kiln-context-efficiency-diagnostic-collection-v1" as const,
-    verdictCeiling: "diagnostic-only" as const,
+    schemaVersion: "kiln-context-efficiency-post-fix-collection-v1" as const,
+    verdict: "diagnostic-only" as const,
     trials: projectedTrials,
     cells: summarizeDiagnosticCells(projectedTrials),
   };
 }
 
+export function bindContextEfficiencyReport(
+  manifest: unknown,
+  trials: readonly ContextEfficiencyCollectedTrial[],
+) {
+  const record = requireRecord(manifest, "frozen manifest");
+  const identity = readManifestIdentity(manifest);
+  const design = requireRecord(record.design, "frozen design");
+  const schedule = {
+    entries: buildContextEfficiencySchedule(manifest).map(({ taskId, condition, repetition, budgets }) => ({
+      taskId, condition, repetition, maximumProviderRequests: budgets.maximumProviderRequests,
+    })),
+    invalidRetryLimitPerCell: requireNonNegativeNumber(design.invalidRetriesPerCell, "invalid retry limit"),
+  };
+  const binding: ContextEfficiencyFrozenReportIdentity = {
+    manifestSchemaVersion: requireString(record.schemaVersion, "manifest version"),
+    startingCommit: requireString(identity.startingCommit, "source revision"),
+    frozenManifestDigest: digestCanonicalValue(manifest),
+    sourceContractDigest: requireString(identity.sourceContractDigest, "source digest"),
+    inputContractDigest: requireString(identity.inputContractDigest, "input digest"),
+    protocolContractDigest: requireString(identity.protocolContractDigest, "protocol digest"),
+    configurationRevisionId: requireString(identity.configurationRevisionId, "configuration revision"),
+    toolProjectionRecipeDigest: requireString(identity.toolProjectionRecipeDigest, "tool projection recipe digest"),
+    executionIdentityDigest: digestCanonicalValue(identity),
+    scheduleDigest: digestContextEfficiencySchedule(schedule),
+    targetId: requireString(identity.targetId, "target identity"),
+    providerId: requireString(identity.providerId, "provider identity"),
+    modelId: requireString(identity.modelId, "model identity"),
+    deliberationLevel: requireString(identity.deliberationLevel, "deliberation identity"),
+  };
+  const integrity = createContextEfficiencyReportIntegrity({
+    identity: binding,
+    schedule,
+    attempts: trials.map((trial) => ({
+      taskId: trial.taskId,
+      condition: trial.condition,
+      repetition: trial.repetition,
+      attempt: trial.attempt ?? 1,
+      validity: trial.validity ?? "valid",
+      physicalRequestEvidence: trial.dispatchEvidence === "unknown" ? {
+        state: "unknown" as const,
+        observedPhysicalRequestCount: trial.output === undefined ? 0
+          : validateContextEfficiencyRunEnvelope(trial.output).telemetry.providerRequests?.length ?? 0,
+        reservedMaximumProviderRequests: requirePositiveInteger(
+          trial.reservedMaximumProviderRequests, "unknown attempt reserved request allocation",
+        ),
+      } : trial.output !== undefined ? {
+        state: "observed" as const,
+        physicalRequestCount: validateContextEfficiencyRunEnvelope(trial.output).telemetry.providerRequests?.length ?? 0,
+      } : trial.dispatchEvidence === "not_dispatched" ? {
+        state: "observed" as const,
+        physicalRequestCount: 0,
+      } : {
+        state: "unknown" as const,
+        reservedMaximumProviderRequests: requirePositiveInteger(
+          trial.reservedMaximumProviderRequests, "unknown attempt reserved request allocation",
+        ),
+      },
+    })),
+  });
+  return { ...collectContextEfficiencyTrials(trials), integrity };
+}
+
+async function checkpointContextEfficiencyReport(
+  outputPath: string,
+  manifest: unknown,
+  trials: readonly ContextEfficiencyCollectedTrial[],
+): Promise<void> {
+  const report = bindContextEfficiencyReport(manifest, trials);
+  const target = resolve(outputPath);
+  await mkdir(dirname(target), { recursive: true });
+  const pending = `${target}.pending`;
+  await writeFile(pending, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+  await rename(pending, target);
+}
+
 function projectContentFreeRunEvidence(run: RunEnvelope) {
+  const usage = sumContextEfficiencyObservedUsage(readPhysicalUsage([run]));
   return {
     schemaVersion: run.schemaVersion,
     telemetry: {
@@ -644,12 +828,13 @@ function projectContentFreeRunEvidence(run: RunEnvelope) {
       sessionSucceeded: run.telemetry.sessionSucceeded,
       ...(run.telemetry.provider ? { provider: run.telemetry.provider } : {}),
       ...(run.telemetry.model ? { model: run.telemetry.model } : {}),
-      inputTokens: run.telemetry.inputTokens,
-      outputTokens: run.telemetry.outputTokens,
+      inputTokens: usage.kind === "observed" ? usage.inputTokens : null,
+      outputTokens: usage.kind === "observed" ? usage.outputTokens : null,
+      tokenUsageCompleteness: usage.kind,
       toolCallCount: run.telemetry.toolCallCount,
       managedChildCount: run.telemetry.managedChildCount,
       durationMs: run.telemetry.durationMs,
-      providerRequests: run.telemetry.providerRequests ?? [],
+      providerRequests: (run.telemetry.providerRequests ?? []).map(projectContextEfficiencyProviderEvidence),
     },
     diagnostics: {
       failed: run.diagnostics.lastError !== null,
@@ -662,6 +847,7 @@ function projectContentFreeRunEvidence(run: RunEnvelope) {
       authority: run.diagnostics.authorityPassed === undefined
         ? "unknown" as const
         : run.diagnostics.authorityPassed ? "passed" as const : "failed" as const,
+      ...(run.diagnostics.oracleReasonCodes ? { oracleReasonCodes: run.diagnostics.oracleReasonCodes } : {}),
     },
   };
 }
@@ -723,7 +909,8 @@ function summarizeDiagnosticCells(trials: readonly ProjectedDiagnosticTrial[]) {
       attemptCount: cellTrials.length,
       sampleCount: validTrials.length,
       failureCount: validTrials.filter((trial) =>
-        trial.run.diagnostics.failed
+        !trial.run.telemetry.sessionSucceeded
+        || trial.run.diagnostics.failed
         || trial.run.diagnostics.oracle === "failed"
         || trial.run.diagnostics.authority === "failed").length,
       invalidCount: cellTrials.length - validTrials.length,
@@ -739,8 +926,8 @@ function summarizeDiagnosticCells(trials: readonly ProjectedDiagnosticTrial[]) {
 function extractAggregateMetrics(run: ContentFreeRunEvidence): Record<AggregateMetricName, number | undefined> {
   const requests = run.telemetry.providerRequests;
   return {
-    inputTokens: run.telemetry.inputTokens,
-    outputTokens: run.telemetry.outputTokens,
+    inputTokens: run.telemetry.inputTokens ?? undefined,
+    outputTokens: run.telemetry.outputTokens ?? undefined,
     durationMs: run.telemetry.durationMs,
     providerRequestCount: requests.length,
     toolCallCount: run.telemetry.toolCallCount,
@@ -757,7 +944,7 @@ function extractAggregateMetrics(run: ContentFreeRunEvidence): Record<AggregateM
 }
 
 function sumPhysicalRegionBytes(
-  requests: readonly Record<string, unknown>[],
+  requests: ContentFreeRunEvidence["telemetry"]["providerRequests"],
   source?: "system" | "messages" | "tool_schema",
 ): number | undefined {
   let total = 0;
@@ -772,20 +959,21 @@ function sumPhysicalRegionBytes(
 }
 
 function sumObservedUsageTokens(
-  requests: readonly Record<string, unknown>[],
+  requests: ContentFreeRunEvidence["telemetry"]["providerRequests"],
   field: "cacheRead" | "cacheWrite",
 ): number | undefined {
   let total = 0;
   for (const request of requests) {
     const usage = request.usage;
-    if (!isRecord(usage) || !isRecord(usage[field]) || typeof usage[field].tokens !== "number") return undefined;
-    total += usage[field].tokens;
+    const quantity = usage[field];
+    if (quantity.measurement === "unknown") return undefined;
+    total += quantity.tokens;
   }
   return total;
 }
 
 function countObservedDispatches(
-  requests: readonly Record<string, unknown>[],
+  requests: ContentFreeRunEvidence["telemetry"]["providerRequests"],
   field: "retry",
 ): number | undefined {
   let count = 0;
@@ -817,7 +1005,7 @@ function summarizeMetric(values: readonly (number | undefined)[]) {
 }
 
 export function buildContextEfficiencySchedule(manifest: unknown): readonly ContextEfficiencyScheduledTrial[] {
-  if (!isRecord(manifest) || manifest.schemaVersion !== "kiln-context-efficiency-diagnostic-manifest-v1") {
+  if (!isRecord(manifest) || manifest.schemaVersion !== "kiln-context-efficiency-post-fix-manifest-v1") {
     throw new Error("Expected the context-efficiency diagnostic v1 manifest.");
   }
   const design = manifest.design;
@@ -832,8 +1020,12 @@ export function buildContextEfficiencySchedule(manifest: unknown): readonly Cont
   const repetitions = design.repetitionsPerCell as number;
   const invalidRetryLimit = design.invalidRetriesPerCell as number;
   const timeoutMs = design.timeoutMs as number;
+  if (repetitions < 1 || timeoutMs < 1 || (invalidRetryLimit !== 0 && invalidRetryLimit !== 1)
+    || manifest.tasks.length === 0) throw new Error("Diagnostic schedule limits must be positive with at most one invalid retry per cell.");
   const budgets = readBudgets(design.budgetsPerTrial);
   const schedule: ContextEfficiencyScheduledTrial[] = [];
+  const taskIds = new Set<string>();
+  let cellCount = 0;
   for (const rawTask of manifest.tasks) {
     if (!isRecord(rawTask)
       || typeof rawTask.id !== "string"
@@ -841,6 +1033,12 @@ export function buildContextEfficiencySchedule(manifest: unknown): readonly Cont
       || !Array.isArray(rawTask.conditions)) {
       throw new Error("Diagnostic task identity or execution strategy is invalid.");
     }
+    if (rawTask.id.trim().length === 0 || taskIds.has(rawTask.id)
+      || rawTask.conditions.length === 0 || new Set(rawTask.conditions).size !== rawTask.conditions.length) {
+      throw new Error("Diagnostic task identities and conditions must be unique and non-empty.");
+    }
+    taskIds.add(rawTask.id);
+    cellCount += rawTask.conditions.length;
     for (let repetition = 1; repetition <= repetitions; repetition += 1) {
       for (const condition of rawTask.conditions) {
         if (condition !== "cold" && condition !== "immediate_warm" && condition !== "long_session") {
@@ -858,6 +1056,13 @@ export function buildContextEfficiencySchedule(manifest: unknown): readonly Cont
       }
     }
   }
+  const maximumAttempts = schedule.length + cellCount * invalidRetryLimit;
+  if ((design.maximumScheduledTrialsIncludingInvalidRetries !== undefined
+      && design.maximumScheduledTrialsIncludingInvalidRetries !== maximumAttempts)
+    || (design.maximumProviderRequestsAcrossScheduledTrials !== undefined
+      && design.maximumProviderRequestsAcrossScheduledTrials !== maximumAttempts * budgets.maximumProviderRequests)) {
+    throw new Error("Frozen cohort ceilings do not reconcile with its schedule and per-trial allocations.");
+  }
   return schedule;
 }
 
@@ -865,6 +1070,8 @@ export async function dispatchContextEfficiencySchedule(input: {
   readonly manifest: unknown;
   readonly dispatcher: ContextEfficiencyStrategyDispatcher;
   readonly providerQuotaAuthorized: boolean;
+  readonly checkpoint?: (trials: readonly ContextEfficiencyCollectedTrial[]) => Promise<void>;
+  readonly verifyIdentity?: () => Promise<void>;
 }): Promise<readonly ContextEfficiencyCollectedTrial[]> {
   if (!input.providerQuotaAuthorized) {
     throw new Error("Live diagnostic dispatch requires explicit provider-quota authority.");
@@ -891,8 +1098,16 @@ export async function dispatchContextEfficiencySchedule(input: {
     const retryAvailable = trial.invalidRetryLimit > 0 && !invalidRetryUsedByCell.has(cellKey);
     const maximumAttempts = retryAvailable ? 2 : 1;
     for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
+      await input.verifyIdentity?.();
+      let result: ContextEfficiencyStrategyResult | undefined;
+      // Reserve before dispatch. A killed collector leaves a conservative
+      // unknown attempt on disk, never a report that appears not to have run.
+      await input.checkpoint?.([...collected, {
+        taskId: trial.taskId, condition: trial.condition, repetition: trial.repetition,
+        attempt, validity: "invalid", invalidReason: "infrastructure_failure",
+        dispatchEvidence: "unknown", reservedMaximumProviderRequests: trial.budgets.maximumProviderRequests,
+      }]);
       try {
-        let result: ContextEfficiencyStrategyResult;
         if (trial.executionStrategy === "cli_run" || trial.executionStrategy === "cli_run_generated_fixture") {
           const continuationSessionId = trial.condition === "immediate_warm"
             ? coldSessionByTaskRepeat.get(pairKey)
@@ -901,15 +1116,30 @@ export async function dispatchContextEfficiencySchedule(input: {
             throw new ContextEfficiencyInvalidTrialError(
               "canonical_transcript_unavailable",
               `Warm trial '${pairKey}' has no completed cold-session identity.`,
+              undefined,
+              { dispatchEvidence: "not_dispatched" },
             );
           }
           result = await input.dispatcher.runCli({ trial, task, ...(continuationSessionId ? { continuationSessionId } : {}) });
         } else if (trial.executionStrategy === "cli_continuation") {
-          result = await input.dispatcher.runConversation({ trial, task });
+          result = await input.dispatcher.runConversation({ trial, task,
+            checkpoint: async (output) => input.checkpoint?.([...collected, {
+              taskId: trial.taskId, condition: trial.condition, repetition: trial.repetition,
+              attempt, validity: "invalid", invalidReason: "infrastructure_failure",
+              dispatchEvidence: "unknown", reservedMaximumProviderRequests: trial.budgets.maximumProviderRequests,
+              output,
+            }]),
+          });
         } else if (trial.executionStrategy.startsWith("internal_benchmark")) {
           result = await input.dispatcher.runInternalBenchmark({ trial, task });
         } else {
           throw new Error(`Unsupported diagnostic execution strategy '${trial.executionStrategy}'.`);
+        }
+        try {
+          await input.verifyIdentity?.();
+        } catch (cause) {
+          throw new ContextEfficiencyInvalidTrialError("collector_failure", "Frozen identity changed during dispatch.", undefined,
+            { cause, output: result.output, dispatchEvidence: "unknown" });
         }
         if (trial.condition === "cold") {
           if (!result.continuationSessionId) {
@@ -934,9 +1164,20 @@ export async function dispatchContextEfficiencySchedule(input: {
           attempt,
           validity: "valid",
           output: result.output,
+          dispatchEvidence: "observed",
         });
-        break;
-      } catch (error) {
+      } catch (caught) {
+        let error = caught;
+        try {
+          await input.verifyIdentity?.();
+        } catch (cause) {
+          error = new ContextEfficiencyInvalidTrialError("collector_failure", "Frozen identity changed around failed dispatch.", undefined,
+            { cause, output: result?.output ?? (caught instanceof ContextEfficiencyInvalidTrialError ? caught.output : undefined), dispatchEvidence: "unknown" });
+        }
+        const observedOutput = result?.output
+          ?? (error instanceof ContextEfficiencyInvalidTrialError ? error.output : undefined);
+        const dispatchEvidence = error instanceof ContextEfficiencyInvalidTrialError ? error.dispatchEvidence
+          : result !== undefined ? "observed" : "unknown";
         collected.push({
           taskId: trial.taskId,
           condition: trial.condition,
@@ -949,9 +1190,23 @@ export async function dispatchContextEfficiencySchedule(input: {
           ...(error instanceof ContextEfficiencyInvalidTrialError && error.diagnostic
             ? { invalidDiagnostic: error.diagnostic }
             : {}),
+          dispatchEvidence,
+          ...(observedOutput === undefined ? {} : { output: observedOutput }),
+          ...(dispatchEvidence === "unknown"
+            ? { reservedMaximumProviderRequests: trial.budgets.maximumProviderRequests }
+            : {}),
         });
+        // A missing terminal envelope cannot prove that no provider attempt or
+        // child is still running. Preserve the row and halt instead of retrying.
+        if (dispatchEvidence === "unknown") {
+          await input.checkpoint?.([...collected]);
+          return collected;
+        }
         if (attempt === 1 && retryAvailable) invalidRetryUsedByCell.add(cellKey);
       }
+      // Persistence failures must escape; they are not failed model attempts.
+      await input.checkpoint?.([...collected]);
+      if (collected.at(-1)?.validity === "valid") break;
     }
   }
   return collected;
@@ -1026,6 +1281,8 @@ export async function dispatchContextEfficiencyPredispatchProbe(input: {
       ...input.manifest.design,
       repetitionsPerCell: 1,
       invalidRetriesPerCell: 0,
+      maximumScheduledTrialsIncludingInvalidRetries: 1,
+      maximumProviderRequestsAcrossScheduledTrials: 1,
       budgetsPerTrial: { ...budgets, maximumProviderRequests: 1 },
     },
     tasks: [{ ...task, conditions: ["cold"] }],
@@ -1067,6 +1324,8 @@ function assertFrozenRunIdentity(
     throw new ContextEfficiencyInvalidTrialError(
       "route_identity_mismatch",
       "Diagnostic run route differs from the frozen provider/model identity.",
+      undefined,
+      { output: run, dispatchEvidence: "observed" },
     );
   }
   for (const rawRequest of run.telemetry.providerRequests ?? []) {
@@ -1075,6 +1334,8 @@ function assertFrozenRunIdentity(
       throw new ContextEfficiencyInvalidTrialError(
         "route_identity_mismatch",
         "Provider-request observation differs from the frozen provider/model identity.",
+        undefined,
+        { output: run, dispatchEvidence: "observed" },
       );
     }
     const deliberation = requireRecord(request.deliberation, "provider-request deliberation evidence");
@@ -1082,6 +1343,8 @@ function assertFrozenRunIdentity(
       throw new ContextEfficiencyInvalidTrialError(
         "route_identity_mismatch",
         "Provider-request observation differs from the frozen deliberation identity.",
+        undefined,
+        { output: run, dispatchEvidence: "observed" },
       );
     }
     const dispatch = requireRecord(request.dispatch, "provider-request dispatch evidence");
@@ -1090,6 +1353,8 @@ function assertFrozenRunIdentity(
       throw new ContextEfficiencyInvalidTrialError(
         "route_identity_mismatch",
         "Fixed-route diagnostic trial observed provider fallback.",
+        undefined,
+        { output: run, dispatchEvidence: "observed" },
       );
     }
   }
@@ -1141,7 +1406,7 @@ function parseJsonOutput(value: string, label: string): unknown {
 }
 
 function readManifestIdentity(manifest: unknown): Readonly<Record<string, unknown>> {
-  if (!isRecord(manifest) || manifest.schemaVersion !== "kiln-context-efficiency-diagnostic-manifest-v1") {
+  if (!isRecord(manifest) || manifest.schemaVersion !== "kiln-context-efficiency-post-fix-manifest-v1") {
     throw new Error("Expected the context-efficiency diagnostic v1 manifest.");
   }
   return requireRecord(manifest.identity, "diagnostic manifest identity");
@@ -1185,19 +1450,9 @@ export function verifyContextEfficiencySourceContract(input: {
     expectedDigest: identity.inputContractDigest,
     label: "input",
   });
-  const protocolContract = {
-    schemaVersion: requireRecord(input.manifest, "diagnostic manifest").schemaVersion,
-    claim: requireRecord(input.manifest, "diagnostic manifest").claim,
-    identity: Object.fromEntries(Object.entries(identity)
-      .filter(([key]) => key !== "protocolContractDigest" && key !== "protocolContractDigestMethod")),
-    design: requireRecord(input.manifest, "diagnostic manifest").design,
-    tasks: requireRecord(input.manifest, "diagnostic manifest").tasks,
-    requiredPerPhysicalRequestEvidence:
-      requireRecord(input.manifest, "diagnostic manifest").requiredPerPhysicalRequestEvidence,
-    hardGates: requireRecord(input.manifest, "diagnostic manifest").hardGates,
-    retention: requireRecord(input.manifest, "diagnostic manifest").retention,
-  };
-  const observedProtocolDigest = digestCanonicalValue(protocolContract);
+  verifyFileContract({ repositoryRoot, rawPaths: identity.compiledContractPaths,
+    expectedDigest: identity.compiledContractDigest, label: "compiled" });
+  const observedProtocolDigest = digestContextEfficiencyProtocol(input.manifest);
   const expectedProtocolDigest = requireString(identity.protocolContractDigest, "frozen protocol-contract digest");
   if (observedProtocolDigest !== expectedProtocolDigest) {
     throw new Error(
@@ -1210,8 +1465,22 @@ function verifyFileContract(input: {
   readonly repositoryRoot: string;
   readonly rawPaths: unknown;
   readonly expectedDigest: unknown;
-  readonly label: "source" | "input";
+  readonly label: "source" | "input" | "compiled";
 }): void {
+  const observedDigest = computeContextEfficiencyFileContract(input);
+  const expectedDigest = requireString(input.expectedDigest, `frozen ${input.label}-contract digest`);
+  if (observedDigest !== expectedDigest) {
+    throw new Error(
+      `Current ${input.label} files differ from the frozen ${input.label} contract: expected ${expectedDigest}, observed ${observedDigest}.`,
+    );
+  }
+}
+
+function computeContextEfficiencyFileContract(input: {
+  readonly repositoryRoot: string;
+  readonly rawPaths: unknown;
+  readonly label: "source" | "input" | "compiled";
+}): string {
   const rawPaths = input.rawPaths;
   if (!Array.isArray(rawPaths) || rawPaths.length === 0 || rawPaths.some((path) => typeof path !== "string")) {
     throw new Error(`Frozen ${input.label}-contract paths must be a non-empty string array.`);
@@ -1231,20 +1500,16 @@ function verifyFileContract(input: {
       .digest("hex");
     return `${path} ${blobId}`;
   });
-  const observedDigest = `sha256:${createHash("sha256").update(rows.join("\n"), "utf8").digest("hex")}`;
-  const expectedDigest = requireString(input.expectedDigest, `frozen ${input.label}-contract digest`);
-  if (observedDigest !== expectedDigest) {
-    throw new Error(
-      `Current ${input.label} files differ from the frozen ${input.label} contract: expected ${expectedDigest}, observed ${observedDigest}.`,
-    );
-  }
+  return `sha256:${createHash("sha256").update(rows.join("\n"), "utf8").digest("hex")}`;
 }
 
 function applyTrialBudgetEvaluation(
   run: RunEnvelope,
   trial: ContextEfficiencyScheduledTrial,
 ): RunEnvelope {
+  const usage = sumContextEfficiencyObservedUsage(readPhysicalUsage([run]));
   const failures = [
+    usage.kind === "unknown" ? "physical-request token usage unknown" : undefined,
     run.telemetry.providerRequests!.length > trial.budgets.maximumProviderRequests
       ? `provider requests ${run.telemetry.providerRequests!.length}/${trial.budgets.maximumProviderRequests}`
       : undefined,
@@ -1254,11 +1519,11 @@ function applyTrialBudgetEvaluation(
     run.telemetry.managedChildCount > trial.budgets.maximumManagedChildren
       ? `managed children ${run.telemetry.managedChildCount}/${trial.budgets.maximumManagedChildren}`
       : undefined,
-    run.telemetry.inputTokens > trial.budgets.maximumCumulativeInputTokens
-      ? `input tokens ${run.telemetry.inputTokens}/${trial.budgets.maximumCumulativeInputTokens}`
+    usage.kind === "observed" && usage.inputTokens > trial.budgets.maximumCumulativeInputTokens
+      ? `input tokens ${usage.inputTokens}/${trial.budgets.maximumCumulativeInputTokens}`
       : undefined,
-    run.telemetry.outputTokens > trial.budgets.maximumCumulativeOutputTokens
-      ? `output tokens ${run.telemetry.outputTokens}/${trial.budgets.maximumCumulativeOutputTokens}`
+    usage.kind === "observed" && usage.outputTokens > trial.budgets.maximumCumulativeOutputTokens
+      ? `output tokens ${usage.outputTokens}/${trial.budgets.maximumCumulativeOutputTokens}`
       : undefined,
   ].filter((failure): failure is string => failure !== undefined);
   if (failures.length === 0) return run;
@@ -1292,42 +1557,36 @@ function withTaskEvaluation(
       && authority.admittedAuthority === expectedRuntimeAuthority;
   });
   let oraclePassed: boolean;
-  switch (kind) {
-    case "exact_text":
-      oraclePassed = answer.trim() === requireString(oracle.value, "exact-text oracle value");
-      break;
-    case "required_terms_and_no_diff":
-      oraclePassed = readStringArray(oracle.requiredTerms, "required oracle terms")
-        .every((term) => answer.includes(term))
-        && run.diagnostics.workspaceUnchanged === true;
-      break;
-    case "fixture_checksum_and_tool_trajectory":
-      oraclePassed = answer.trim() === requireString(oracle.expectedChecksum, "fixture checksum")
-        && run.telemetry.toolCallCount >= requirePositiveInteger(oracle.minimumToolCalls, "minimum tool calls");
-      break;
-    case "scripted_conversation_recall": {
+  let oracleReasonCodes: readonly string[];
+  if (kind === "scripted_conversation_recall") {
       const scriptPath = requireString(oracle.scriptFixture, "conversation script fixture");
       const script = requireRecord(
         JSON.parse(readFileSync(resolve(repositoryRoot, scriptPath), "utf8")) as unknown,
         "conversation script fixture",
       );
-      oraclePassed = answer.includes(requireString(script.finalNonce, "conversation final nonce"))
+      oraclePassed = run.telemetry.toolCallCount === 0 && run.telemetry.managedChildCount === 0
+        && answer.includes(requireString(script.finalNonce, "conversation final nonce"))
         && readStringArray(script.requiredFinalTerms, "conversation required final terms")
           .every((term) => answer.includes(term));
-      break;
-    }
-    case "fixture_test_and_allowed_diff":
-    case "managed_child_settlement":
-      oraclePassed = run.diagnostics.oraclePassed === true;
-      break;
-    default:
-      throw new Error(`Unsupported diagnostic task oracle '${kind}'.`);
+      oracleReasonCodes = oraclePassed ? [] : ["conversation_obligation_failed"];
+  } else {
+    const evaluation = evaluateContextEfficiencyTaskOracle({ answer, oracle, evidence: {
+      ...run.oracleEvidence,
+      toolCallCount: run.telemetry.toolCallCount,
+      ...(run.diagnostics.workspaceUnchanged === undefined ? {} : { workspaceUnchanged: run.diagnostics.workspaceUnchanged }),
+      ...(run.telemetry.readToolEvidence === undefined ? {} : { readToolEvidence: run.telemetry.readToolEvidence }),
+    } });
+    const admissionPassed = kind !== "fixture_test_and_allowed_diff" && kind !== "managed_child_settlement"
+      || run.diagnostics.oraclePassed === true;
+    oraclePassed = evaluation.passed && admissionPassed;
+    oracleReasonCodes = admissionPassed ? evaluation.reasonCodes : [...evaluation.reasonCodes, "canonical_admission_failed"];
   }
   return {
     ...run,
     diagnostics: {
       ...run.diagnostics,
       oraclePassed,
+      oracleReasonCodes,
       authorityPassed,
       requestedAuthority,
     },
@@ -1350,12 +1609,37 @@ function mergeConversationEnvelopes(envelopes: readonly RunEnvelope[]): RunEnvel
       toolCallCount: envelopes.reduce((total, entry) => total + entry.telemetry.toolCallCount, 0),
       managedChildCount: envelopes.reduce((total, entry) => total + entry.telemetry.managedChildCount, 0),
       durationMs: envelopes.reduce((total, entry) => total + entry.telemetry.durationMs, 0),
-      providerRequests: envelopes.flatMap((entry) => entry.telemetry.providerRequests ?? []),
+      providerRequests: envelopes.flatMap((entry, collectorTurnIndex) =>
+        (entry.telemetry.providerRequests ?? []).map((request) => ({ ...request, collectorTurnIndex }))),
     },
     diagnostics: {
       lastError: [...envelopes].reverse().find((entry) => entry.diagnostics.lastError !== null)?.diagnostics.lastError ?? null,
     },
   };
+}
+
+function readPhysicalUsage(envelopes: readonly RunEnvelope[]): readonly ContextEfficiencyPhysicalRequestUsage[] {
+  return envelopes.flatMap((envelope, envelopeIndex) =>
+    (envelope.telemetry.providerRequests ?? []).map((request) => {
+      const dispatch = isRecord(request.dispatch) ? request.dispatch : undefined;
+      const attempt = isRecord(dispatch?.attempt) ? dispatch.attempt : undefined;
+      const lineage = isRecord(request.managedInvocation) ? request.managedInvocation : undefined;
+      const usage = isRecord(request.usage) ? request.usage : undefined;
+      const input = isRecord(usage?.input) ? usage.input : undefined;
+      const output = isRecord(usage?.output) ? usage.output : undefined;
+      const attemptKnown = attempt?.state === "observed" && Number.isSafeInteger(attempt.value);
+      return {
+        requestId: JSON.stringify([
+          envelope.telemetry.sessionId, request.collectorTurnIndex ?? envelopeIndex,
+          lineage?.invocationId ?? "parent", lineage?.childSessionId, lineage?.childTurnId,
+          request.requestIndex, attemptKnown ? attempt.value : "unknown",
+        ]),
+        inputTokens: attemptKnown && input?.measurement === "provider_reported" && typeof input.tokens === "number"
+          ? input.tokens : "unknown",
+        outputTokens: attemptKnown && output?.measurement === "provider_reported" && typeof output.tokens === "number"
+          ? output.tokens : "unknown",
+      };
+    }));
 }
 
 function projectInternalBenchmarkEnvelope(value: unknown): RunEnvelope {
@@ -1367,6 +1651,19 @@ function projectInternalBenchmarkEnvelope(value: unknown): RunEnvelope {
   const metadata = requireRecord(result.metadata, "internal benchmark result metadata");
   const tokenUsage = requireRecord(result.tokenUsage, "internal benchmark token usage");
   const trial = requireRecord(result.trial, "internal benchmark trial");
+  // Trial validity admits the row to the denominator. The canonical
+  // consistency result, computed from admission scorers, owns task success.
+  const itemOutcome = Array.isArray(consistency.itemResults)
+    ? consistency.itemResults.find((entry) => isRecord(entry) && entry.itemId === result.itemId)
+    : undefined;
+  const oraclePassed = trial.status === "valid"
+    && consistency.k === 1
+    && typeof result.itemId === "string"
+    && isRecord(itemOutcome)
+    && itemOutcome.totalRuns === 1
+    && itemOutcome.invalidTrialCount === 0
+    && itemOutcome.passCount === 1
+    && itemOutcome.allPassed === true;
   const providerRequests = metadata.providerRequestObservations;
   if (!Array.isArray(providerRequests)) {
     throw new Error("Internal benchmark result lacks canonical provider-request observations.");
@@ -1376,8 +1673,9 @@ function projectInternalBenchmarkEnvelope(value: unknown): RunEnvelope {
     ? metadata.toolCalls.filter((entry) => isRecord(entry)
       && (entry.name === "managed_agent.invoke" || entry.name === "managed_agent.start")).length
     : 0;
-  return validateContextEfficiencyRunEnvelope({
+  const envelope = validateContextEfficiencyRunEnvelope({
     schemaVersion: "kiln.run.output.v1",
+    ...(typeof result.output === "string" ? { answer: result.output } : {}),
     telemetry: {
       sessionId: requireString(metadata.sessionId, "internal benchmark session identity"),
       sessionSucceeded: metadata.sessionSucceeded === true,
@@ -1394,9 +1692,14 @@ function projectInternalBenchmarkEnvelope(value: unknown): RunEnvelope {
       lastError: trial.status === "valid" && metadata.sessionSucceeded === true
         ? null
         : typeof trial.reason === "string" ? trial.reason : "internal benchmark trial failed",
-      oraclePassed: trial.status === "valid",
+      oraclePassed,
     },
   });
+  return { ...envelope, canonicalTrialStatus: requireString(trial.status, "canonical trial status"), oracleEvidence: {
+    ...(Array.isArray(metadata.managedInvocations) ? { managedInvocations: metadata.managedInvocations } : {}),
+    workspaceChanges: metadata.workspaceChanges,
+    observedVerification: metadata.observedVerification,
+  } };
 }
 
 function requireArrayItem(value: unknown, index: number, label: string): unknown {
@@ -1441,6 +1744,80 @@ function readBudgets(value: Record<string, unknown>): ContextEfficiencyScheduled
 }
 
 async function main(args: readonly string[]): Promise<void> {
+  if (args[0] === "freeze") {
+    const repositoryRoot = resolve(readFlag(args, "--repository-root"));
+    const outputPath = resolve(readFlag(args, "--output"));
+    assertPrivateBenchmarkPath(repositoryRoot, outputPath);
+    await verifyCommittedContextEfficiencyCheckout({ repositoryRoot });
+    const template = requireRecord(JSON.parse(await readFile(resolve(readFlag(args, "--manifest")), "utf8")), "preregistered protocol");
+    const templateIdentity = requireRecord(template.identity, "preregistered identity");
+    buildContextEfficiencySchedule(template);
+    const runner = createBunContextEfficiencyCommandRunner();
+    const compiledPackages = ["operator-appearance", "gateway-contracts", "tools", "core", "runtime", "sdk", "cli", "tui"];
+    for (const packageName of compiledPackages) {
+      const outputDirectory = resolve(repositoryRoot, "packages", packageName, "dist");
+      if (relative(resolve(repositoryRoot, "packages"), outputDirectory) !== `${packageName}${process.platform === "win32" ? "\\" : "/"}dist`) {
+        throw new Error("Compiled output escaped the owning package.");
+      }
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
+    const compilation = await runner.run({ command: ["bun", "run", "compile", "--force"],
+      cwd: repositoryRoot, timeoutMs: 120_000 });
+    if (compilation.exitCode !== 0) throw new Error("Source compilation failed; cannot freeze executable artifacts.");
+    const head = await runner.run({ command: ["git", "rev-parse", "HEAD"], cwd: repositoryRoot, timeoutMs: 10_000 });
+    const tracked = await runner.run({ command: ["git", "ls-files", "-z"], cwd: repositoryRoot, timeoutMs: 10_000 });
+    if (head.exitCode !== 0 || tracked.exitCode !== 0) throw new Error("Unable to freeze committed source identity.");
+    const sourceContractPaths = tracked.stdout.split("\0").filter(Boolean).sort();
+    const compiledContractPaths = readdirSync(join(repositoryRoot, "packages"), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && compiledPackages.includes(entry.name) && existsSync(join(repositoryRoot, "packages", entry.name, "dist")))
+      .flatMap((entry) => {
+        const root = join(repositoryRoot, "packages", entry.name, "dist");
+        return readdirSync(root, { recursive: true, withFileTypes: true }).filter((file) => file.isFile())
+          .map((file) => relative(repositoryRoot, join(file.parentPath, file.name)).replaceAll("\\", "/"));
+      }).sort();
+    const inputContractPaths = readStringArray(templateIdentity.inputContractPaths, "preregistered input paths");
+    if (inputContractPaths.some((path) => !sourceContractPaths.includes(path))) throw new Error("All benchmark inputs must be committed.");
+    const accountUsage = await createAccountUsageInspectionService().inspect();
+    const authority = readGlobalExecutionTargetAuthority(readGlobalConfig());
+    const target = authority?.executionCatalog.targets.find((entry) => entry.id === templateIdentity.targetId);
+    const policy = authority?.executionCatalog.accountPolicies?.find((entry) => entry.id === target?.accountPolicyId);
+    if (!target || !policy) throw new Error("Proposed target lacks a canonical account policy.");
+    const allowedAccountIds = [...policy.accountIds].sort();
+    const configurationRevisionId = readRuntimeConfigurationRevision(repositoryRoot).revisionSetId;
+    const sourceContractDigest = computeContextEfficiencyFileContract({ repositoryRoot, rawPaths: sourceContractPaths, label: "source" });
+    const observedAt = accountUsage.evidence.observedAt;
+    const processor = cpus();
+    const frozen = freezeContextEfficiencyProtocol({ template, execution: {
+      startingCommit: head.stdout.trim(), sourceContractPaths, sourceContractDigest,
+      compiledContractPaths,
+      compiledContractDigest: computeContextEfficiencyFileContract({ repositoryRoot, rawPaths: compiledContractPaths, label: "compiled" }),
+      inputContractPaths,
+      inputContractDigest: computeContextEfficiencyFileContract({ repositoryRoot, rawPaths: inputContractPaths, label: "input" }),
+      configurationRevisionId, bunVersion: process.versions.bun ?? "unknown", toolFixtureSeed: randomUUID(),
+      toolProjectionRecipeDigest: digestCanonicalValue({ sourceContractDigest, configurationRevisionId,
+        mcp: templateIdentity.mcp, tasks: template.tasks }),
+      runtime: {
+        targetId: requireString(templateIdentity.targetId, "preregistered target"),
+        providerId: requireString(templateIdentity.providerId, "preregistered provider"),
+        modelId: requireString(templateIdentity.modelId, "preregistered model"),
+        deliberationLevel: requireString(templateIdentity.deliberationLevel, "preregistered deliberation"),
+        fallback: "disabled", mcp: "disabled_by_strategy", concurrency: 1,
+      },
+      plusAccountPolicy: { plan: "plus", evidenceState: "fresh", allowedAccountIds, observedAt,
+        expiresAt: new Date(Date.parse(observedAt) + 60_000).toISOString(),
+        source: "provider-endpoint", confidence: "authoritative" },
+      hardware: { platform: process.platform, architecture: process.arch,
+        cpuModel: processor[0]?.model ?? "unknown", logicalCpuCount: processor.length, totalMemoryBytes: totalmem() },
+    } });
+    // Freeze uses canonical eligibility, not merely the proposed account labels.
+    await verifyCurrentContextEfficiencyExecutionTarget({ manifest: frozen });
+    await verifyCurrentContextEfficiencyIdentity({ repositoryRoot, manifest: frozen });
+    await mkdir(dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, `${JSON.stringify(frozen, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
+    process.stdout.write(`${JSON.stringify({ status: "frozen", sourceRevision: frozen.identity.startingCommit,
+      protocolContractDigest: frozen.identity.protocolContractDigest, providerQuotaUsed: false })}\n`);
+    return;
+  }
   if (args[0] === "schedule") {
     const manifestPath = readFlag(args, "--manifest");
     const outputPath = readFlag(args, "--output");
@@ -1466,50 +1843,36 @@ async function main(args: readonly string[]): Promise<void> {
     const outputPath = readFlag(args, "--output");
     const repositoryRoot = resolve(readFlag(args, "--repository-root"));
     const manifest = JSON.parse(await readFile(resolve(manifestPath), "utf8")) as unknown;
+    assertPrivateBenchmarkPath(repositoryRoot, outputPath);
     await verifyCurrentContextEfficiencyIdentity({ repositoryRoot, manifest });
     await verifyCurrentContextEfficiencyExecutionTarget({ manifest });
+    await mkdir(dirname(resolve(outputPath)), { recursive: true });
+    await writeFile(resolve(outputPath), `${JSON.stringify(bindContextEfficiencyReport(manifest, []), null, 2)}\n`, {
+      encoding: "utf8", flag: "wx",
+    });
     const dispatcher = createProductionContextEfficiencyDispatcher({ repositoryRoot, manifest });
     try {
       const trials = await dispatchContextEfficiencySchedule({
         manifest,
         dispatcher,
         providerQuotaAuthorized: true,
+        checkpoint: (trials) => checkpointContextEfficiencyReport(outputPath, manifest, trials),
+        verifyIdentity: () => verifyCurrentContextEfficiencyIdentity({ repositoryRoot, manifest }),
       });
-      const report = collectContextEfficiencyTrials(trials);
-      await mkdir(dirname(resolve(outputPath)), { recursive: true });
-      await writeFile(resolve(outputPath), `${JSON.stringify(report, null, 2)}\n`, "utf8");
-    } finally {
-      await dispatcher.cleanup();
-    }
-    return;
-  }
-  if (args[0] === "probe") {
-    if (!args.includes("--acknowledge-provider-quota")) {
-      throw new Error("probe requires --acknowledge-provider-quota after explicit operator authorization.");
-    }
-    const manifestPath = readFlag(args, "--manifest");
-    const outputPath = readFlag(args, "--output");
-    const repositoryRoot = resolve(readFlag(args, "--repository-root"));
-    const manifest = JSON.parse(await readFile(resolve(manifestPath), "utf8")) as unknown;
-    await verifyCurrentContextEfficiencyIdentity({ repositoryRoot, manifest });
-    await verifyCurrentContextEfficiencyExecutionTarget({ manifest });
-    const dispatcher = createProductionContextEfficiencyDispatcher({ repositoryRoot, manifest });
-    try {
-      const trials = await dispatchContextEfficiencyPredispatchProbe({
-        manifest,
-        dispatcher,
-        providerQuotaAuthorized: true,
-      });
-      const report = collectContextEfficiencyTrials(trials);
-      await mkdir(dirname(resolve(outputPath)), { recursive: true });
-      await writeFile(resolve(outputPath), `${JSON.stringify(report, null, 2)}\n`, "utf8");
+      await checkpointContextEfficiencyReport(outputPath, manifest, trials);
+      const report = bindContextEfficiencyReport(manifest, trials);
+      const complete = report.integrity.reconciliation.status === "complete"
+        && report.integrity.physicalRequestAccounting.status === "complete";
+      process.stdout.write(`${JSON.stringify({ status: complete ? "collected" : "incomplete",
+        verdict: report.verdict, providerQuotaUsed: true })}\n`);
+      if (!complete) process.exitCode = 1;
     } finally {
       await dispatcher.cleanup();
     }
     return;
   }
   if (args[0] !== "collect") {
-    throw new Error("Usage: bun scripts/context-efficiency-diagnostic.ts <schedule|verify|probe|collect|execute> --input/--manifest <path> --output <path>");
+    throw new Error("Usage: bun scripts/context-efficiency-diagnostic.ts <freeze|schedule|verify|collect|execute> --input/--manifest <path> --output <path>");
   }
   const inputPath = readFlag(args, "--input");
   const outputPath = readFlag(args, "--output");
@@ -1517,6 +1880,14 @@ async function main(args: readonly string[]): Promise<void> {
   if (!Array.isArray(parsed)) throw new Error("Diagnostic collector input must be an array of trial records.");
   const report = collectContextEfficiencyTrials(parsed as ContextEfficiencyCollectedTrial[]);
   await writeFile(resolve(outputPath), `${JSON.stringify(report, null, 2)}\n`, "utf8");
+}
+
+function assertPrivateBenchmarkPath(repositoryRoot: string, outputPath: string): void {
+  const root = resolveProjectStateBinding(repositoryRoot).benchmarksPath;
+  const path = relative(root, resolve(outputPath));
+  if (path.length === 0 || path === ".." || path.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute(path)) {
+    throw new Error("Frozen protocols and collection reports must live under the canonical private project benchmark namespace.");
+  }
 }
 
 async function verifyCurrentContextEfficiencyExecutionTarget(input: { readonly manifest: unknown }): Promise<void> {
@@ -1561,12 +1932,12 @@ export function verifyContextEfficiencyExecutionTarget(input: {
   if (target.economics?.fallbackPosture !== "disabled") {
     throw new Error("Frozen diagnostic target does not disable provider fallback.");
   }
-  const plusAccountIds = readFreshPlusAccountIds(identity, input.now);
+  const plusAccountIds = readDeclaredPlusAccountIds(identity);
   const accountPolicy = input.accountPolicies?.find((candidate) => candidate.id === target.accountPolicyId);
   if (!accountPolicy) {
     throw new Error("Frozen diagnostic target lacks an inspectable account policy.");
   }
-  if (stableStringify([...accountPolicy.accountIds].sort()) !== stableStringify([...plusAccountIds].sort())) {
+  if (JSON.stringify([...accountPolicy.accountIds].sort()) !== JSON.stringify([...plusAccountIds].sort())) {
     throw new Error("Frozen diagnostic target account policy is not restricted to the registered Plus accounts.");
   }
   for (const accountId of plusAccountIds) {
@@ -1583,19 +1954,6 @@ export function verifyContextEfficiencyExecutionTarget(input: {
       throw new Error(`Registered Plus account '${accountId}' lacks fresh canonical provider evidence for '${targetId}'.`);
     }
   }
-}
-
-function readFreshPlusAccountIds(
-  identity: Readonly<Record<string, unknown>>,
-  now = new Date(),
-): readonly string[] {
-  const accountIds = readDeclaredPlusAccountIds(identity);
-  const policy = requireRecord(identity.plusAccountPolicy, "frozen Plus account policy");
-  const expiresAt = Date.parse(requireString(policy.expiresAt, "Plus account evidence expiry"));
-  if (!Number.isFinite(expiresAt) || expiresAt <= now.getTime()) {
-    throw new Error("Registered Plus account evidence is stale; refresh it before live benchmarking.");
-  }
-  return accountIds;
 }
 
 function readDeclaredPlusAccountIds(
@@ -1616,7 +1974,18 @@ async function verifyCurrentContextEfficiencyIdentity(input: {
   readonly repositoryRoot: string;
   readonly manifest: unknown;
 }): Promise<void> {
+  const identity = readManifestIdentity(input.manifest);
+  const processor = cpus();
+  const actualHardware = { platform: process.platform, architecture: process.arch,
+    cpuModel: processor[0]?.model ?? "unknown", logicalCpuCount: processor.length, totalMemoryBytes: totalmem() };
+  if (digestCanonicalValue(identity.hardware) !== digestCanonicalValue(actualHardware)) {
+    throw new Error("Frozen hardware identity differs from this execution host.");
+  }
   const identityRunner = createBunContextEfficiencyCommandRunner();
+  await verifyCommittedContextEfficiencyCheckout({
+    repositoryRoot: input.repositoryRoot,
+    commandRunner: identityRunner,
+  });
   const head = await identityRunner.run({
     command: ["git", "rev-parse", "HEAD"],
     cwd: input.repositoryRoot,
@@ -1630,6 +1999,26 @@ async function verifyCurrentContextEfficiencyIdentity(input: {
     bunVersion: process.versions.bun ?? "unknown",
     configurationRevisionId: readRuntimeConfigurationRevision(input.repositoryRoot).revisionSetId,
   });
+}
+
+export async function verifyCommittedContextEfficiencyCheckout(input: {
+  readonly repositoryRoot: string;
+  readonly commandRunner?: ContextEfficiencyCommandRunner;
+}): Promise<void> {
+  const runner = input.commandRunner ?? createBunContextEfficiencyCommandRunner();
+  const status = await runner.run({
+    command: ["git", "status", "--porcelain=v1", "--untracked-files=all", "--ignore-submodules=none"],
+    cwd: input.repositoryRoot,
+    timeoutMs: 10_000,
+  });
+  if (status.exitCode !== 0) {
+    throw new Error("Unable to verify the committed context-efficiency checkout.");
+  }
+  if (status.stdout.trim().length > 0) {
+    throw new Error(
+      "Context-efficiency collection requires a clean committed checkout. Use an isolated checkout and keep private manifests and reports outside it.",
+    );
+  }
 }
 
 function readFlag(args: readonly string[], flag: string): string {

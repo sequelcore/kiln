@@ -108,6 +108,11 @@ import {
   type FrontendBenchmarkVerification,
 } from "./benchmark-frontend-verifier.js";
 import {
+  isContextEfficiencyBoundedImplementationFixture,
+  verifyContextEfficiencyBoundedImplementationLease,
+  type ContextEfficiencyBoundedImplementationVerification,
+} from "./context-efficiency-bounded-implementation-verifier.js";
+import {
   createLemmaCheckTool,
   hasCleanLemmaTrustPolicy,
   isLemmaQualificationInfrastructureFailure,
@@ -314,7 +319,11 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       ? hashBenchmarkWorkspace(benchmarkWorkspace)
       : undefined);
     let workspaceChanges: BenchmarkWriteWorkspaceChanges | undefined;
-    let observedVerification: BackendBenchmarkVerification | FrontendBenchmarkVerification | undefined;
+    let observedVerification:
+      | BackendBenchmarkVerification
+      | FrontendBenchmarkVerification
+      | ContextEfficiencyBoundedImplementationVerification
+      | undefined;
     let expectedRouteId: string | undefined;
     const sessionId = randomUUID();
     try {
@@ -761,6 +770,10 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
           ? { allowedChangedPaths: formalScreeningCase.allowedChangedPaths }
           : {}),
       });
+      workspaceChanges = observedVerification.changes;
+    }
+    if (writeLease && isContextEfficiencyBoundedImplementationFixture(context.item.metadata?.workspaceFixture)) {
+      observedVerification = await verifyContextEfficiencyBoundedImplementationLease({ lease: writeLease });
       workspaceChanges = observedVerification.changes;
     }
     if (context.profile.id === "kiln-model-roster-frontend-render" && writeLease) {

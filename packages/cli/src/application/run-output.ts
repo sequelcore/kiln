@@ -1,3 +1,4 @@
+import { isAbsolute, relative, resolve } from "node:path";
 import type { CommunicationResolution, ProviderRequestObservation, VerificationResult } from "@kilnai/core";
 import {
   VerifiedEfficiencyEvidenceProjectionSchema,
@@ -10,6 +11,16 @@ import type { RunSessionAttemptResult, RunSessionTranscriptEvent } from "./run-s
 export const RUN_OUTPUT_MODES = ["human", "answer", "json"] as const;
 
 export type RunOutputMode = typeof RUN_OUTPUT_MODES[number];
+
+/** Content-free evidence for a successful file read within an authorized root. */
+export interface RunReadToolEvidence {
+  readonly toolName: string;
+  readonly authorizedRootIndex: number;
+  readonly relativePath: string;
+  readonly succeeded: true;
+  /** Whether the canonical tool result proves the complete target was returned. */
+  readonly complete: boolean;
+}
 
 /**
  * Parent-session capability gap recorded when work-governance requires
@@ -231,6 +242,7 @@ export interface RunJsonOutputEnvelope {
     readonly contextUsage?: ContextUsageProjection;
     readonly efficiencyEvidence?: VerifiedEfficiencyEvidenceProjection;
     readonly providerRequests?: readonly ProviderRequestObservation[];
+    readonly readToolEvidence?: readonly RunReadToolEvidence[];
   };
   readonly diagnostics: {
     readonly lastError: string | null;
@@ -371,6 +383,7 @@ export function buildRunJsonOutputEnvelope(input: {
   readonly contextUsage?: ContextUsageProjection;
   readonly efficiencyEvidence?: VerifiedEfficiencyEvidenceProjection;
   readonly providerRequests?: readonly ProviderRequestObservation[];
+  readonly readToolEvidence?: readonly RunReadToolEvidence[];
   readonly lastError: string | null;
   readonly attempts: readonly RunSessionAttemptResult[];
   readonly verificationResult?: VerificationResult;
@@ -409,6 +422,7 @@ export function buildRunJsonOutputEnvelope(input: {
         ? { efficiencyEvidence: VerifiedEfficiencyEvidenceProjectionSchema.parse(input.efficiencyEvidence) }
         : {}),
       ...(input.providerRequests ? { providerRequests: input.providerRequests } : {}),
+      ...(input.readToolEvidence ? { readToolEvidence: input.readToolEvidence } : {}),
     },
     diagnostics: {
       lastError: input.lastError,
@@ -427,6 +441,110 @@ export function buildRunJsonOutputEnvelope(input: {
       ...(input.proposedPlan !== undefined ? { proposedPlan: input.proposedPlan } : {}),
     },
   };
+}
+
+/**
+ * Projects successful canonical file reads without retaining raw tool arguments,
+ * outputs, or absolute paths. Root indexes are stable only for this envelope.
+ */
+export function projectSuccessfulReadToolEvidence(
+  transcript: readonly RunSessionTranscriptEvent[],
+  authorizedRoots: readonly string[],
+): readonly RunReadToolEvidence[] {
+  const roots = authorizedRoots
+    .map((root, authorizedRootIndex) => ({ authorizedRootIndex, root: resolve(root) }))
+    .filter((entry, index, entries) => entries.findIndex((candidate) => candidate.root === entry.root) === index);
+  const pending = new Map<string, { readonly toolName: string; readonly targets: readonly RunReadToolEvidence[] }>();
+  const fallbackPending: Array<{ readonly toolName: string; readonly targets: readonly RunReadToolEvidence[] }> = [];
+  const evidence: RunReadToolEvidence[] = [];
+
+  for (const entry of transcript) {
+    const event = entry.event;
+    if (event.type === "tool_use") {
+      const targets = readTargets(event.toolName, event.input, roots);
+      if (targets.length === 0) continue;
+      const pendingRead = { toolName: event.toolName, targets };
+      if (event.toolCallId) pending.set(event.toolCallId, pendingRead);
+      else fallbackPending.push(pendingRead);
+      continue;
+    }
+    if (event.type !== "tool_result" || event.isError === true) continue;
+    const matched = event.toolCallId
+      ? pending.get(event.toolCallId)
+      : takeFallbackPending(fallbackPending, event.toolName);
+    const complete = matched && readResultCompleteness(matched.toolName, event.metadata, matched.targets.length);
+    if (!matched || complete === undefined) continue;
+    if (event.toolCallId) pending.delete(event.toolCallId);
+    evidence.push(...matched.targets.map((target) => ({ ...target, complete })));
+  }
+  return evidence;
+}
+
+function readTargets(
+  toolName: string,
+  input: unknown,
+  roots: readonly { readonly authorizedRootIndex: number; readonly root: string }[],
+): readonly RunReadToolEvidence[] {
+  if (!isReadTool(toolName) || !isRecord(input)) return [];
+  const candidates = [input.filePath, input.path, ...(Array.isArray(input.paths) ? input.paths : [])]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+  return candidates.flatMap((target) => projectReadTarget(toolName, target, roots));
+}
+
+function projectReadTarget(
+  toolName: string,
+  target: string,
+  roots: readonly { readonly authorizedRootIndex: number; readonly root: string }[],
+): readonly RunReadToolEvidence[] {
+  const candidate = isAbsolute(target) ? resolve(target) : resolve(roots[0]?.root ?? ".", target);
+  for (const root of roots) {
+    const relativePath = relative(root.root, candidate).replace(/\\/gu, "/");
+    if (relativePath.length === 0 || relativePath === ".." || relativePath.startsWith("../") || isAbsolute(relativePath)) {
+      continue;
+    }
+    return [{ toolName, authorizedRootIndex: root.authorizedRootIndex, relativePath, succeeded: true, complete: true }];
+  }
+  return [];
+}
+
+function isReadTool(toolName: string): boolean {
+  const normalized = toolName.toLocaleLowerCase("en");
+  return normalized === "read" || normalized === "read_many";
+}
+
+function readResultCompleteness(toolName: string, metadata: unknown, requestedTargetCount: number): boolean | undefined {
+  if (!isRecord(metadata) || metadata.kind !== "file") return undefined;
+  if (toolName.toLocaleLowerCase("en") === "read") {
+    if (metadata.operation !== "read"
+      || !Number.isSafeInteger(metadata.offset)
+      || (metadata.offset as number) < 0
+      || !Number.isSafeInteger(metadata.totalLines)
+      || (metadata.totalLines as number) < 0
+      || (metadata.limit !== undefined && (!Number.isSafeInteger(metadata.limit) || (metadata.limit as number) < 0))) {
+      return undefined;
+    }
+    return metadata.offset === 0
+      && (metadata.limit === undefined || (metadata.limit as number) >= (metadata.totalLines as number));
+  }
+  const complete = toolName.toLocaleLowerCase("en") === "read_many"
+    && metadata.operation === "read_many"
+    && metadata.truncated === false
+    && metadata.skippedCount === 0
+    && metadata.fileCount === requestedTargetCount
+    && (metadata.verbosity === "raw" || metadata.verbosity === "structured");
+  return complete ? true : undefined;
+}
+
+function takeFallbackPending(
+  pending: Array<{ readonly toolName: string; readonly targets: readonly RunReadToolEvidence[] }>,
+  toolName: string,
+): { readonly toolName: string; readonly targets: readonly RunReadToolEvidence[] } | undefined {
+  const index = pending.findIndex((entry) => entry.toolName.toLocaleLowerCase("en") === toolName.toLocaleLowerCase("en"));
+  return index < 0 ? undefined : pending.splice(index, 1)[0];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isRunOutputMode(value: string): value is RunOutputMode {

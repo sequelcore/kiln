@@ -10,10 +10,13 @@ import {
   validateContextEfficiencyRunEnvelope,
   verifyContextEfficiencyExecutionTarget,
   verifyContextEfficiencySourceContract,
+  verifyCommittedContextEfficiencyCheckout,
+  ContextEfficiencyInvalidTrialError,
 } from "./context-efficiency-diagnostic.js";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
+import { execFileSync } from "node:child_process";
 
 const PLUS_ACCOUNT_POLICY = {
   plan: "plus",
@@ -86,8 +89,46 @@ describe("context efficiency diagnostic source contract", () => {
     "docs/benchmarks/context-efficiency-diagnostic-v1/manifest.json",
   );
 
+  it("requires a clean committed checkout, including staged and untracked files", async () => {
+    const root = mkdtempSync(resolve(tmpdir(), "kiln-baseline-source-"));
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: root, encoding: "utf8" });
+    const commandRunner = {
+      async run(input: { readonly command: readonly string[] }) {
+        return { exitCode: 0, stdout: git(...input.command.slice(1)), stderr: "" };
+      },
+    };
+    const verify = () => verifyCommittedContextEfficiencyCheckout({ repositoryRoot: root, commandRunner });
+    try {
+      git("init", "--template=");
+      writeFileSync(resolve(root, "source.ts"), "export const value = 1;\n");
+      git("add", "source.ts");
+      git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+        "-c", "commit.gpgsign=false", "commit", "-m", "fixture");
+      await expect(verify()).resolves.toBeUndefined();
+      writeFileSync(resolve(root, "source.ts"), "export const value = 2;\n");
+      await expect(verify()).rejects.toThrow(/clean committed checkout/u);
+      git("add", "source.ts");
+      await expect(verify()).rejects.toThrow(/clean committed checkout/u);
+      writeFileSync(resolve(root, "source.ts"), "export const value = 1;\n");
+      git("add", "source.ts");
+      writeFileSync(resolve(root, "extra.ts"), "export const extra = true;\n");
+      await expect(verify()).rejects.toThrow(/clean committed checkout/u);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed when Git cannot establish checkout cleanliness", async () => {
+    await expect(verifyCommittedContextEfficiencyCheckout({
+      repositoryRoot,
+      commandRunner: { run: async () => ({ exitCode: 128, stdout: "", stderr: "unavailable" }) },
+    })).rejects.toThrow(/Unable to verify/u);
+  });
+
   it("rejects a frozen source contract that omits a required transitive owner", () => {
-    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8").replace(
+      "kiln-context-efficiency-diagnostic-manifest-v1", "kiln-context-efficiency-post-fix-manifest-v1",
+    )) as {
       identity: { startingCommit: string; configurationRevisionId: string; sourceContractPaths: string[] };
     };
     manifest.identity.sourceContractPaths = manifest.identity.sourceContractPaths.filter(
@@ -104,7 +145,9 @@ describe("context efficiency diagnostic source contract", () => {
   });
 
   it("rejects identity and source-contract drift", () => {
-    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8").replace(
+      "kiln-context-efficiency-diagnostic-manifest-v1", "kiln-context-efficiency-post-fix-manifest-v1",
+    )) as {
       identity: {
         startingCommit: string;
         configurationRevisionId: string;
@@ -140,7 +183,7 @@ describe("context efficiency diagnostic source contract", () => {
 
 describe("context efficiency diagnostic execution-target preflight", () => {
   const manifest = {
-    schemaVersion: "kiln-context-efficiency-diagnostic-manifest-v1",
+    schemaVersion: "kiln-context-efficiency-post-fix-manifest-v1",
     identity: {
       targetId: "codex-luna",
       providerId: "codex-oauth",
@@ -200,7 +243,7 @@ describe("context efficiency diagnostic execution-target preflight", () => {
       }],
       accountPolicies: [{ id: "plus-only", accountIds: ["plus-a", "plus-b"] }],
       accountUsage,
-    })).toThrow(/evidence is stale/u);
+    })).not.toThrow();
 
     expect(() => verifyContextEfficiencyExecutionTarget({
       manifest,
@@ -236,7 +279,7 @@ describe("context efficiency diagnostic collector", () => {
   it("expands the frozen manifest into exactly 33 bounded trials", () => {
     const manifest = JSON.parse(readFileSync(resolve(
       import.meta.dirname,
-      "../docs/benchmarks/context-efficiency-diagnostic-v1/manifest.json",
+      "../docs/benchmarks/context-efficiency-post-fix-v1/protocol.json",
     ), "utf8")) as unknown;
     const schedule = buildContextEfficiencySchedule(manifest);
 
@@ -250,7 +293,7 @@ describe("context efficiency diagnostic collector", () => {
   it("bounds the diagnostic probe to one cold trivial request and one physical transport", async () => {
     const manifest = JSON.parse(readFileSync(resolve(
       import.meta.dirname,
-      "../docs/benchmarks/context-efficiency-diagnostic-v1/manifest.json",
+      "../docs/benchmarks/context-efficiency-post-fix-v1/protocol.json",
     ), "utf8")) as unknown;
     const calls: Array<{ taskId: string; maximumProviderRequests: number }> = [];
     const collected = await dispatchContextEfficiencyPredispatchProbe({
@@ -272,7 +315,7 @@ describe("context efficiency diagnostic collector", () => {
 
   it("dispatches sequential strategies and binds warm CLI trials to their cold session", async () => {
     const manifest = {
-      schemaVersion: "kiln-context-efficiency-diagnostic-manifest-v1",
+      schemaVersion: "kiln-context-efficiency-post-fix-manifest-v1",
       design: {
         repetitionsPerCell: 1,
         invalidRetriesPerCell: 1,
@@ -331,7 +374,7 @@ describe("context efficiency diagnostic collector", () => {
 
   it("rejects a warm trial when a managed-child cache lineage changes despite a stable top-level partition", async () => {
     const manifest = {
-      schemaVersion: "kiln-context-efficiency-diagnostic-manifest-v1",
+      schemaVersion: "kiln-context-efficiency-post-fix-manifest-v1",
       design: {
         repetitionsPerCell: 1,
         invalidRetriesPerCell: 0,
@@ -404,7 +447,7 @@ describe("context efficiency diagnostic collector", () => {
 
   it("retains one infrastructure-invalid attempt and uses its single frozen retry", async () => {
     const manifest = {
-      schemaVersion: "kiln-context-efficiency-diagnostic-manifest-v1",
+      schemaVersion: "kiln-context-efficiency-post-fix-manifest-v1",
       design: {
         repetitionsPerCell: 2,
         invalidRetriesPerCell: 1,
@@ -426,7 +469,9 @@ describe("context efficiency diagnostic collector", () => {
       dispatcher: {
         runCli: async () => {
           calls += 1;
-          if (calls === 1 || calls === 3) throw new Error("transient collector failure");
+          if (calls === 1 || calls === 3) throw new ContextEfficiencyInvalidTrialError(
+            "infrastructure_failure", "pre-dispatch failure", undefined, { dispatchEvidence: "not_dispatched" },
+          );
           return { output: runEnvelope(), continuationSessionId: "cold-session" };
         },
         runConversation: async () => ({ output: runEnvelope() }),
@@ -506,7 +551,7 @@ describe("context efficiency diagnostic collector", () => {
     const observedCommands: string[][] = [];
     let envelopePath: string | undefined;
     const manifest = {
-      schemaVersion: "kiln-context-efficiency-diagnostic-manifest-v1",
+      schemaVersion: "kiln-context-efficiency-post-fix-manifest-v1",
       identity: {
         targetId: "codex-luna",
         providerId: "codex-oauth",
@@ -602,7 +647,7 @@ describe("context efficiency diagnostic collector", () => {
 
   it("classifies a structured pre-dispatch CLI failure as infrastructure failure", async () => {
     const manifest = {
-      schemaVersion: "kiln-context-efficiency-diagnostic-manifest-v1",
+      schemaVersion: "kiln-context-efficiency-post-fix-manifest-v1",
       identity: {
         targetId: "codex-luna",
         providerId: "codex-oauth",
@@ -666,7 +711,7 @@ describe("context efficiency diagnostic collector", () => {
 
   it("classifies a non-envelope CLI crash without retaining raw diagnostics", async () => {
     const manifest = {
-      schemaVersion: "kiln-context-efficiency-diagnostic-manifest-v1",
+      schemaVersion: "kiln-context-efficiency-post-fix-manifest-v1",
       identity: {
         targetId: "codex-luna",
         providerId: "codex-oauth",
@@ -675,8 +720,8 @@ describe("context efficiency diagnostic collector", () => {
         plusAccountPolicy: PLUS_ACCOUNT_POLICY,
       },
       design: {
-        repetitionsPerCell: 1,
-        invalidRetriesPerCell: 0,
+        repetitionsPerCell: 2,
+        invalidRetriesPerCell: 1,
         timeoutMs: 1_000,
         budgetsPerTrial: {
           maximumProviderRequests: 1,
@@ -696,15 +741,20 @@ describe("context efficiency diagnostic collector", () => {
         oracle: { kind: "exact_text", value: "OK", maximumToolCalls: 0 },
       }],
     };
+    let dispatchedCommands = 0;
+    const checkpoints: unknown[] = [];
     const dispatcher = createProductionContextEfficiencyDispatcher({
       repositoryRoot: resolve(import.meta.dirname, ".."),
       manifest,
       commandRunner: {
-        run: async () => ({
+        run: async () => {
+          dispatchedCommands += 1;
+          return {
           exitCode: 1,
           stdout: "",
           stderr: "private stack trace must not enter the report",
-        }),
+          };
+        },
       },
     });
     try {
@@ -712,12 +762,18 @@ describe("context efficiency diagnostic collector", () => {
         manifest,
         dispatcher,
         providerQuotaAuthorized: true,
+        checkpoint: async (rows) => { checkpoints.push(structuredClone(rows)); },
       });
       expect(collected).toEqual([expect.objectContaining({
         validity: "invalid",
         invalidReason: "infrastructure_failure",
         invalidDiagnostic: "unstructured_command_failure",
+        dispatchEvidence: "unknown",
+        reservedMaximumProviderRequests: 1,
       })]);
+      expect(dispatchedCommands).toBe(1);
+      expect(checkpoints).toHaveLength(2);
+      expect(checkpoints[0]).toEqual([expect.objectContaining({ dispatchEvidence: "unknown", attempt: 1 })]);
       expect(JSON.stringify(collectContextEfficiencyTrials(collected))).not.toContain("private stack trace");
     } finally {
       await dispatcher.cleanup();
@@ -726,7 +782,7 @@ describe("context efficiency diagnostic collector", () => {
 
   it("keeps a governed budget failure in the denominator instead of retrying it as invalid", async () => {
     const manifest = {
-      schemaVersion: "kiln-context-efficiency-diagnostic-manifest-v1",
+      schemaVersion: "kiln-context-efficiency-post-fix-manifest-v1",
       identity: {
         targetId: "codex-luna",
         providerId: "codex-oauth",
@@ -791,7 +847,7 @@ describe("context efficiency diagnostic collector", () => {
 
   it("retains a content-free frozen-execution-identity invalid reason", async () => {
     const manifest = {
-      schemaVersion: "kiln-context-efficiency-diagnostic-manifest-v1",
+      schemaVersion: "kiln-context-efficiency-post-fix-manifest-v1",
       identity: {
         targetId: "codex-luna",
         providerId: "codex-oauth",
@@ -858,15 +914,198 @@ describe("context efficiency diagnostic collector", () => {
     }
   });
 
-  it("projects only canonical observations from an internal benchmark artifact", async () => {
+  it("keeps canonical invalidity separate from a model-task failure", async () => {
     const root = mkdtempSync(resolve(tmpdir(), "kiln-context-efficiency-test-"));
     const artifactPath = resolve(root, "benchmark.json");
     const envelope = runEnvelope();
     writeFileSync(artifactPath, JSON.stringify({
       runs: [{
         consistency: {
+          k: 1,
+          itemResults: [{ itemId: "fixture-item", totalRuns: 1, invalidTrialCount: 1, passCount: 0, allPassed: false }],
+          runs: [{ results: [{
+            itemId: "fixture-item",
+            durationMs: 1_000,
+            tokenUsage: { inputTokens: 10, outputTokens: 2 },
+            trial: { status: "invalid", reason: "canonical transport evidence missing" },
+            metadata: {
+              sessionId: "benchmark-session",
+              sessionSucceeded: false,
+              providerId: "codex-oauth",
+              modelId: "gpt-5.6-luna",
+              providerRequestObservations: envelope.telemetry.providerRequests,
+              toolCalls: [],
+            },
+          }] }],
+        },
+      }],
+    }), "utf8");
+    const dispatcher = createProductionContextEfficiencyDispatcher({
+      repositoryRoot: resolve(import.meta.dirname, ".."),
+      worktreeFingerprint: async () => "stable-test-worktree",
+      manifest: { schemaVersion: "kiln-context-efficiency-post-fix-manifest-v1", identity: {
+        targetId: "codex-luna", providerId: "codex-oauth", modelId: "gpt-5.6-luna",
+        deliberationLevel: "low", plusAccountPolicy: PLUS_ACCOUNT_POLICY,
+      } },
+      commandRunner: { run: async () => ({ exitCode: 0, stdout: JSON.stringify({ outputPath: artifactPath }), stderr: "" }) },
+    });
+    try {
+      await expect(dispatcher.runInternalBenchmark({
+        trial: {
+          taskId: "child", executionStrategy: "internal_benchmark_managed_child", condition: "cold", repetition: 1,
+          invalidRetryLimit: 0, timeoutMs: 1_000,
+          budgets: { maximumProviderRequests: 2, maximumToolCalls: 2, maximumManagedChildren: 1,
+            maximumCumulativeInputTokens: 100, maximumCumulativeOutputTokens: 50 },
+        },
+        task: { authority: "read_only", expectedRuntimeAuthority: "read_only", oracle: {
+          kind: "managed_child_settlement", dataset: "fixtures/managed-v1.jsonl", requiredHandoffTerms: ["DefaultContextGovernor"],
+        } },
+      })).rejects.toMatchObject({
+        name: "ContextEfficiencyInvalidTrialError",
+        reason: "infrastructure_failure",
+        dispatchEvidence: "observed",
+        output: { canonicalTrialStatus: "invalid" },
+      });
+    } finally {
+      await dispatcher.cleanup();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not dispatch when the pre-attempt frozen identity check drifts", async () => {
+    const manifest = {
+      schemaVersion: "kiln-context-efficiency-post-fix-manifest-v1",
+      design: { repetitionsPerCell: 1, invalidRetriesPerCell: 0, timeoutMs: 1_000, budgetsPerTrial: {
+        maximumProviderRequests: 1, maximumToolCalls: 1, maximumManagedChildren: 1,
+        maximumCumulativeInputTokens: 100, maximumCumulativeOutputTokens: 50,
+      } },
+      tasks: [{ id: "direct", executionStrategy: "cli_run", conditions: ["cold"] }],
+    };
+    let dispatches = 0;
+    const checkpoints: unknown[] = [];
+    await expect(dispatchContextEfficiencySchedule({
+      manifest,
+      providerQuotaAuthorized: true,
+      verifyIdentity: async () => { throw new Error("identity drift"); },
+      checkpoint: async (rows) => { checkpoints.push(rows); },
+      dispatcher: {
+        runCli: async () => { dispatches += 1; return { output: runEnvelope(), continuationSessionId: "session-1" }; },
+        runConversation: async () => ({ output: runEnvelope() }),
+        runInternalBenchmark: async () => ({ output: runEnvelope() }),
+      },
+    })).rejects.toThrow("identity drift");
+    expect(dispatches).toBe(0);
+    expect(checkpoints).toEqual([]);
+  });
+
+  it("halts after post-dispatch identity drift and preserves observed output as unknown settlement", async () => {
+    const manifest = {
+      schemaVersion: "kiln-context-efficiency-post-fix-manifest-v1",
+      design: { repetitionsPerCell: 1, invalidRetriesPerCell: 0, timeoutMs: 1_000, budgetsPerTrial: {
+        maximumProviderRequests: 1, maximumToolCalls: 1, maximumManagedChildren: 1,
+        maximumCumulativeInputTokens: 100, maximumCumulativeOutputTokens: 50,
+      } },
+      tasks: [{ id: "direct", executionStrategy: "cli_run", conditions: ["cold", "immediate_warm"] }],
+    };
+    let identityChecks = 0;
+    let dispatches = 0;
+    const checkpoints: unknown[] = [];
+    const collected = await dispatchContextEfficiencySchedule({
+      manifest,
+      providerQuotaAuthorized: true,
+      verifyIdentity: async () => {
+        identityChecks += 1;
+        if (identityChecks === 2) throw new Error("identity drift");
+      },
+      checkpoint: async (rows) => { checkpoints.push(structuredClone(rows)); },
+      dispatcher: {
+        runCli: async () => {
+          dispatches += 1;
+          return { output: runEnvelope(), continuationSessionId: "session-1" };
+        },
+        runConversation: async () => ({ output: runEnvelope() }),
+        runInternalBenchmark: async () => ({ output: runEnvelope() }),
+      },
+    });
+    expect(identityChecks).toBe(3);
+    expect(dispatches).toBe(1);
+    expect(collected).toEqual([expect.objectContaining({
+      validity: "invalid", invalidReason: "collector_failure", dispatchEvidence: "unknown",
+      reservedMaximumProviderRequests: 1, output: expect.objectContaining({ schemaVersion: "kiln.run.output.v1" }),
+    })]);
+    expect(checkpoints).toHaveLength(2);
+    expect(checkpoints.at(-1)).toEqual(collected);
+  });
+
+  it("checkpoints completed conversation turns before a later CLI crash halts the cell", async () => {
+    const manifest = {
+      schemaVersion: "kiln-context-efficiency-post-fix-manifest-v1",
+      identity: {
+        targetId: "codex-luna", providerId: "codex-oauth", modelId: "gpt-5.6-luna",
+        deliberationLevel: "low", plusAccountPolicy: PLUS_ACCOUNT_POLICY,
+      },
+      design: { repetitionsPerCell: 1, invalidRetriesPerCell: 0, timeoutMs: 1_000, budgetsPerTrial: {
+        maximumProviderRequests: 8, maximumToolCalls: 1, maximumManagedChildren: 1,
+        maximumCumulativeInputTokens: 500_000, maximumCumulativeOutputTokens: 50_000,
+      } },
+      tasks: [{
+        id: "conversation", executionStrategy: "cli_continuation", conditions: ["long_session"],
+        authority: "read_only", expectedRuntimeAuthority: "read_only",
+        oracle: { kind: "scripted_conversation_recall", maximumToolCalls: 0,
+          scriptFixture: "packages/core/evals/fixtures/context-efficiency-diagnostic-v1/conversation-script.json" },
+      }],
+    };
+    let commands = 0;
+    const checkpoints: unknown[] = [];
+    const dispatcher = createProductionContextEfficiencyDispatcher({
+      repositoryRoot: resolve(import.meta.dirname, ".."),
+      manifest,
+      commandRunner: { run: async () => {
+        commands += 1;
+        return commands === 1
+          ? { exitCode: 0, stdout: JSON.stringify(runEnvelope()), stderr: "" }
+          : { exitCode: 1, stdout: "", stderr: "private crash detail" };
+      } },
+    });
+    try {
+      const collected = await dispatchContextEfficiencySchedule({
+        manifest,
+        dispatcher,
+        providerQuotaAuthorized: true,
+        checkpoint: async (rows) => { checkpoints.push(structuredClone(rows)); },
+      });
+      expect(commands).toBe(2);
+      expect(collected).toEqual([expect.objectContaining({
+        validity: "invalid", invalidReason: "infrastructure_failure", dispatchEvidence: "unknown",
+        reservedMaximumProviderRequests: 8,
+        output: expect.objectContaining({ telemetry: expect.objectContaining({ providerRequests: expect.any(Array) }) }),
+      })]);
+      expect(checkpoints).toHaveLength(3);
+      expect(JSON.stringify(checkpoints[1])).toContain("session-1");
+      expect(JSON.stringify(collectContextEfficiencyTrials(collected))).not.toContain("private crash detail");
+    } finally {
+      await dispatcher.cleanup();
+    }
+  });
+
+  it.each([
+    { disposition: "passed", allPassed: true, passCount: 1, oraclePassed: true },
+    { disposition: "failed", allPassed: false, passCount: 0, oraclePassed: false },
+    { disposition: "missing", allPassed: undefined, passCount: 0, oraclePassed: false },
+  ])("projects canonical internal benchmark evidence with a $disposition task outcome", async ({ allPassed, passCount, oraclePassed }) => {
+    const root = mkdtempSync(resolve(tmpdir(), "kiln-context-efficiency-test-"));
+    const artifactPath = resolve(root, "benchmark.json");
+    const envelope = runEnvelope();
+    writeFileSync(artifactPath, JSON.stringify({
+      runs: [{
+        consistency: {
+          k: 1,
+          itemResults: allPassed === undefined ? [] : [{
+            itemId: "fixture-item", totalRuns: 1, invalidTrialCount: 0, passCount, allPassed,
+          }],
           runs: [{
             results: [{
+              itemId: "fixture-item",
               durationMs: 1_000,
               tokenUsage: { inputTokens: 10, outputTokens: 2 },
               trial: { status: "valid" },
@@ -876,6 +1115,27 @@ describe("context efficiency diagnostic collector", () => {
                 providerId: "codex-oauth",
                 modelId: "gpt-5.6-luna",
                 providerRequestObservations: envelope.telemetry.providerRequests,
+                managedInvocations: [{
+                  access: "read-only", lifecycleState: "completed", requestedAuthority: "read_only",
+                  authorityProfileId: "authority:read-only",
+                  authority: { authorityProfileId: "read-only" },
+                  authoritySnapshot: {
+                    toolAuthority: { allowedToolNames: ["read"], writeAllowed: false, networkAllowed: false },
+                    workingDirectory: { mode: "read-only" },
+                  },
+                  providerRoute: { providerId: "codex-oauth", model: "gpt-5.6-luna" },
+                  capabilitySnapshot: { routeId: "luna-scout" },
+                  resultHandoff: { summary: "DefaultContextGovernor", resourceUris: ["kiln://managed/invocation/result"] },
+                  providerRequestObservations: [{
+                    ...envelope.telemetry.providerRequests[0],
+                    requestIndex: 1,
+                    managedInvocation: {
+                      invocationId: "managed-child-1",
+                      childSessionId: "child-session-1",
+                      childTurnId: "child-turn-1",
+                    },
+                  }],
+                }],
                 providerRequests: [{ systemHash: "must-not-be-read" }],
                 toolCalls: [],
               },
@@ -888,7 +1148,7 @@ describe("context efficiency diagnostic collector", () => {
       repositoryRoot: resolve(import.meta.dirname, ".."),
       worktreeFingerprint: async () => "stable-test-worktree",
       manifest: {
-        schemaVersion: "kiln-context-efficiency-diagnostic-manifest-v1",
+        schemaVersion: "kiln-context-efficiency-post-fix-manifest-v1",
         identity: {
           targetId: "codex-luna",
           providerId: "codex-oauth",
@@ -921,11 +1181,12 @@ describe("context efficiency diagnostic collector", () => {
         task: {
           authority: "read_only",
           expectedRuntimeAuthority: "read_only",
-          oracle: { kind: "managed_child_settlement", dataset: "fixture.jsonl" },
+          oracle: { kind: "managed_child_settlement", dataset: "fixture.jsonl", requiredHandoffTerms: ["DefaultContextGovernor"] },
         },
       });
       expect(result.continuationSessionId).toBe("benchmark-session");
       expect(JSON.stringify(result.output)).not.toContain("systemHash");
+      expect(result.output).toMatchObject({ diagnostics: { oraclePassed } });
     } finally {
       await dispatcher.cleanup();
       rmSync(root, { recursive: true, force: true });
@@ -938,7 +1199,7 @@ describe("context efficiency diagnostic collector", () => {
       repositoryRoot: resolve(import.meta.dirname, ".."),
       worktreeFingerprint: async () => "stable-test-worktree",
       manifest: {
-        schemaVersion: "kiln-context-efficiency-diagnostic-manifest-v1",
+        schemaVersion: "kiln-context-efficiency-post-fix-manifest-v1",
         identity: {
           targetId: "codex-luna",
           providerId: "codex-oauth",
@@ -1039,6 +1300,73 @@ describe("context efficiency diagnostic collector", () => {
     })).toThrow("Canonical provider-request observations are required");
   });
 
+  it.each([
+    { scenario: "failed turn", failureAt: 2, unknownAt: 0, inputLimit: 500_000, duration: 10 },
+    { scenario: "unknown usage", failureAt: 0, unknownAt: 2, inputLimit: 500_000, duration: 10 },
+    { scenario: "cumulative input", failureAt: 0, unknownAt: 0, inputLimit: 20, duration: 10 },
+    { scenario: "trial wall time", failureAt: 0, unknownAt: 0, inputLimit: 500_000, duration: 600 },
+  ])("stops the conversation after $scenario and carries remaining allocations forward", async ({ failureAt, unknownAt, inputLimit, duration }) => {
+    let wallTime = 0;
+    const allocations: Array<{ timeoutMs: number; inputTokens: number; requests: number }> = [];
+    const dispatcher = createProductionContextEfficiencyDispatcher({
+      repositoryRoot: resolve(import.meta.dirname, ".."),
+      worktreeFingerprint: async () => "stable", now: () => wallTime,
+      manifest: { schemaVersion: "kiln-context-efficiency-post-fix-manifest-v1", identity: {
+        targetId: "codex-luna", providerId: "codex-oauth", modelId: "gpt-5.6-luna", deliberationLevel: "low",
+      } },
+      commandRunner: { run: async ({ command, timeoutMs }) => {
+        const path = command[command.indexOf("--execution-envelope") + 1];
+        if (!path) throw new Error("Missing Runtime envelope");
+        const policy = JSON.parse(readFileSync(path, "utf8"));
+        allocations.push({ timeoutMs, inputTokens: policy.convergence.cumulativeInputTokens, requests: policy.physicalProviderRequests });
+        wallTime += duration;
+        const ordinal = allocations.length;
+        const output = runEnvelope();
+        return { exitCode: 0, stderr: "", stdout: JSON.stringify({ ...output,
+          telemetry: { ...output.telemetry, sessionSucceeded: ordinal !== failureAt,
+            providerRequests: output.telemetry.providerRequests.map((request) => ({ ...request,
+              usage: { ...request.usage, input: ordinal === unknownAt ? { measurement: "unknown" } : request.usage.input },
+            })),
+          },
+        }) };
+      } },
+    });
+    try {
+      const result = await dispatcher.runConversation({
+        trial: { taskId: "conversation", executionStrategy: "cli_continuation", condition: "long_session", repetition: 1,
+          invalidRetryLimit: 0, timeoutMs: 1000,
+          budgets: { maximumProviderRequests: 8, maximumToolCalls: 32, maximumManagedChildren: 1,
+            maximumCumulativeInputTokens: inputLimit, maximumCumulativeOutputTokens: 50_000 },
+        },
+        task: { authority: "read_only", expectedRuntimeAuthority: "read_only", oracle: {
+          kind: "scripted_conversation_recall", maximumToolCalls: 0,
+          scriptFixture: "packages/core/evals/fixtures/context-efficiency-diagnostic-v1/conversation-script.json",
+        } },
+      });
+      expect(allocations).toEqual([
+        { timeoutMs: 1000, inputTokens: inputLimit, requests: 1 },
+        { timeoutMs: 1000 - duration, inputTokens: inputLimit - 10, requests: 1 },
+      ]);
+      expect(result.output).toMatchObject({ telemetry: { sessionSucceeded: false }, diagnostics: { oraclePassed: false } });
+    } finally { await dispatcher.cleanup(); }
+  });
+
+  it("aggregates parent and child usage and keeps unknown child totals unknown", () => {
+    const output = runEnvelope();
+    const parent = output.telemetry.providerRequests[0];
+    if (!parent) throw new Error("Missing parent observation");
+    const makeReport = (unknown: boolean) => collectContextEfficiencyTrials([{
+      taskId: "managed_agent_enabled", condition: "cold", repetition: 1,
+      output: { ...output, telemetry: { ...output.telemetry,
+        providerRequests: [parent, { ...parent, managedInvocation: { invocationId: "child", childSessionId: "child-session", childTurnId: "child-turn" },
+          usage: { ...parent.usage, input: unknown ? { measurement: "unknown" } : { tokens: 25, measurement: "provider_reported" } },
+        }],
+      } },
+    }]);
+    expect(makeReport(false).cells[0]?.metrics.inputTokens).toMatchObject({ observedCount: 1, median: 35 });
+    expect(makeReport(true).cells[0]?.metrics.inputTokens).toMatchObject({ observedCount: 0, unknownCount: 1, median: null });
+  });
+
   it("rejects private content correlation fields", () => {
     const envelope = runEnvelope();
     const request = { ...envelope.telemetry.providerRequests[0], systemHash: "sha256:dictionary-testable" };
@@ -1060,7 +1388,7 @@ describe("context efficiency diagnostic collector", () => {
         diagnostics: { lastError: "provider failed", attempts: [] },
       },
     }]);
-    expect(report.verdictCeiling).toBe("diagnostic-only");
+    expect(report.verdict).toBe("diagnostic-only");
     const projected = report.trials[0];
     if (!projected || !("run" in projected)) throw new Error("Expected one valid projected trial.");
     expect(projected.run.telemetry.sessionSucceeded).toBe(false);
@@ -1069,10 +1397,27 @@ describe("context efficiency diagnostic collector", () => {
     expect(projected.run.diagnostics).toEqual({ failed: true, oracle: "unknown", authority: "unknown" });
   });
 
+  it("counts an unsuccessful terminal outcome even when the error field is empty", () => {
+    const output = runEnvelope();
+    const report = collectContextEfficiencyTrials([{
+      taskId: "trivial_exact", condition: "cold", repetition: 1,
+      output: {
+        ...output,
+        telemetry: { ...output.telemetry, sessionSucceeded: false },
+        diagnostics: { lastError: null, oraclePassed: true, authorityPassed: true },
+      },
+    }]);
+    expect(report.cells[0]).toMatchObject({ sampleCount: 1, failureCount: 1, invalidCount: 0 });
+  });
+
   it("reports preregistered per-cell counts, medians, nearest-rank p95, and unknowns", () => {
     const outputWithInput = (inputTokens: number) => {
       const output = runEnvelope();
-      return { ...output, telemetry: { ...output.telemetry, inputTokens } };
+      return { ...output, telemetry: { ...output.telemetry, inputTokens,
+        providerRequests: output.telemetry.providerRequests.map((request) => ({
+          ...request, usage: { ...request.usage, input: { ...request.usage.input, tokens: inputTokens } },
+        })),
+      } };
     };
     const report = collectContextEfficiencyTrials([
       { taskId: "trivial_exact", condition: "cold", repetition: 1, output: outputWithInput(10) },

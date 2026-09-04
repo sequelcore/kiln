@@ -4,6 +4,7 @@ import {
   computeDelegationCapabilityGap,
   extractModelClassifiedTriggers,
   computeManagedInvocationAuthorityNotes,
+  projectSuccessfulReadToolEvidence,
 } from "./run-output.js";
 import type { RunSessionTranscriptEvent } from "./run-session.js";
 
@@ -121,6 +122,156 @@ describe("buildRunJsonOutputEnvelope", () => {
     const envelope = buildRunJsonOutputEnvelope({ ...base, providerRequests });
     expect(envelope.telemetry.providerRequests).toBe(providerRequests);
     expect(JSON.stringify(envelope.telemetry.providerRequests)).not.toContain("Hash");
+  });
+
+  it("projects successful reads relative to authorized roots without raw paths or tool output", () => {
+    const transcript: RunSessionTranscriptEvent[] = [
+      {
+        seq: 1,
+        ts: "2026-09-04T00:00:00.000Z",
+        event: {
+          type: "tool_use",
+          toolCallId: "read-1",
+          toolCallScopeId: "turn-1",
+          toolName: "read",
+          input: { filePath: "C:/fixture/shard-01.txt" },
+        },
+      },
+      {
+        seq: 2,
+        ts: "2026-09-04T00:00:01.000Z",
+        event: {
+          type: "tool_result",
+          toolCallId: "read-1",
+          toolCallScopeId: "turn-1",
+          toolName: "read",
+          output: "private fixture contents",
+          isError: false,
+          metadata: {
+            kind: "file",
+            operation: "read",
+            offset: 0,
+            totalLines: 2,
+          },
+        },
+      },
+      {
+        seq: 3,
+        ts: "2026-09-04T00:00:02.000Z",
+        event: {
+          type: "tool_use",
+          toolCallId: "read-2",
+          toolCallScopeId: "turn-1",
+          toolName: "read_many",
+          input: { paths: ["C:/fixture/shard-02.txt", "C:/outside/secret.txt"] },
+        },
+      },
+      {
+        seq: 4,
+        ts: "2026-09-04T00:00:03.000Z",
+        event: {
+          type: "tool_result",
+          toolCallId: "read-2",
+          toolCallScopeId: "turn-1",
+          toolName: "read_many",
+          output: "private fixture contents",
+          isError: true,
+        },
+      },
+    ];
+
+    const evidence = projectSuccessfulReadToolEvidence(transcript, ["C:/repo", "C:/fixture"]);
+
+    expect(evidence).toEqual([
+      { toolName: "read", authorizedRootIndex: 1, relativePath: "shard-01.txt", succeeded: true, complete: true },
+    ]);
+    expect(JSON.stringify(evidence)).not.toContain("C:/fixture");
+    expect(JSON.stringify(evidence)).not.toContain("private fixture contents");
+    expect(buildRunJsonOutputEnvelope({ ...base, readToolEvidence: evidence }).telemetry.readToolEvidence).toEqual(evidence);
+  });
+
+  it("does not project partial reads as complete target evidence", () => {
+    const transcript: RunSessionTranscriptEvent[] = [
+      {
+        seq: 1,
+        ts: "2026-09-04T00:00:00.000Z",
+        event: {
+          type: "tool_use",
+          toolCallId: "partial-read",
+          toolCallScopeId: "turn-1",
+          toolName: "read",
+          input: { filePath: "C:/fixture/shard-01.txt", offset: 1, limit: 1 },
+        },
+      },
+      {
+        seq: 2,
+        ts: "2026-09-04T00:00:01.000Z",
+        event: {
+          type: "tool_result",
+          toolCallId: "partial-read",
+          toolCallScopeId: "turn-1",
+          toolName: "read",
+          output: "line 2",
+          isError: false,
+          metadata: { kind: "file", operation: "read", offset: 1, limit: 1, totalLines: 4 },
+        },
+      },
+    ];
+
+    expect(projectSuccessfulReadToolEvidence(transcript, ["C:/repo", "C:/fixture"])).toEqual([
+      { toolName: "read", authorizedRootIndex: 1, relativePath: "shard-01.txt", succeeded: true, complete: false },
+    ]);
+  });
+
+  it("projects full-content read_many results but rejects summary-only output", () => {
+    const fullTranscript: RunSessionTranscriptEvent[] = [
+      {
+        seq: 1,
+        ts: "2026-09-04T00:00:00.000Z",
+        event: {
+          type: "tool_use",
+          toolCallId: "read-many-full",
+          toolCallScopeId: "turn-1",
+          toolName: "read_many",
+          input: { paths: ["C:/fixture/a.txt", "C:/fixture/b.txt"], verbosity: "structured" },
+        },
+      },
+      {
+        seq: 2,
+        ts: "2026-09-04T00:00:01.000Z",
+        event: {
+          type: "tool_result",
+          toolCallId: "read-many-full",
+          toolCallScopeId: "turn-1",
+          toolName: "read_many",
+          output: '{"files":[{"content":"a"},{"content":"b"}]}',
+          isError: false,
+          metadata: {
+            kind: "file", operation: "read_many", fileCount: 2, skippedCount: 0, truncated: false, verbosity: "structured",
+          },
+        },
+      },
+    ];
+    const summaryTranscript: RunSessionTranscriptEvent[] = [{
+      ...fullTranscript[0]!,
+      event: { ...fullTranscript[0]!.event, toolCallId: "read-many-summary" },
+    }, {
+      ...fullTranscript[1]!,
+      event: {
+        ...fullTranscript[1]!.event,
+        toolCallId: "read-many-summary",
+        output: "2 files read, 0 skipped, 2 bytes",
+        metadata: {
+          kind: "file", operation: "read_many", fileCount: 2, skippedCount: 0, truncated: false, verbosity: "summary",
+        },
+      },
+    }];
+
+    expect(projectSuccessfulReadToolEvidence(fullTranscript, ["C:/repo", "C:/fixture"])).toEqual([
+      { toolName: "read_many", authorizedRootIndex: 1, relativePath: "a.txt", succeeded: true, complete: true },
+      { toolName: "read_many", authorizedRootIndex: 1, relativePath: "b.txt", succeeded: true, complete: true },
+    ]);
+    expect(projectSuccessfulReadToolEvidence(summaryTranscript, ["C:/repo", "C:/fixture"])).toEqual([]);
   });
 
   it("exposes canonical communication evidence in JSON diagnostics without recomputing it", () => {

@@ -1,0 +1,281 @@
+{
+    "schemaVersion":  "kiln-context-efficiency-post-fix-manifest-v1",
+    "status":  "preregistered_pending_freeze",
+    "claim":  {
+                  "kind":  "bounded-internal-control",
+                  "evaluatedObject":  "Kiln direct Runtime path on one frozen execution target",
+                  "maximumVerdict":  "internal-decision-ready",
+                  "decision":  "Establish a post-fix control for a later preregistered candidate"
+              },
+    "identity":  {
+                     "repository":  "sequelcore/kiln",
+                     "targetId":  "codex-luna",
+                     "providerId":  "codex-oauth",
+                     "modelId":  "gpt-5.6-luna",
+                     "deliberationLevel":  "low",
+                     "fallback":  "disabled",
+                     "mcp":  "disabled_by_strategy",
+                     "concurrency":  1,
+                     "inputContractPaths":  [
+                                                "packages/core/evals/benchmark/kiln-context-efficiency-bounded-implementation-post-fix-v1.jsonl",
+                                                "packages/core/evals/benchmark/kiln-context-efficiency-managed-child-v1.jsonl",
+                                                "packages/core/evals/fixtures/context-efficiency-post-fix-v1/bounded-implementation/package.json",
+                                                "packages/core/evals/fixtures/context-efficiency-post-fix-v1/bounded-implementation/src/normalize.ts",
+                                                "packages/core/evals/fixtures/context-efficiency-post-fix-v1/bounded-implementation/verification/normalize.test.ts",
+                                                "packages/core/evals/fixtures/context-efficiency-diagnostic-v1/conversation-script.json",
+                                                "packages/core/evals/fixtures/context-efficiency-post-fix-v1/tool-result-generation.json"
+                                            ]
+                 },
+    "design":  {
+                   "repetitionsPerCell":  3,
+                   "invalidRetriesPerCell":  1,
+                   "timeoutMs":  180000,
+                   "budgetsPerTrial":  {
+                                           "maximumProviderRequests":  8,
+                                           "maximumToolCalls":  32,
+                                           "maximumManagedChildren":  1,
+                                           "maximumCumulativeInputTokens":  500000,
+                                           "maximumCumulativeOutputTokens":  50000
+                                       },
+                   "maximumScheduledTrialsIncludingInvalidRetries":  44,
+                   "maximumProviderRequestsAcrossScheduledTrials":  352,
+                   "order":  "sequential-task-repeat-condition",
+                   "aggregation":  {
+                                       "unit":  "task-condition-repetition",
+                                       "reported":  [
+                                                        "all_rows",
+                                                        "sample_count",
+                                                        "failure_count",
+                                                        "invalid_count",
+                                                        "unsupported_count",
+                                                        "median",
+                                                        "p95_nearest_rank"
+                                                    ],
+                                       "uncertainty":  "descriptive-only-insufficient-repetitions"
+                                   },
+                   "conditions":  [
+                                      "cold",
+                                      "immediate_warm",
+                                      "long_session"
+                                  ],
+                   "invalidTrialPolicy":  [
+                                              "infrastructure_failure",
+                                              "route_identity_mismatch",
+                                              "collector_failure",
+                                              "canonical_transcript_unavailable"
+                                          ],
+                   "failurePolicy":  [
+                                         "provider_failure",
+                                         "timeout",
+                                         "oracle_failure",
+                                         "authority_failure",
+                                         "governed_pause_or_limit"
+                                     ],
+                   "stoppingPolicy":  "Stop the trial at the first terminal outcome or declared budget boundary; never treat a limit as success",
+                   "enforcement":  {
+                                       "physicalRequests":  "hard per-attempt allocation shared with direct children; eight conversation turns allocated one physical request each",
+                                       "time":  "remaining trial wall time passed to each turn; unknown completion halts cohort",
+                                       "inputTokens":  "Runtime turn-local observed tripwire, remaining trial allowance passed forward",
+                                       "outputTokens":  "observed trial tripwire",
+                                       "toolsAndChildren":  "observed trial tripwires",
+                                       "uncertainDispatch":  "reserve full trial request allocation, retain known evidence, halt cohort without retry",
+                                       "interruption":  "checkpoint before dispatch and after every completed conversation turn",
+                                       "coldDefinition":  "first request in a fresh session; provider cache misses are not guaranteed",
+                                       "warmDefinition":  "immediate paired repetition; compare cache partitions for every observed lineage"
+                                   }
+               },
+    "tasks":  [
+                  {
+                      "id":  "trivial_exact",
+                      "executionStrategy":  "cli_run",
+                      "authority":  "read_only",
+                      "expectedRuntimeAuthority":  "fail_closed",
+                      "conditions":  [
+                                         "cold",
+                                         "immediate_warm"
+                                     ],
+                      "input":  "Reply exactly with: OK. Do not use tools.",
+                      "oracle":  {
+                                     "kind":  "exact_text",
+                                     "value":  "OK",
+                                     "maximumToolCalls":  0
+                                 }
+                  },
+                  {
+                      "id":  "repository_read_only",
+                      "executionStrategy":  "cli_run",
+                      "authority":  "read_only",
+                      "expectedRuntimeAuthority":  "read_only",
+                      "conditions":  [
+                                         "cold",
+                                         "immediate_warm"
+                                     ],
+                      "input":  "Read the canonical RuntimeSessionOrchestrator, DefaultContextGovernor, and Capability Fabric owners in packages/runtime/src/session/runtime-session-orchestrator.ts, packages/core/src/context/governor.ts, and docs/architecture/tooling/capability-catalog.md. Explain their responsibilities and cite each repository-relative path. Do not modify files.",
+                      "oracle":  {
+                                     "kind":  "required_terms_and_no_diff",
+                                     "requiredTerms":  [
+                                                           "RuntimeSessionOrchestrator",
+                                                           "DefaultContextGovernor",
+                                                           "Capability Fabric"
+                                                       ],
+                                     "requiredCitations":  [
+                                                               "packages/runtime/src/session/runtime-session-orchestrator.ts",
+                                                               "packages/core/src/context/governor.ts",
+                                                               "docs/architecture/tooling/capability-catalog.md"
+                                                           ],
+                                     "requiredReadTargets":  [
+                                                                 {
+                                                                     "authorizedRootIndex":  0,
+                                                                     "relativePath":  "packages/runtime/src/session/runtime-session-orchestrator.ts"
+                                                                 },
+                                                                 {
+                                                                     "authorizedRootIndex":  0,
+                                                                     "relativePath":  "packages/core/src/context/governor.ts"
+                                                                 },
+                                                                 {
+                                                                     "authorizedRootIndex":  0,
+                                                                     "relativePath":  "docs/architecture/tooling/capability-catalog.md"
+                                                                 }
+                                                             ]
+                                 }
+                  },
+                  {
+                      "id":  "bounded_implementation",
+                      "executionStrategy":  "internal_benchmark_isolated_fixture",
+                      "authority":  "audited",
+                      "expectedRuntimeAuthority":  "destructive",
+                      "conditions":  [
+                                         "cold",
+                                         "immediate_warm"
+                                     ],
+                      "input":  "In the disposable fixture workspace, implement normalizeRelativeSourcePath in src/normalize.ts. Convert backslashes to slashes, remove a leading ./, collapse duplicate separators, and reject empty, absolute, drive-qualified, or parent-traversing paths with an error containing \u0027safe repository-relative source path\u0027. Do not change verification files. Run bun run test and report the changed path and result.",
+                      "oracle":  {
+                                     "kind":  "fixture_test_and_allowed_diff",
+                                     "fixture":  "context-efficiency-post-fix-v1-bounded-implementation",
+                                     "dataset":  "packages/core/evals/benchmark/kiln-context-efficiency-bounded-implementation-post-fix-v1.jsonl",
+                                     "testCommand":  "bun run test",
+                                     "allowedPaths":  [
+                                                          "src/normalize.ts"
+                                                      ]
+                                 }
+                  },
+                  {
+                      "id":  "tool_result_heavy",
+                      "executionStrategy":  "cli_run_generated_fixture",
+                      "authority":  "read_only",
+                      "expectedRuntimeAuthority":  "read_only",
+                      "conditions":  [
+                                         "cold",
+                                         "immediate_warm"
+                                     ],
+                      "input":  "Read all eight shard files completely with the read tool, then compute SHA-256 of their exact UTF-8 contents concatenated in ascending filename order. Reply only with sha256: followed by the hexadecimal checksum. Do not modify files. The fixture manifest describes the format and does not contain the answer.",
+                      "oracle":  {
+                                     "kind":  "fixture_checksum_and_tool_trajectory",
+                                     "fixture":  "context-efficiency-diagnostic-v1-tool-results",
+                                     "minimumToolCalls":  8,
+                                     "requiredReadTargets":  [
+                                                                 {
+                                                                     "authorizedRootIndex":  1,
+                                                                     "relativePath":  "shard-01.txt"
+                                                                 },
+                                                                 {
+                                                                     "authorizedRootIndex":  1,
+                                                                     "relativePath":  "shard-02.txt"
+                                                                 },
+                                                                 {
+                                                                     "authorizedRootIndex":  1,
+                                                                     "relativePath":  "shard-03.txt"
+                                                                 },
+                                                                 {
+                                                                     "authorizedRootIndex":  1,
+                                                                     "relativePath":  "shard-04.txt"
+                                                                 },
+                                                                 {
+                                                                     "authorizedRootIndex":  1,
+                                                                     "relativePath":  "shard-05.txt"
+                                                                 },
+                                                                 {
+                                                                     "authorizedRootIndex":  1,
+                                                                     "relativePath":  "shard-06.txt"
+                                                                 },
+                                                                 {
+                                                                     "authorizedRootIndex":  1,
+                                                                     "relativePath":  "shard-07.txt"
+                                                                 },
+                                                                 {
+                                                                     "authorizedRootIndex":  1,
+                                                                     "relativePath":  "shard-08.txt"
+                                                                 }
+                                                             ]
+                                 }
+                  },
+                  {
+                      "id":  "ordinary_conversation_heavy",
+                      "executionStrategy":  "cli_continuation",
+                      "authority":  "read_only",
+                      "expectedRuntimeAuthority":  "fail_closed",
+                      "conditions":  [
+                                         "long_session"
+                                     ],
+                      "input":  "Scripted eight-turn no-tool conversation; each turn adds one immutable obligation and the final turn requests the nonce plus all obligations.",
+                      "oracle":  {
+                                     "kind":  "scripted_conversation_recall",
+                                     "turnCount":  8,
+                                     "scriptFixture":  "packages/core/evals/fixtures/context-efficiency-diagnostic-v1/conversation-script.json",
+                                     "maximumToolCalls":  0
+                                 }
+                  },
+                  {
+                      "id":  "managed_agent_enabled",
+                      "executionStrategy":  "internal_benchmark_managed_child",
+                      "authority":  "read_only",
+                      "expectedRuntimeAuthority":  "read_only",
+                      "conditions":  [
+                                         "cold",
+                                         "immediate_warm"
+                                     ],
+                      "input":  "Delegate one read-only repository ownership check to an admitted managed child and report its answer with route, authority, and handoff evidence.",
+                      "oracle":  {
+                                     "kind":  "managed_child_settlement",
+                                     "dataset":  "packages/core/evals/benchmark/kiln-context-efficiency-managed-child-v1.jsonl",
+                                     "requiredAccess":  "read-only",
+                                     "requiredChildCount":  1,
+                                     "requiredEvidence":  [
+                                                              "route",
+                                                              "authority",
+                                                              "handoff",
+                                                              "settlement"
+                                                          ],
+                                     "requiredHandoffTerms":  [
+                                                                  "DefaultContextGovernor"
+                                                              ]
+                                 }
+                  }
+              ],
+    "requiredPerPhysicalRequestEvidence":  [
+                                               "identity",
+                                               "deliberation_identity",
+                                               "authority_admission",
+                                               "dispatch",
+                                               "physical_regions",
+                                               "regional_token_attribution_or_unknown",
+                                               "provider_usage_or_unknown",
+                                               "cache_usage_or_unknown",
+                                               "capacity_or_capacity_unknown"
+                                           ],
+    "hardGates":  [
+                      "task_outcome",
+                      "terminal_truth",
+                      "authority",
+                      "safety",
+                      "privacy",
+                      "required_content",
+                      "tool_trajectory"
+                  ],
+    "retention":  {
+                      "rawPrivateContent":  "forbidden",
+                      "contentDigests":  "omitted_or_bounded_keyed_scope",
+                      "canonicalTranscript":  "normal_operator_private_store",
+                      "report":  "content_free_projection_only"
+                  }
+}

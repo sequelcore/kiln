@@ -84,6 +84,7 @@ import {
   computeManagedInvocationAuthorityNotes,
   createRunOutputController,
   extractModelClassifiedTriggers,
+  projectSuccessfulReadToolEvidence,
   type ManagedInvocationAuthorityNote,
   type RunOutputController,
   type RunOutputMode,
@@ -2397,6 +2398,10 @@ export async function runCommand(
     // persistence is unavailable; benchmark collectors classify that trial invalid.
   }
   const completedAt = new Date().toISOString();
+  const readToolEvidence = projectSuccessfulReadToolEvidence(
+    transcript,
+    [context.workingDirectory, ...(flags.addDir ? [flags.addDir] : [])],
+  );
   const finalRunOutput = {
     answer: accumulatedText,
     sessionId,
@@ -2419,6 +2424,7 @@ export async function runCommand(
     contextUsage,
     efficiencyEvidence: cliEfficiencyEvidence,
     providerRequests: providerRequestObservations,
+    ...(readToolEvidence.length > 0 ? { readToolEvidence } : {}),
     lastError,
     attempts,
     verificationResult,

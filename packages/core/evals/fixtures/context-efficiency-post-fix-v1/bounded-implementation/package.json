@@ -1,0 +1,8 @@
+{
+  "name": "context-efficiency-post-fix-bounded-implementation-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test"
+  }
+}
