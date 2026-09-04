@@ -799,7 +799,7 @@ describe("managed invocation runtime tool — external runtime and materializati
       const authority = surface.toolAuthority.get("tool_catalog_search")!;
       const resolvedEffect = surface.materializableCapabilities.get("tool_catalog_search")!.effectEnvelope!;
       const search = surface.callBuiltinTools.get("tool_catalog_search")!;
-      await expect(search(
+      const result = await search(
         { exact: "managed_agent.invoke", includeSchemas: true },
         {
           session: makeSession("strict-catalog"),
@@ -808,11 +808,14 @@ describe("managed invocation runtime tool — external runtime and materializati
           resolvedEffect,
           allowedToolNames: ["managed_agent.invoke", "tool_catalog_search"],
         },
-      )).resolves.toMatchObject({
+      ) as { readonly metadata?: Record<string, unknown> };
+      expect(result).toMatchObject({
         isError: false,
         metadata: {
           materializableToolName: "managed_agent.invoke",
           catalogSnapshotId: surface.toolCatalogSnapshotId,
+          materializableToolDefinitionDigest: surface.materializableToolBindings.get("managed_agent.invoke")
+            ?.definitionDigest,
         },
       });
       await expect(search(

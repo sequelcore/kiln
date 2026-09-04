@@ -16,6 +16,10 @@ import { deriveRuntimeConvergencePolicyInput } from "../../src/session/runtime-e
 import { createFixtureClaimConfig, FIXTURE_READ_ONLY_EFFECT } from "./runtime-claim-fixture.js";
 import { fixtureAuditLog, waitForAssertion, makeProvider, makeCommandProvider, makeToolCallProvider, makeSession, getReinjectedToolResultFromSecondCall, getReinjectedToolResultPartFromSecondCall, getLastToolResultPartsFromCall, makeCapabilityMap, fixtureToolActionConfig, READ_ONLY_EFFECT, MUTATION_EFFECT, IDEMPOTENT_MUTATION_EFFECT, FIXTURE_EFFECT_CEILING } from "./runtime-session-orchestrator-tools-test-fixture.js";
 import { createMaterializableRuntimeToolBinding } from "../../src/session/progressive-tool-admission.js";
+import {
+  makeAdapter as makeManagedAdapter,
+  makeSurface as makeManagedSurface,
+} from "../gateway/managed-invocation-tool-test-fixture.js";
 
 const LEGACY_CATALOG_SNAPSHOT_ID = `sha256:${"c".repeat(64)}` as const;
 
@@ -2148,6 +2152,241 @@ describe("RuntimeSessionOrchestrator - tool execution", () => {
       expect(serializedProviderRequests).not.toContain("Starts a browser session");
       expect(serializedProviderRequests).not.toContain("Searches the tool catalog");
     });
+
+    it("links the real authority-filtered managed catalog search to the next payload and original executor", async () => {
+      const managedSurface = makeManagedSurface(
+        makeManagedAdapter(),
+        undefined,
+        undefined,
+        { testEffectiveTurnAuthority: null },
+      );
+      const selectedName = "managed_agent.list";
+      const managedNames = [...managedSurface.materializableToolBindings.keys()]
+        .filter((name) => name.startsWith("managed_agent."));
+      const selectedBinding = managedSurface.materializableToolBindings.get(selectedName)!;
+      const catalogCapability = managedSurface.materializableCapabilities.get("tool_catalog_search")!;
+      const session = makeSession();
+      const provider: ProviderAdapter = {
+        name: "mock",
+        createMessage: vi.fn()
+          .mockResolvedValueOnce({
+            parts: textParts("finding the managed list tool"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [{
+              id: "real-managed-catalog-search",
+              name: "tool_catalog_search",
+              input: { exact: selectedName, includeSchemas: true },
+            }],
+            stopReason: "tool_use",
+          })
+          .mockResolvedValueOnce({
+            parts: textParts("using the selected managed tool"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [{ id: "real-managed-list", name: selectedName, input: {} }],
+            stopReason: "tool_use",
+          })
+          .mockResolvedValueOnce({
+            parts: textParts("done"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [],
+            stopReason: "end_turn",
+          }),
+        streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+      };
+      const baseConfig = createFixtureClaimConfig({
+        session,
+        provider,
+        includeToolClaims: true,
+        toolPermissions: [
+          { toolName: "tool_catalog_search", effectEnvelope: catalogCapability.effectEnvelope },
+          { toolName: selectedName, effectEnvelope: selectedBinding.capability.effectEnvelope },
+        ],
+      });
+      const config: PerCallToolConfig = Object.freeze({
+        ...baseConfig,
+        toolAllowlist: new Set(["tool_catalog_search", selectedName]),
+      });
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        model: "unknown",
+        tools: managedSurface.toolDefinitions,
+        materializableTools: managedSurface.materializableTools,
+        materializableToolBindings: managedSurface.materializableToolBindings,
+        toolCatalogSnapshotId: managedSurface.toolCatalogSnapshotId,
+        capabilityMap: managedSurface.materializableCapabilities,
+        builtinTools: managedSurface.callBuiltinTools,
+      });
+
+      const result = await orchestrator.processMessage(
+        session,
+        textParts("list managed work"),
+        undefined,
+        undefined,
+        config,
+      );
+
+      const calls = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls as Array<[{
+        readonly tools?: readonly ToolDefinition[];
+      }]>;
+      const firstTools = calls[0]?.[0].tools ?? [];
+      const secondTools = calls[1]?.[0].tools ?? [];
+      expect(calls.map(([request]) => request.tools?.map(({ name }) => name) ?? [])).toEqual([
+        ["tool_catalog_search"],
+        ["tool_catalog_search", selectedName],
+        ["tool_catalog_search", selectedName],
+      ]);
+      expect(firstTools.map(({ name }) => name)).toEqual(["tool_catalog_search"]);
+      expect(firstTools.map(({ name }) => name)).not.toEqual(expect.arrayContaining(managedNames));
+      expect(secondTools.filter(({ name }) => name === selectedName)).toEqual([selectedBinding.definition]);
+      expect(secondTools.map(({ name }) => name)).not.toEqual(expect.arrayContaining(
+        managedNames.filter((name) => name !== selectedName),
+      ));
+      expect(result.toolExecutions).toContainEqual(expect.objectContaining({
+        toolCallId: "real-managed-list",
+        toolName: selectedName,
+        success: true,
+        resultSummary: expect.stringContaining('"status": "listed"'),
+      }));
+      const linkedDecision = result.providerRequests?.[1]?.toolProjection?.materializationDecisions[0];
+      expect(linkedDecision).toMatchObject({
+        decision: "materialized",
+        toolName: selectedName,
+        lexicalBinding: {
+          catalogSnapshotId: managedSurface.toolCatalogSnapshotId,
+          toolDefinitionDigest: selectedBinding.definitionDigest,
+          executableAdmissionId: selectedBinding.executableAdmissionId,
+          authorityAdmissionId: config.authorityAdmission?.admissionId,
+        },
+      });
+    });
+
+    it.each(["before disclosure dispatch", "while disclosure response is pending"] as const)(
+      "keeps the admitted executor sealed when the external dispatch map changes %s",
+      async (replacementTiming) => {
+        const catalogTool: ToolDefinition = {
+          name: "tool_catalog_search",
+          description: "Searches the tool catalog",
+          inputSchema: {},
+          tags: new Set(),
+        };
+        const deferredTool: ToolDefinition = {
+          name: "browser_session_start",
+          description: "Starts a browser session",
+          inputSchema: { type: "object" },
+          tags: new Set(["browser"]),
+        };
+        const session = makeSession();
+        const admittedExecutor = vi.fn().mockResolvedValue({ output: "admitted executor", isError: false });
+        const substituteExecutor = vi.fn().mockResolvedValue({ output: "substitute executor", isError: false });
+        let builtinTools: Map<string, RuntimeBuiltinToolExecutor>;
+        const provider: ProviderAdapter = {
+          name: "mock",
+          createMessage: vi.fn()
+            .mockResolvedValueOnce({
+              parts: textParts("finding the browser tool"),
+              inputTokens: 100,
+              outputTokens: 50,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              toolCalls: [{
+                id: "catalog-search-sealed-executor",
+                name: catalogTool.name,
+                input: { exact: deferredTool.name, includeSchemas: true },
+              }],
+              stopReason: "tool_use",
+            })
+            .mockImplementationOnce(() => {
+              if (replacementTiming === "while disclosure response is pending") {
+                builtinTools.set(deferredTool.name, substituteExecutor);
+              }
+              return Promise.resolve({
+                parts: textParts("using the browser tool"),
+                inputTokens: 100,
+                outputTokens: 50,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                toolCalls: [{ id: "selected-sealed-executor", name: deferredTool.name, input: {} }],
+                stopReason: "tool_use",
+              });
+            })
+            .mockResolvedValueOnce({
+              parts: textParts("done"),
+              inputTokens: 100,
+              outputTokens: 50,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              toolCalls: [],
+              stopReason: "end_turn",
+            }),
+          streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+        };
+        const linked = linkedLegacyToolFixture({
+          session,
+          provider,
+          catalogTool,
+          deferredTool,
+          deferredExecutor: admittedExecutor,
+        });
+        const catalogSearch = vi.fn().mockResolvedValue({
+          output: JSON.stringify({ tools: [deferredTool.name] }),
+          isError: false,
+          metadata: linked.metadata,
+        });
+        builtinTools = new Map([
+          [catalogTool.name, catalogSearch],
+          [deferredTool.name, admittedExecutor],
+        ]);
+        let budgetChecks = 0;
+        const sessionTurnBudget = {
+          admit: vi.fn(async () => {
+            budgetChecks += 1;
+            if (replacementTiming === "before disclosure dispatch" && budgetChecks === 2) {
+              builtinTools.set(deferredTool.name, substituteExecutor);
+            }
+            return {
+              status: "admitted" as const,
+              reason: "observed-below-limit" as const,
+              observation: { observedTokens: 0, source: "fixture" },
+            };
+          }),
+        };
+        const orchestrator = new RuntimeSessionOrchestrator({
+          provider,
+          model: "unknown",
+          tools: [catalogTool],
+          materializableTools: new Map([[deferredTool.name, deferredTool]]),
+          materializableToolBindings: new Map([[deferredTool.name, linked.binding]]),
+          toolCatalogSnapshotId: LEGACY_CATALOG_SNAPSHOT_ID,
+          capabilityMap: new Map([[deferredTool.name, linked.binding.capability]]),
+          builtinTools,
+          sessionTurnBudget,
+        });
+
+        const result = await orchestrator.processMessage(
+          session,
+          textParts("start a browser"),
+          undefined,
+          undefined,
+          linked.config,
+        );
+
+        expect(result.toolExecutions).toContainEqual(expect.objectContaining({
+          toolCallId: "selected-sealed-executor",
+          success: true,
+        }));
+        expect(admittedExecutor).toHaveBeenCalledTimes(1);
+        expect(substituteExecutor).not.toHaveBeenCalled();
+      },
+    );
 
     it("scopes provider request materializable tool projection to the per-call allowlist", async () => {
       const catalogTool: ToolDefinition = {

@@ -559,13 +559,7 @@ function normalizeEntry(entry: ToolCatalogEntry): ToolCatalogEntry {
   if (!inputSchema) {
     throw new TypeError("Tool catalog entry input schema is required for definition identity.");
   }
-  const definition: ToolCatalogDefinitionShape = {
-    name: entry.name,
-    description: entry.description,
-    inputSchema,
-    ...(outputSchema ? { outputSchema } : {}),
-    tags: [],
-  };
+  const toolDefinitionDigest = normalizeToolDefinitionDigest(entry.toolDefinitionDigest);
   return {
     ...entry,
     ...(aliases.length > 0 ? { aliases: normalizeAliasList(aliases) } : {}),
@@ -574,8 +568,18 @@ function normalizeEntry(entry: ToolCatalogEntry): ToolCatalogEntry {
     outputFields: [...entry.outputFields],
     ...(inputSchema ? { inputSchema } : {}),
     ...(outputSchema ? { outputSchema } : {}),
-    toolDefinitionDigest: digestToolDefinition(definition),
+    // Catalog tags classify effects and are not the provider-facing tags used
+    // to identify a ToolDefinition. Keep the digest established at the
+    // definition-owning boundary instead of attempting a lossy reconstruction.
+    toolDefinitionDigest,
   };
+}
+
+function normalizeToolDefinitionDigest(value: unknown): ToolDefinitionDigest {
+  if (typeof value !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(value)) {
+    throw new TypeError("Tool catalog entry definition digest is malformed.");
+  }
+  return value as ToolDefinitionDigest;
 }
 
 function normalizeToolDefinitionShape(input: unknown): ToolCatalogDefinitionShape {
@@ -636,7 +640,7 @@ function normalizeSchemaRecord(value: unknown, label: string): Record<string, un
   if (!isPlainRecord(value)) {
     throw new TypeError(`Builtin tool definition ${label} schema is malformed.`);
   }
-  return deepFreeze(cloneRecord(value));
+  return deepFreeze(cloneJsonRecord(value, `Builtin tool definition ${label} schema`));
 }
 
 function freezeEntry(entry: ToolCatalogEntry): ToolCatalogEntry {
@@ -926,21 +930,94 @@ function clampLimit(value: number | undefined): number {
 }
 
 function cloneRecord(value: Record<string, unknown>): Record<string, unknown> {
-  return cloneJsonValue(value) as Record<string, unknown>;
+  return cloneJsonRecord(value, "Tool catalog record");
 }
 
-function cloneJsonValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map((item) => cloneJsonValue(item));
+function cloneJsonRecord(value: Record<string, unknown>, context: string): Record<string, unknown> {
+  return cloneJsonValue(value, context, new Set<object>()) as Record<string, unknown>;
+}
+
+function cloneJsonValue(value: unknown, context: string, ancestors: Set<object>): unknown {
+  if (value === null || typeof value === "string" || typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw new TypeError(`${context} contains a non-finite number.`);
+    }
+    return value;
+  }
+  if (typeof value !== "object") {
+    throw new TypeError(`${context} contains an unsupported non-declarative value.`);
+  }
+  if (ancestors.has(value)) {
+    throw new TypeError(`${context} contains cyclic data.`);
   }
 
-  if (value && typeof value === "object") {
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      return cloneJsonArray(value, context, ancestors);
+    }
+    if (!isPlainRecord(value)) {
+      throw new TypeError(`${context} contains an unsupported object value.`);
+    }
+
     const clone: Record<string, unknown> = {};
-    for (const [key, nestedValue] of Object.entries(value)) {
-      clone[key] = cloneJsonValue(nestedValue);
+    for (const key of Reflect.ownKeys(value)) {
+      if (typeof key === "symbol") {
+        throw new TypeError(`${context} contains an unsupported symbol key.`);
+      }
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || descriptor.get || descriptor.set) {
+        throw new TypeError(`${context} contains an accessor property.`);
+      }
+      if (!descriptor.enumerable) {
+        throw new TypeError(`${context} contains a non-enumerable property.`);
+      }
+      Object.defineProperty(clone, key, {
+        configurable: true,
+        enumerable: true,
+        writable: true,
+        value: cloneJsonValue(descriptor.value, context, ancestors),
+      });
     }
     return clone;
+  } finally {
+    ancestors.delete(value);
   }
+}
 
-  return value;
+function cloneJsonArray(value: readonly unknown[], context: string, ancestors: Set<object>): unknown[] {
+  const clone: unknown[] = [];
+  const indexes = new Map<number, PropertyDescriptor>();
+  for (const key of Reflect.ownKeys(value)) {
+    if (key === "length") continue;
+    if (typeof key === "symbol" || !/^(?:0|[1-9][0-9]*)$/u.test(key)) {
+      throw new TypeError(`${context} contains an unsupported array property.`);
+    }
+    const index = Number(key);
+    if (!Number.isSafeInteger(index) || index >= value.length) {
+      throw new TypeError(`${context} contains an unsupported array index.`);
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || descriptor.get || descriptor.set) {
+      throw new TypeError(`${context} contains an accessor property.`);
+    }
+    if (!descriptor.enumerable) {
+      throw new TypeError(`${context} contains a non-enumerable property.`);
+    }
+    indexes.set(index, descriptor);
+  }
+  if (indexes.size !== value.length) {
+    throw new TypeError(`${context} contains a sparse array.`);
+  }
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = indexes.get(index);
+    if (!descriptor) {
+      throw new TypeError(`${context} contains a sparse array.`);
+    }
+    clone.push(cloneJsonValue(descriptor.value, context, ancestors));
+  }
+  return clone;
 }

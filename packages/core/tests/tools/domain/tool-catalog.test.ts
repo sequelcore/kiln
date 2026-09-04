@@ -117,6 +117,80 @@ describe("ToolCatalogIndex", () => {
     });
   });
 
+  it("preserves a retained tagged strict definition identity while restricting visibility", () => {
+    const base = catalogContribution("managed_tool");
+    const contribution = {
+      ...base,
+      definition: {
+        ...base.definition,
+        strict: true as const,
+        tags: ["managed-invocation", "control"],
+      },
+    } satisfies BuiltinToolCatalogContribution;
+    const catalog = ToolCatalogIndex.fromTools([], undefined, {
+      catalogContributions: [contribution],
+    });
+    const original = catalog.search({ exact: "managed_tool", includeSchemas: true }).entries[0];
+    const restricted = catalog.restrictToCanonicalNames(new Set(["managed_tool"]));
+    const retained = restricted.search({ exact: "managed_tool", includeSchemas: true }).entries[0];
+
+    expect(restricted.snapshotId).toBe(catalog.snapshotId);
+    expect(retained?.toolDefinitionDigest).toBe(original?.toolDefinitionDigest);
+    expect(retained?.toolDefinitionDigest).toBe(digestToolDefinition(contribution.definition));
+  });
+
+  it("rejects executable or accessor-backed contribution schema values without invoking accessors", () => {
+    let getterInvocations = 0;
+    const accessorSchema: Record<string, unknown> = { type: "object" };
+    Object.defineProperty(accessorSchema, "properties", {
+      enumerable: true,
+      get() {
+        getterInvocations += 1;
+        return {};
+      },
+    });
+
+    expect(() => ToolCatalogIndex.fromTools([], undefined, {
+      catalogContributions: [{
+        ...catalogContribution("managed_accessor"),
+        definition: {
+          ...catalogContribution("managed_accessor").definition,
+          inputSchema: accessorSchema,
+        },
+      }],
+    })).toThrow(/schema.*accessor|accessor.*schema/i);
+    expect(getterInvocations).toBe(0);
+
+    expect(() => ToolCatalogIndex.fromTools([], undefined, {
+      catalogContributions: [{
+        ...catalogContribution("managed_function"),
+        definition: {
+          ...catalogContribution("managed_function").definition,
+          inputSchema: {
+            type: "object",
+            properties: { callback: () => "not declarative" },
+          },
+        },
+      }],
+    })).toThrow(/schema.*unsupported|unsupported.*schema/i);
+
+    expect(() => ToolCatalogIndex.fromTools([], undefined, {
+      catalogContributions: [{
+        ...catalogContribution("managed_to_json"),
+        definition: {
+          ...catalogContribution("managed_to_json").definition,
+          inputSchema: {
+            type: "object",
+            properties: {},
+            toJSON() {
+              return { type: "string" };
+            },
+          },
+        },
+      }],
+    })).toThrow(/schema.*unsupported|unsupported.*schema/i);
+  });
+
   it("includes provider-facing tags and strictness in definition identity", () => {
     const base = catalogContribution("managed_identity");
     const tagged = {

@@ -103,6 +103,8 @@ import type {
   IneligibleCompletionSettlementEvidence,
   EligibleCompletionSettlementEvidence,
   TurnConvergenceEvidence,
+  TurnConvergenceObservation,
+  TurnConvergenceReservation,
   ResolvedTurnConvergencePolicy,
   TurnProgressEvidence,
   TurnConvergenceDecision,
@@ -497,6 +499,7 @@ export class RuntimeSessionOrchestrator {
       callBuiltinTools,
       runtimeCapabilityExecutors,
     );
+    const effectiveDependencyBuiltinTools = snapshotRuntimeBuiltinTools(this.deps.builtinTools);
     // Keep the merged capability map mutable inside this turn. Discovery
     // executors are installed before the first provider round; a selected
     // capability's exact private materialization closure is installed only
@@ -520,7 +523,10 @@ export class RuntimeSessionOrchestrator {
     });
     const projectedRoundCapabilityToolBlocks = materializationBlocksForProjectedRound(capabilityToolBlocks);
     const toolExecutor = new RuntimeSessionToolExecutor(
-      this.deps,
+      {
+        ...this.deps,
+        builtinTools: effectiveDependencyBuiltinTools,
+      },
       this.deps.eventBus,
       (sessionId, description, hasLiveAuthoritySource = true) =>
         hasLiveAuthoritySource
@@ -678,18 +684,31 @@ export class RuntimeSessionOrchestrator {
         && managedInvocationTransitionToolIsAdmitted(toolsForRound, pendingTransitionForRound, perCallConfig);
       const deferredDisclosureReserveEligible = deferredDisclosureRequestPending
         && !transitionReserveEligible;
+      const providerObservation = turnObservation.snapshot();
+      const providerReservation: TurnConvergenceReservation = {
+        kind: "provider_request",
+        projectedInputTokens: estimateRuntimeProviderRequestInput(providerRequest),
+      };
       const providerDecision = decideTurnConvergence(
         executionEnvelope.convergence,
-        turnObservation.snapshot(),
-        {
-          kind: "provider_request",
-          projectedInputTokens: estimateRuntimeProviderRequestInput(providerRequest),
-        },
+        providerObservation,
+        providerReservation,
       );
-      if (providerDecision.status === "pause"
-        && !isEligibleTransitionReservePause(providerDecision, transitionReserveEligible)
-        && !isEligibleDeferredDisclosureReservePause(providerDecision, deferredDisclosureReserveEligible)) {
-        if (providerDecision.reason === "tool_round_limit") {
+      const providerDecisionForControl = recheckTurnConvergenceForReserve(
+        executionEnvelope.convergence,
+        providerObservation,
+        providerReservation,
+        providerDecision,
+        transitionReserveEligible
+          ? ["toolRounds"]
+          : deferredDisclosureReserveEligible
+            ? ["providerRequests", "toolRounds"]
+            : [],
+      );
+      if (providerDecisionForControl.status === "pause"
+        && !isEligibleTransitionReservePause(providerDecisionForControl, transitionReserveEligible)
+        && !isEligibleDeferredDisclosureReservePause(providerDecisionForControl, deferredDisclosureReserveEligible)) {
+        if (providerDecisionForControl.reason === "tool_round_limit") {
           if (governedWorkProgress && !governedWorkProgress.goalCreated) {
             return finalizeGovernedWorkMaterializationRequired({
               deps: this.deps,
@@ -728,7 +747,7 @@ export class RuntimeSessionOrchestrator {
         return this.finalizeTurnConvergencePause({
           session,
           executionEnvelope,
-          decision: providerDecision,
+          decision: providerDecisionForControl,
           progressEvidence: progressClassifier.chronologicalEvidence,
           toolExecutions,
           routingDecision: toPublicRoutingDecision(routing.routingDecision),
@@ -777,6 +796,8 @@ export class RuntimeSessionOrchestrator {
           materializationDecisions: pendingMaterializationDecisions,
           authorityAdmissionId: perCallConfig?.authorityAdmission?.admissionId,
           currentCatalogSnapshotId: this.deps.toolCatalogSnapshotId,
+          currentBuiltinTools: effectiveBuiltinTools,
+          dependencyBuiltinTools: effectiveDependencyBuiltinTools,
         }),
         cachePartition,
         conversationProjection: conversationProjection.evidence,
@@ -793,6 +814,8 @@ export class RuntimeSessionOrchestrator {
         materializableToolBindings: this.deps.materializableToolBindings,
         authorityAdmissionId: perCallConfig?.authorityAdmission?.admissionId,
         currentCatalogSnapshotId: this.deps.toolCatalogSnapshotId,
+        currentBuiltinTools: effectiveBuiltinTools,
+        dependencyBuiltinTools: effectiveDependencyBuiltinTools,
       });
       const providerStartedAt = turnObservation.recordProviderRequestStarted();
       let response: AgentResponse;
@@ -959,10 +982,15 @@ export class RuntimeSessionOrchestrator {
       }
 
       const normalizedToolCalls = response.toolCalls.map((toolCall) => normalizeToolCall(toolCall));
+      const toolBatchObservation = turnObservation.snapshot();
+      const toolBatchReservation: TurnConvergenceReservation = {
+        kind: "tool_batch",
+        toolCallCount: normalizedToolCalls.length,
+      };
       const toolBatchDecision = decideTurnConvergence(
         executionEnvelope.convergence,
-        turnObservation.snapshot(),
-        { kind: "tool_batch", toolCallCount: normalizedToolCalls.length },
+        toolBatchObservation,
+        toolBatchReservation,
       );
       const transitionBatchReserveEligible = transitionOnlyRound
         && managedInvocationTransitionReserveUsed
@@ -971,13 +999,24 @@ export class RuntimeSessionOrchestrator {
       const deferredDisclosureBatchReservePending = deferredDisclosureReserve?.providerRequestConsumed === true
         && deferredDisclosureReserve.toolBatchConsumed === false
         && !transitionBatchReserveEligible;
-      if (toolBatchDecision.status === "pause"
-        && !isEligibleTransitionReservePause(toolBatchDecision, transitionBatchReserveEligible)
-        && !isEligibleDeferredDisclosureBatchReservePause(toolBatchDecision, deferredDisclosureBatchReservePending)) {
+      const toolBatchDecisionForControl = recheckTurnConvergenceForReserve(
+        executionEnvelope.convergence,
+        toolBatchObservation,
+        toolBatchReservation,
+        toolBatchDecision,
+        transitionBatchReserveEligible
+          ? ["toolRounds"]
+          : deferredDisclosureBatchReservePending
+            ? ["toolRounds", "toolCalls", "recoveryAttempts"]
+            : [],
+      );
+      if (toolBatchDecisionForControl.status === "pause"
+        && !isEligibleTransitionReservePause(toolBatchDecisionForControl, transitionBatchReserveEligible)
+        && !isEligibleDeferredDisclosureBatchReservePause(toolBatchDecisionForControl, deferredDisclosureBatchReservePending)) {
         return this.finalizeTurnConvergencePause({
           session,
           executionEnvelope,
-          decision: toolBatchDecision,
+          decision: toolBatchDecisionForControl,
           progressEvidence: progressClassifier.chronologicalEvidence,
           toolExecutions,
           routingDecision: toPublicRoutingDecision(routing.routingDecision),
@@ -1177,8 +1216,8 @@ export class RuntimeSessionOrchestrator {
         this.deps.materializableToolBindings,
         this.deps.toolCatalogSnapshotId,
         readExecutionToolAllowlist(perCallConfig),
-        callBuiltinTools,
-        this.deps.builtinTools,
+        effectiveBuiltinTools,
+        effectiveDependencyBuiltinTools,
         capabilityBinding,
         perCallConfig?.authorityAdmission,
         callerOwnedBuiltinToolNames,
@@ -2120,12 +2159,19 @@ function mergeRuntimeBuiltinTools(
   callBuiltinTools: ReadonlyMap<string, RuntimeBuiltinToolExecutor> | undefined,
   capabilityExecutors: ReadonlyMap<string, RuntimeBuiltinToolExecutor> | undefined,
 ): ReadonlyMap<string, RuntimeBuiltinToolExecutor> | undefined {
-  if (!capabilityExecutors || capabilityExecutors.size === 0) return callBuiltinTools;
+  if ((!callBuiltinTools || callBuiltinTools.size === 0)
+    && (!capabilityExecutors || capabilityExecutors.size === 0)) return undefined;
   const merged = new Map(callBuiltinTools ?? []);
   // The Runtime capability bridge is canonical for its two names. A caller
   // cannot replace the bound catalog resolver through a per-call map.
-  for (const [name, executor] of capabilityExecutors) merged.set(name, executor);
+  for (const [name, executor] of capabilityExecutors ?? []) merged.set(name, executor);
   return merged;
+}
+
+function snapshotRuntimeBuiltinTools(
+  tools: ReadonlyMap<string, RuntimeBuiltinToolExecutor> | undefined,
+): ReadonlyMap<string, RuntimeBuiltinToolExecutor> | undefined {
+  return tools && tools.size > 0 ? new Map(tools) : undefined;
 }
 
 interface RuntimeCapabilityBindingFailure {
@@ -2954,6 +3000,56 @@ function estimateRuntimeProviderRequestInput(
     return { status: "observed", value: estimateTextTokens(serialized) };
   } catch {
     return { status: "unknown", reason: "provider request input could not be serialized" };
+  }
+}
+
+type ReserveConvergenceCounter =
+  | "providerRequests"
+  | "toolRounds"
+  | "toolCalls"
+  | "recoveryAttempts";
+
+/**
+ * Re-evaluate a reserve candidate after relaxing only its named counter
+ * dimensions. Core convergence keeps a fixed first-failure precedence, so a
+ * counter limit can otherwise hide a later token or observation guard. The
+ * original decision remains separate and is retained as activation evidence.
+ */
+function recheckTurnConvergenceForReserve(
+  policy: ResolvedTurnConvergencePolicy,
+  observation: TurnConvergenceObservation,
+  reservation: TurnConvergenceReservation,
+  originalDecision: TurnConvergenceDecision,
+  exemptCounters: readonly ReserveConvergenceCounter[],
+): TurnConvergenceDecision {
+  if (!isExemptReserveCounterDecision(originalDecision, exemptCounters)) {
+    return originalDecision;
+  }
+  const relaxedPolicy = { ...policy };
+  for (const counter of exemptCounters) {
+    relaxedPolicy[counter] = Number.MAX_SAFE_INTEGER;
+  }
+  return decideTurnConvergence(relaxedPolicy, observation, reservation);
+}
+
+function isExemptReserveCounterDecision(
+  decision: TurnConvergenceDecision,
+  exemptCounters: readonly ReserveConvergenceCounter[],
+): boolean {
+  if (decision.status !== "pause") {
+    return false;
+  }
+  switch (decision.reason) {
+    case "provider_request_limit":
+      return exemptCounters.includes("providerRequests");
+    case "tool_round_limit":
+      return exemptCounters.includes("toolRounds");
+    case "tool_call_limit":
+      return exemptCounters.includes("toolCalls");
+    case "recovery_limit":
+      return exemptCounters.includes("recoveryAttempts");
+    default:
+      return false;
   }
 }
 

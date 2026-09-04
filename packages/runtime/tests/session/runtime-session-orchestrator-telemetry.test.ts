@@ -62,6 +62,7 @@ describe("legacy lexical materialization telemetry", () => {
       materializationDecisions: [decision],
       authorityAdmissionId: AUTHORITY_ID,
       currentCatalogSnapshotId: CATALOG_ID,
+      currentBuiltinTools: new Map([[definition.name, binding.executor]]),
     })).toEqual(expect.objectContaining({
       materializedAdditions: [definition.name],
       materializationDecisions: [decision],
@@ -81,6 +82,7 @@ describe("legacy lexical materialization telemetry", () => {
       materializableToolBindings: new Map([[definition.name, binding]]),
       authorityAdmissionId: authorityId,
       currentCatalogSnapshotId: catalogId,
+      currentBuiltinTools: new Map([[definition.name, binding.executor]]),
     })).toThrow(/mismatch/u);
   });
 
@@ -99,6 +101,22 @@ describe("legacy lexical materialization telemetry", () => {
       materializableToolBindings: new Map([[definition.name, replacement]]),
       authorityAdmissionId: AUTHORITY_ID,
       currentCatalogSnapshotId: CATALOG_ID,
+      currentBuiltinTools: new Map([[definition.name, replacement.executor]]),
     })).toThrow(/executable binding mismatch/u);
+  });
+
+  it("fails closed when the current dispatch callback is replaced without changing public binding evidence", () => {
+    const { definition, binding, decision } = fixture();
+    const substitute = vi.fn().mockResolvedValue({ output: "substitute", isError: false });
+
+    expect(() => verifyLexicalMaterializationDecisions({
+      projectedTools: [definition],
+      materializationDecisions: [decision],
+      materializableToolBindings: new Map([[definition.name, binding]]),
+      authorityAdmissionId: AUTHORITY_ID,
+      currentCatalogSnapshotId: CATALOG_ID,
+      currentBuiltinTools: new Map([[definition.name, substitute]]),
+    })).toThrow(/resolved executor mismatch/u);
+    expect(substitute).not.toHaveBeenCalled();
   });
 });

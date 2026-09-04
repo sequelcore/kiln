@@ -35,6 +35,7 @@ import {
 } from "@kilnai/core";
 import type { ModelPricing } from "@kilnai/core";
 import type { MaterializableRuntimeToolBinding } from "./progressive-tool-admission.js";
+import type { RuntimeBuiltinToolExecutor } from "./runtime-session-orchestrator.types.js";
 
 export interface OrchestratorUsageSnapshot {
   readonly inputTokens: number;
@@ -282,6 +283,8 @@ export function buildProviderRequestToolProjectionEvidence(input: {
   readonly materializableToolBindings?: ReadonlyMap<string, MaterializableRuntimeToolBinding>;
   readonly authorityAdmissionId?: `sha256:${string}`;
   readonly currentCatalogSnapshotId?: `sha256:${string}`;
+  readonly currentBuiltinTools?: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
+  readonly dependencyBuiltinTools?: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
   readonly materializationDecisions: readonly ProviderRequestToolMaterializationDecisionEvidence[];
 }): ProviderRequestToolProjectionEvidence {
   const projectedNames = input.projectedTools?.map((tool) => tool.name) ?? [];
@@ -299,6 +302,8 @@ export function buildProviderRequestToolProjectionEvidence(input: {
     materializableToolBindings: input.materializableToolBindings,
     authorityAdmissionId: input.authorityAdmissionId,
     currentCatalogSnapshotId: input.currentCatalogSnapshotId,
+    currentBuiltinTools: input.currentBuiltinTools,
+    dependencyBuiltinTools: input.dependencyBuiltinTools,
   });
   return {
     projected: toolProjectionSet(projectedNames),
@@ -327,6 +332,8 @@ export function verifyLexicalMaterializationDecisions(input: {
   readonly materializableToolBindings?: ReadonlyMap<string, MaterializableRuntimeToolBinding>;
   readonly authorityAdmissionId?: `sha256:${string}`;
   readonly currentCatalogSnapshotId?: `sha256:${string}`;
+  readonly currentBuiltinTools?: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
+  readonly dependencyBuiltinTools?: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
 }): void {
   const lexicalDecisions = input.materializationDecisions.filter((decision) =>
     decision.sourceToolName === "tool_catalog_search");
@@ -356,6 +363,11 @@ export function verifyLexicalMaterializationDecisions(input: {
     }
     if (digestToolDefinition(binding.definition) !== binding.definitionDigest) {
       throw new Error(`Lexical materialization telemetry binding definition digest mismatch for '${decision.toolName}'.`);
+    }
+    const currentExecutor = input.currentBuiltinTools?.get(decision.toolName)
+      ?? input.dependencyBuiltinTools?.get(decision.toolName);
+    if (currentExecutor !== binding.executor) {
+      throw new Error(`Lexical materialization telemetry resolved executor mismatch for '${decision.toolName}'.`);
     }
     const projectedMatches = (input.projectedTools ?? []).filter((tool) => tool.name === decision.toolName);
     if (projectedMatches.length !== 1) {
