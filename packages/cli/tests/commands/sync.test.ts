@@ -10,7 +10,6 @@ const syncMocks = vi.hoisted(() => ({
   readGlobalConfig: vi.fn(),
   syncNativePermissionProjections: vi.fn(),
   syncOpenCodeSkillVisibilityProjection: vi.fn(),
-  syncNativeHookProjections: vi.fn(),
   syncNativeAgentProjections: vi.fn(),
   resolveProjectRoot: vi.fn(),
   syncWorkflowSnapshotProjection: vi.fn(),
@@ -34,10 +33,6 @@ vi.mock("../../src/config/global-config.js", () => ({
 vi.mock("../../src/config/native-permission-projection.js", () => ({
   syncNativePermissionProjections: syncMocks.syncNativePermissionProjections,
   syncOpenCodeSkillVisibilityProjection: syncMocks.syncOpenCodeSkillVisibilityProjection,
-}));
-
-vi.mock("../../src/config/native-hook-projection.js", () => ({
-  syncNativeHookProjections: syncMocks.syncNativeHookProjections,
 }));
 
 vi.mock("../../src/config/native-agent-projection.js", () => ({
@@ -116,13 +111,6 @@ describe("syncCommand", () => {
       errors: [],
     });
     syncMocks.syncOpenCodeSkillVisibilityProjection.mockResolvedValue({ outcomes: [], errors: [] });
-    syncMocks.syncNativeHookProjections.mockResolvedValue({
-      claudeHook: true,
-      codexHook: true,
-      skippedWindows: false,
-      outcomes: [],
-      errors: [],
-    });
     syncMocks.syncNativeAgentProjections.mockResolvedValue({ claude: true, codex: true, opencode: true, outcomes: [], errors: [] });
     syncMocks.resolveProjectRoot.mockReturnValue({
       rootPath: projectRootPath,
@@ -200,8 +188,8 @@ describe("syncCommand", () => {
   });
 
   it("parses explicit target values and comma-separated target lists", () => {
-    expect(parseSyncFlags(["--target", "permissions,hooks", "--target=workflow-snapshot"])).toEqual({
-      targets: ["permissions", "hooks", "workflow-snapshot"],
+    expect(parseSyncFlags(["--target", "permissions,agents", "--target=workflow-snapshot"])).toEqual({
+      targets: ["permissions", "agents", "workflow-snapshot"],
       force: false,
       syncAll: false,
       dryRun: false,
@@ -241,6 +229,7 @@ describe("syncCommand", () => {
 
   it("rejects unknown arguments instead of widening them to all targets", () => {
     expect(() => parseSyncFlags(["--wat"])).toThrow('Unknown sync argument "--wat"');
+    expect(() => parseSyncFlags(["--hooks"])).toThrow('Unknown sync argument "--hooks"');
   });
 
   it("rejects --all combined with target selection", () => {
@@ -249,7 +238,7 @@ describe("syncCommand", () => {
 
   it("rejects unknown explicit targets", () => {
     expect(() => parseSyncFlags(["--target", "unknown"])).toThrow(
-      'Unknown sync target "unknown". Valid targets: permissions, hooks, agents, workflow-snapshot, global-instructions, skills',
+      'Unknown sync target "unknown". Valid targets: permissions, agents, workflow-snapshot, global-instructions, skills',
     );
   });
 
@@ -263,7 +252,6 @@ describe("syncCommand", () => {
 
   it("requires force confirmation for projection targets that own install-state drift", () => {
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--permissions", "--force"]))).toBe(true);
-    expect(requiresForceSyncConfirmation(parseSyncFlags(["--hooks", "--force"]))).toBe(true);
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--agents", "--force"]))).toBe(true);
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--workflow-snapshot", "--force"]))).toBe(false);
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--global-instructions", "--force"]))).toBe(true);

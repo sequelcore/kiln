@@ -259,7 +259,7 @@ Each harness integration declares explicit support for:
 - native projection
 - native config import
 - MCP runtime tools
-- hooks
+- native lifecycle-hook projection
 - cross-harness managed invocation adapters
 
 The exact Codex, Claude, and OpenCode V2 tool/plugin compatibility baseline is
@@ -582,14 +582,17 @@ installed.
 
 ## MCP And Hooks
 
-MCP and hooks are complementary integration mechanisms.
+MCP and native hooks are complementary integration mechanisms.
 
 - MCP exposes runtime tools after the harness has started. It does not replace
   bootstrap configuration unless a harness explicitly reads startup config
   through MCP, which Claude Code, Codex, and OpenCode do not currently do as a
   shared standard.
-- Hooks are native harness extension points and must be projected according to
-  the harness capability table.
+- Native hooks are harness-specific extension points. Kiln currently reports
+  hook projection as unsupported for Claude Code, Codex, and OpenCode; a future
+  adapter must prove event, matcher, payload, outcome, and blocking semantics
+  per admitted harness version before changing that status. The replacement is
+  tracked in [issue #116](https://github.com/sequelcore/kiln/issues/116).
 
 ## Invariants
 

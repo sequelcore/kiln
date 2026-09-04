@@ -64,7 +64,8 @@ The config projection boundary is owned by the CLI config layer.
   integration capability declarations.
 - `packages/cli/src/config/config-merger.ts` merges global and project config.
 - `packages/cli/src/config/native-*-projection.ts` owns native file IO for
-  permissions, hooks, agents, and skills.
+  permissions, agents, and skills. Native lifecycle-hook projection is not
+  currently supported.
 - `packages/cli/src/config/global-communication-projection.ts` owns the narrow
   user-scoped Claude `outputStyle` projection from canonical global
   communication intent. It owns one field, not the whole settings file.
@@ -266,7 +267,7 @@ state namespace. New files are not backed up.
 
 If global config marks a known harness engine as `enabled: false`, sync removes
 recorded managed projections for that harness and excludes it from new native
-permission, hook, agent, and skill projection writes.
+permission, agent, and skill projection writes.
 
 Global native instruction projections are opt-in managed renderings of neutral
 Kiln doctrine. When selected, the projection writes these harness user-level
@@ -321,8 +322,8 @@ Each native config file has one composed writer for its managed route field.
 The Claude Code writer owns `claude-settings`, the Codex writer owns
 `codex-config`, and the OpenCode writer owns `opencode-config`. Route defaults are composed with permissions and supported
 settings before the atomic file write, then recorded in install-state with
-per-field hashes. Hook, agent, and skill projections remain separate target
-families and must not write the native `model` field.
+per-field hashes. Agent and skill projections remain separate target families
+and must not write the native `model` field.
 
 Unmanaged native fields are preserved. A preexisting native `model` is never
 deleted on first sync merely because the canonical route targets another
@@ -952,8 +953,8 @@ OpenCode native settings that Kiln can represent in canonical global config.
 
 `kiln uninstall [target]` removes only recorded managed projection state.
 Harness aliases such as `codex` resolve to all recorded targets for that
-harness, including config, agents, skills, and hooks. Exact target IDs remain
-available for surgical removal.
+harness, including retired managed hook artifacts that predate removal of the
+unsupported projector. Exact target IDs remain available for surgical removal.
 
 ## Managed Agent Target Projection
 

@@ -2,7 +2,15 @@
 
 ## Overview
 
-Kiln provides a hook system for executing custom logic at key lifecycle points during CLI wrapper session execution. Hooks are configured in canonical global `~/.kiln/config.yaml` or the bound private project `config.yaml` and executed by the wrapper layer.
+Kiln provides a hook system for executing custom logic at key lifecycle points
+during Kiln CLI session execution. Hooks are configured in canonical global
+`~/.kiln/config.yaml` and executed by Kiln's wrapper layer.
+
+Kiln does not currently project this configuration into Claude Code, Codex, or
+OpenCode. Native harness hooks require separate harness-owned registration until
+Kiln has versioned adapters that can prove equivalent event and outcome
+semantics. Cross-harness projection is tracked in
+[issue #116](https://github.com/sequelcore/kiln/issues/116).
 
 ## Hook Events
 
@@ -117,7 +125,9 @@ hooks:
 
 The HookExecutor (`packages/cli/src/wrapper/hook-executor.ts`) runs handlers synchronously by default, or asynchronously when `async: true` is set.
 
-For synchronous execution, the command runs with a configurable timeout (default: no timeout). Results are logged but do not block execution unless the exit code is non-zero.
+For synchronous execution, the command runs with a configurable timeout
+(default: no timeout). Nonzero results are logged; they do not prevent the
+associated action.
 
 For async execution, the process is spawned detached and unref'd, allowing it to run in the background.
 

@@ -4,7 +4,6 @@ import type {
 } from "@kilnai/gateway-contracts";
 import { loadKilnConfig, loadKilnConfigWithGlobalAuthority, loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
 import { syncNativeAgentProjections } from "../config/native-agent-projection.js";
-import { syncNativeHookProjections } from "../config/native-hook-projection.js";
 import { syncNativePermissionProjections } from "../config/native-permission-projection.js";
 import { syncNativeSkillProjections } from "../config/native-skill-projection.js";
 import { syncNativeMcpProjections } from "../config/native-mcp-projection-sync.js";
@@ -150,10 +149,6 @@ async function syncNativeProjections(
     modelGateway: globalConfig?.modelGateway,
     projectStateBinding: state,
   }));
-  const hookResult = await syncNativeHookProjections(projectPath, state.projectStateRoot, {
-    disabledHarnesses,
-    privateStateRoot: state.projectStateRoot,
-  });
   const agentResult = await requireCurrentProjection(projectPath, "native-agents", () => syncNativeAgentProjections(projectPath, {
     disabledHarnesses,
     projectStateBinding: state,
@@ -189,7 +184,6 @@ async function syncNativeProjections(
       : [`${target.harness} MCP projection ${target.status}${target.reason ? `: ${target.reason}` : ""}`]);
   const errors = [
     ...permissionResult.errors,
-    ...hookResult.errors,
     ...agentResult.errors,
     ...communicationResult.errors,
     ...skillResult.errors,

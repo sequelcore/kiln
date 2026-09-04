@@ -43,6 +43,7 @@ export interface HarnessIntegrationCapability {
     readonly admittedExecutableVersions: readonly string[];
     readonly requiredFeatures: readonly string[];
   };
+  /** Kiln can project canonical lifecycle hooks into this harness. */
   readonly hooks: boolean;
   /**
    * Whether the selected native route can enforce these scalar constraints
@@ -85,7 +86,7 @@ const HARNESS_INTEGRATION_CAPABILITIES: Record<HarnessIntegrationId, HarnessInte
       admittedExecutableVersions: [],
       requiredFeatures: [],
     },
-    hooks: true,
+    hooks: false,
     preventiveEnforcement: { approval: true, sandbox: false },
   },
   codex: {
@@ -104,7 +105,7 @@ const HARNESS_INTEGRATION_CAPABILITIES: Record<HarnessIntegrationId, HarnessInte
       admittedExecutableVersions: ["0.151.0"],
       requiredFeatures: ["mcp_2026_07_28"],
     },
-    hooks: true,
+    hooks: false,
     preventiveEnforcement: { approval: true, sandbox: true },
   },
   opencode: {
@@ -123,7 +124,7 @@ const HARNESS_INTEGRATION_CAPABILITIES: Record<HarnessIntegrationId, HarnessInte
       admittedExecutableVersions: [],
       requiredFeatures: [],
     },
-    hooks: true,
+    hooks: false,
     preventiveEnforcement: { approval: true, sandbox: false },
   },
 };

@@ -67,6 +67,9 @@ describe("harness integration capabilities", () => {
     expect(supportsHarnessIntegration("codex", "runtimeConfigInjection")).toBe(true);
     expect(supportsHarnessIntegration("opencode", "runtimeConfigInjection")).toBe(true);
     expect(supportsHarnessIntegration("claude", "runtimeConfigInjection")).toBe(false);
+    expect(supportsHarnessIntegration("claude", "hooks")).toBe(false);
+    expect(supportsHarnessIntegration("codex", "hooks")).toBe(false);
+    expect(supportsHarnessIntegration("opencode", "hooks")).toBe(false);
   });
 
   it("admits the strict modern control-plane bridge only for live-proven executable versions", () => {

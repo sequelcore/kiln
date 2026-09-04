@@ -1,7 +1,6 @@
 import readline from "node:readline";
 import { loadKilnConfigWithGlobalAuthority } from "../config/config-merger.js";
 import { syncNativePermissionProjections, syncOpenCodeSkillVisibilityProjection } from "../config/native-permission-projection.js";
-import { syncNativeHookProjections } from "../config/native-hook-projection.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
 import { syncWorkflowSnapshotProjection } from "../application/workflow-snapshot-projection.js";
 import { syncGlobalInstructionShimProjections } from "../application/global-instruction-shim-projection.js";
@@ -16,12 +15,11 @@ import { configuredCommunicationCandidates, resolveConfiguredCommunication } fro
 import { syncGlobalCommunicationProjection } from "../config/global-communication-projection.js";
 import { resolveProjectStateBinding } from "../application/project-state-root.js";
 
-export const SYNC_TARGETS = ["permissions", "hooks", "agents", "workflow-snapshot", "global-instructions", "skills"] as const;
+export const SYNC_TARGETS = ["permissions", "agents", "workflow-snapshot", "global-instructions", "skills"] as const;
 export type SyncTargetId = typeof SYNC_TARGETS[number];
 
 const SYNC_TARGET_FLAGS: Readonly<Record<string, SyncTargetId>> = {
   "--permissions": "permissions",
-  "--hooks": "hooks",
   "--agents": "agents",
   "--workflow-snapshot": "workflow-snapshot",
   "--global-instructions": "global-instructions",
@@ -113,7 +111,6 @@ export function printSyncHelp(appName: string): void {
 export function requiresForceSyncConfirmation(flags: SyncFlags): boolean {
   return flags.force && !flags.dryRun && (
     isSyncTargetSelected(flags, "permissions")
-    || isSyncTargetSelected(flags, "hooks")
     || isSyncTargetSelected(flags, "agents")
     || isSyncTargetSelected(flags, "global-instructions")
     || isSyncTargetSelected(flags, "skills")
@@ -192,7 +189,6 @@ export async function syncCommand(
   }
   const forceNativeProjectionSync = requiresForceSyncConfirmation(flags);
   const forcePermissionSync = isForceSyncTargetSelected(flags, "permissions");
-  const forceHookSync = isForceSyncTargetSelected(flags, "hooks");
   const forceAgentSync = isForceSyncTargetSelected(flags, "agents");
   const forceGlobalInstructionSync = isForceSyncTargetSelected(flags, "global-instructions");
   const forceSkillSync = isForceSyncTargetSelected(flags, "skills");
@@ -200,7 +196,6 @@ export async function syncCommand(
   const projectRoot = resolveProjectRoot({ explicitPath: flags.projectPath });
   const root = projectRoot.rootPath;
   const projectStateBinding = resolveProjectStateBinding(root);
-  const kilnDir = projectStateBinding.projectionsPath;
   const disabledHarnesses = [] as const;
 
   const { kilnYaml, globalConfig } = await loadKilnConfigWithGlobalAuthority(root, { projectStateBinding });
@@ -218,7 +213,6 @@ export async function syncCommand(
   }
 
   let permResult: Awaited<ReturnType<typeof syncNativePermissionProjections>> | null = null;
-  let hookResult: Awaited<ReturnType<typeof syncNativeHookProjections>> | null = null;
   let agentResult: Awaited<ReturnType<typeof syncNativeAgentProjections>> | null = null;
   let workflowSnapshotResult: Awaited<ReturnType<typeof syncWorkflowSnapshotProjection>> | null = null;
   let globalInstructionResult: Awaited<ReturnType<typeof syncGlobalInstructionShimProjections>> | null = null;
@@ -237,16 +231,6 @@ export async function syncCommand(
         modelGateway: globalConfig?.modelGateway,
         projectStateBinding,
       })));
-  }
-
-  if (isSyncTargetSelected(flags, "hooks")) {
-    hookResult = await captureProjectionFailure(unexpectedOutcomes, "hooks", root, () =>
-      syncNativeHookProjections(root, kilnDir, {
-        force: forceHookSync,
-        dryRun: flags.dryRun,
-        disabledHarnesses,
-        privateStateRoot: projectStateBinding.projectStateRoot,
-      }));
   }
 
   if (isSyncTargetSelected(flags, "agents")) {
@@ -311,7 +295,7 @@ export async function syncCommand(
 
   const outcomes = [
     ...unexpectedOutcomes,
-    ...[permResult, hookResult, agentResult, workflowSnapshotResult, globalInstructionResult, exposureResult, openCodeSkillVisibilityResult, skillsResult]
+    ...[permResult, agentResult, workflowSnapshotResult, globalInstructionResult, exposureResult, openCodeSkillVisibilityResult, skillsResult]
       .flatMap((result) => result?.outcomes ?? []),
     ...(globalCommunicationResult ? [globalCommunicationResult.outcome] : []),
   ];
