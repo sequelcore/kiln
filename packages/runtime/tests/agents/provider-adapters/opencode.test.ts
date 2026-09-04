@@ -114,6 +114,59 @@ describe("OpenCodeAdapter", () => {
       expect(headers.get("user-agent")).toBe("kiln/3.0.0-beta.1");
     });
 
+    it.each([undefined, "", "   "])(
+      "rejects an OpenCode Go request with session ID %j before provider I/O",
+      async (sessionId) => {
+        const fetchMock = vi.fn<FetchCall>(async () => new Response(JSON.stringify({
+          choices: [{ message: { content: "unexpected" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        })));
+        globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+        const admit = vi.fn();
+        const transportEvents: unknown[] = [];
+        const adapter = new OpenCodeAdapter({
+          apiKey: "sk-test",
+          tier: "go",
+          defaultModel: "glm-5.2",
+        });
+
+        await expect(adapter.createMessage({
+          ...(sessionId === undefined ? {} : { sessionId }),
+          system: "test",
+          messages: [{ role: "user", parts: [{ type: "text", text: "hello" }] }],
+          transportAdmission: { admit },
+          transportObserver: { onEvent: (event) => transportEvents.push(event) },
+        })).rejects.toThrow("OpenCode Go requests require a non-empty session ID");
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(admit).not.toHaveBeenCalled();
+        expect(transportEvents).toEqual([]);
+      },
+    );
+
+    it("rejects a public OpenCode Go streaming request without a session ID before provider I/O", async () => {
+      const fetchMock = vi.fn<FetchCall>(async () => new Response("data: [DONE]\n\n", {
+        headers: { "Content-Type": "text/event-stream" },
+      }));
+      globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+      const adapter = new OpenCodeAdapter({
+        apiKey: "sk-test",
+        tier: "go",
+        defaultModel: "glm-5.2",
+      });
+
+      const consume = async (): Promise<void> => {
+        for await (const _event of adapter.streamMessage({
+          system: "test",
+          messages: [{ role: "user", parts: [{ type: "text", text: "hello" }] }],
+        })) {
+          // Consume the public stream so provider I/O would occur without the guard.
+        }
+      };
+
+      await expect(consume()).rejects.toThrow("OpenCode Go requests require a non-empty session ID");
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
     it("uses the official streaming chat path for tool-capable OpenCode Go turns", async () => {
       const stream = [
         `data: ${JSON.stringify({ id: "chat-1", choices: [{ delta: { tool_calls: [{ index: 0, id: "call-1", function: { name: "write", arguments: '{"filePath":"proof.txt",' } }] }, finish_reason: null }] })}`,
@@ -158,6 +211,7 @@ describe("OpenCodeAdapter", () => {
         stream_options: { include_usage: true },
         tool_choice: "required",
       });
+      expect(new Headers(request.headers).get("x-opencode-session")).toBe("session-tools");
     });
 
     it("does not wait for transport cancellation after the provider sends DONE", async () => {
@@ -186,6 +240,7 @@ describe("OpenCodeAdapter", () => {
       const events: unknown[] = [];
 
       await expect(adapter.createMessage({
+        sessionId: "session-completed-stream",
         system: "Use the admitted tool.",
         messages: [{ role: "user", parts: [{ type: "text", text: "Finish." }] }],
         tools: [{
@@ -214,6 +269,7 @@ describe("OpenCodeAdapter", () => {
       const adapter = new OpenCodeAdapter({ apiKey: "sk-test", tier: "go", defaultModel: "kimi-k2.7-code" });
 
       await adapter.createMessage({
+        sessionId: "session-moonshot-schema",
         system: "test",
         messages: [{ role: "user", parts: [{ type: "text", text: "hello" }] }],
         maxTokens: 999_999,
@@ -245,6 +301,7 @@ describe("OpenCodeAdapter", () => {
       const adapter = new OpenCodeAdapter({ apiKey: "sk-test", tier: "go", defaultModel: "glm-5.2", internalRetry: false });
 
       await expect(adapter.createMessage({
+        sessionId: "session-provider-error",
         system: "test",
         messages: [{ role: "user", parts: [{ type: "text", text: "hello" }] }],
         tools: [{ name: "write", description: "write", inputSchema: { type: "object" }, tags: new Set() }],
@@ -266,6 +323,7 @@ describe("OpenCodeAdapter", () => {
       const adapter = new OpenCodeAdapter({ apiKey: "sk-test", tier: "go", defaultModel: "glm-5.2" });
 
       await adapter.createMessage({
+        sessionId: "session-unsafe-identity",
         system: "test",
         messages: [{ role: "user", parts: [{ type: "text", text: "hello" }] }],
         requestIdentity: { projectId: "../private-project", requestId: "secret value" },
@@ -288,6 +346,7 @@ describe("OpenCodeAdapter", () => {
       const adapter = new OpenCodeAdapter({ apiKey: "sk-test", tier: "go", defaultModel: "glm-5.2", internalRetry: false });
 
       await expect(adapter.createMessage({
+        sessionId: "session-first-byte-timeout",
         system: "test",
         messages: [{ role: "user", parts: [{ type: "text", text: "hello" }] }],
         tools: [{ name: "write", description: "write", inputSchema: { type: "object" }, tags: new Set() }],
@@ -306,6 +365,7 @@ describe("OpenCodeAdapter", () => {
       const events: unknown[] = [];
       const adapter = new OpenCodeAdapter({ apiKey: "sk-test", tier: "go", defaultModel: "glm-5.2", internalRetry: false });
       const request = adapter.createMessage({
+        sessionId: "session-caller-abort",
         system: "test",
         messages: [{ role: "user", parts: [{ type: "text", text: "hello" }] }],
         tools: [{ name: "write", description: "write", inputSchema: { type: "object" }, tags: new Set() }],
@@ -357,6 +417,7 @@ describe("OpenCodeAdapter", () => {
       });
 
       await adapter.createMessage({
+        sessionId: "session-abort-signal",
         system: "test",
         messages: [{ role: "user", parts: [{ type: "text", text: "hello" }] }],
         signal: controller.signal,
