@@ -528,6 +528,14 @@ the full Foundation and Runtime suites, and all surface suites. The full CLI
 suite advanced without a reported test failure but did not terminate during the
 closure run; focused affected CLI tests are the executable Slice 3 oracle.
 
+The 2026-09-04 deferred-projection follow-up at `f681d747`, `98e85ad8`, and
+`4e720311` closes the remaining managed-definition drift. Runtime now keeps the
+initial provider projection separate from the canonical materializable catalog,
+commits only authorized deferred producers, and binds the selected definition
+identity to its exact next-round admission. Missing transition reserve,
+staleness, copied definitions, or linkage mismatch fails closed without
+restoring eager projection.
+
 ### Slice 4 - Portable Tool Execution
 
 Status: Complete as of 2026-08-30.

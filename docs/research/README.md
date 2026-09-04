@@ -61,6 +61,10 @@ Durable research lives under [`foundations/`](foundations/README.md):
 Roadmap 06 provider-cache topology and Roadmap 06.5 task-level latency and cost
 attribution.
 
+[Repository Analysis Evaluation](active/repository-analysis.md) owns the
+TypeScript-first research question and promotion gate. It does not authorize a
+production capability or private-prototype migration.
+
 Open, owner-backed research lives under [`active/`](active/README.md):
 
 - CI test suite performance — active owner-backed investigation

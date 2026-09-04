@@ -40,9 +40,12 @@ The foundation is implemented:
   do not yet become provider-specific cache breakpoints. Current system prompts
   can contain per-turn task, governed-context, and temporal material before the
   conversation prefix, so cache efficiency is not yet live-proven.
-- The narrow Capability Fabric descriptor-disclosure dependency is admitted as
-  an architecture boundary. This does not start this track's full progressive
-  disclosure slice or Capability Fabric Slice 3.
+- The narrow Capability Fabric descriptor-disclosure dependency is admitted
+  and implemented for current deferred tool definitions. The 2026-09-04
+  follow-up restored exact next-round materialization without exposing those
+  definitions in the initial provider request. This does not complete this
+  track's broader instruction, skill-resource, cache-topology, or progressive-
+  disclosure slices.
 
 Stable boundaries are documented in
 [Context Governance](../architecture/context/context-governance.md),
@@ -267,15 +270,15 @@ read/write/uncached tokens and TTFT, not only a hit ratio.
 
 ### Admitted Dependency Boundary - Capability Descriptor Disclosure
 
-Status: Complete as an architecture admission on 2026-08-30; no implementation
-slice started.
+Status: Complete as an architecture and executable dependency boundary as of
+2026-09-04; the broader Roadmap 06 Slice 3 has not started.
 
-This boundary admits only the dependency needed by Roadmap 11 Slice 3. The
+This boundary admits only the dependency consumed by Roadmap 11 Slice 3. The
 Capability Catalog remains the owner of identity, eligibility, descriptor and
-schema digests, effect posture, and freshness. The Capability Fabric resolver
-will own selection. Prompt Governance owns only disclosure timing and assembly
-of an already-eligible, already-selected descriptor and tool schema into a
-provider request, as defined by
+schema digests, effect posture, and freshness. Capability Fabric owns
+selection. Prompt Governance owns only disclosure timing and assembly of an
+already-eligible, already-selected descriptor and tool schema into a provider
+request, as defined by
 [Capability Descriptor Disclosure](../architecture/context/context-governance.md#capability-descriptor-disclosure).
 
 The admitted rules are:
@@ -295,11 +298,14 @@ reused as infrastructure. They do not become aliases for `capability.search` or
 `capability.describe`, and they do not become Capability Catalog or resolver
 authority.
 
-This admission does not define or implement the Roadmap 11 search contracts,
-ranking, resolver, provider adapters, schema injection, or execution. It also
-does not start the broader skill-resource, nested-instruction, cache-topology,
-or cross-harness work below. Slice 2.5 and this track's full Slice 3 retain
-their existing queue and promotion gates.
+Roadmap 11 owns and has implemented search, selection, generation, exact
+next-round materialization, portable invocation, and settlement. The follow-up
+commits `f681d747`, `98e85ad8`, and `4e720311` ensure materializable managed
+definitions remain outside the initial provider projection while preserving
+their linked schema, capability, generation, and authority identities for the
+next round. This does not start the broader skill-resource, nested-instruction,
+cache-topology, or cross-harness work below. Slice 2.5 and this track's full
+Slice 3 retain their existing queue and promotion gates.
 
 ### Slice 3 - Progressive Disclosure
 

@@ -26,6 +26,9 @@ Every note must name or link:
   caching and
   [Roadmap 06.5](../../roadmap/06.5-end-to-end-harness-efficiency.md) for
   attributable task latency and cost.
+- [Repository Analysis Evaluation](repository-analysis.md) defines the
+  TypeScript-first comparison required before any Repository Analysis roadmap
+  or production integration can be admitted.
 - [Provider-Neutral Communication Governance](provider-neutral-communication.md)
   records the current provider/harness evidence and the evaluation work that
   remains before any communication default or prompt fallback can be promoted.
