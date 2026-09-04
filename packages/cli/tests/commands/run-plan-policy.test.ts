@@ -48,6 +48,23 @@ describe("run plan permission policy", () => {
     expect(sandbox.policy.canWrite("C:/workspace/README.md")).toBe(false);
   });
 
+  it("admits an explicit additional directory without widening read-only authority", () => {
+    const permissionPolicy = { approval: "never", sandbox: "read-only" } as const;
+    const sandbox = assertBoundHostToolSandbox(createRunHostToolSandbox({
+      cwd: "C:/workspace",
+      addDir: "C:/fixtures/context-efficiency",
+      sessionId: "session-1",
+      configurationRevisionId: `sha256:${"1".repeat(64)}`,
+      permissionPolicy,
+      requestedAuthority: "read_only",
+    }));
+
+    expect(sandbox.policy.canRead("C:/workspace/README.md")).toBe(true);
+    expect(sandbox.policy.canRead("C:/fixtures/context-efficiency/shard-1.txt")).toBe(true);
+    expect(sandbox.policy.canRead("C:/fixtures/other/shard-1.txt")).toBe(false);
+    expect(sandbox.policy.canWrite("C:/fixtures/context-efficiency/shard-1.txt")).toBe(false);
+  });
+
   it("admits governed control-plane tools while keeping plan mode read-only", () => {
     const evaluator = createPermissionEvaluator(PLAN_POLICY);
 

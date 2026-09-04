@@ -1,36 +1,50 @@
 # Context Efficiency Diagnostic v1
 
-Status: Slice 2 baseline frozen on 2026-09-01. The complete collection retained
-33 valid rows, zero invalid rows, all 11 preregistered cells at three samples,
-and 106 physical model transports. The content-free private artifact digest is
-`sha256:089c60d310733efeb7ad8e38a2406a21ff3fba7b126bb872d2ff6b48c43ea8c6`.
+Status: Slice 2 replacement diagnostic collected on 2026-09-04 with fresh
+registered-Plus-only account evidence. A post-collection review found that its
+warm gate validated only top-level requests when managed-child observations
+were also expected. It is retained as `diagnostic-only`, not as a final
+baseline. Its source contract also describes an intermediate uncommitted
+working tree over the declared starting commit, so the current repaired tree
+intentionally differs from the recorded source digest.
+
+The replacement collection retained 33 valid rows, zero invalid rows, all 11
+preregistered cells at three samples, and 155 content-free physical-request
+observations. The top-level requests in all 15 cold/immediate-warm pairs shared
+the same observed cache partition, but managed-child partition lineage was not
+retained and is unverified. Provider-reported cache reads totaled 844,800 tokens. The target
+policy admitted only the two registered Plus accounts; retained execution
+bindings name `codex-04dc1471` and no Free or ProLite account. The content-free
+private artifact digest is
+`sha256:e3368f37dcedbd3ca08a846d4772c7f9e8cc07e6183bf063262e38f0008c4e4d`.
 It is bound to protocol digest
-`sha256:f8e3ce8c7deebb391391df730062ae7a43a53aa9b3ff89925d307a2de867d106`,
+`sha256:b6dd869d0a7bc32ae33acc421b730b50a8346aa4dadf9ba71f7f793913d2c0e7`,
 source digest
-`sha256:8617b6c214f4bbf4e23a7bdd476bb45cc7c1aabc15e5c32da2f8e53e24e244ee`,
+`sha256:1d5d05b586843c2258dee8492736fd375afc48f5a0887637aa26d4c4885d4242`,
 and configuration revision
-`sha256:a6504436085433acf6c02198b9a0e5c9c84008fbca7842c604c81118cec2059a`.
+`sha256:55139b5925e5443742278f7132f597cd78689283709f61b808d702a3bbf82008`.
 
-The artifact is a valid diagnostic collection, not a successful quality run:
-30 of 33 valid denominator rows failed a terminal, task-oracle, or authority
-gate. Those failures remain in the denominator. All three rows that passed every
-gate were from `trivial_exact`; every repository, implementation, tool-heavy,
-conversation-heavy, and managed-child row exposed adverse behavior. The highest
-justified verdict remains `diagnostic-only`.
+The artifact is historical diagnostic evidence, not a valid reproducible
+benchmark or a successful quality run:
+22 of 33 valid denominator rows failed a terminal, task-oracle, or authority
+gate. Those failures remain in the denominator. The completed collection is
+therefore evidence about bottlenecks and correctness defects, not evidence that
+the measured workflows are production-ready. The highest justified verdict
+remains `diagnostic-only`.
 
-Median provider input was largest for cold repository reading (95,751 tokens),
-followed by its immediate-warm condition (85,487), tool-result-heavy cold and
-warm conditions (52,424 each), and managed-child cold and warm conditions
-(34,577 and 34,583). The warm repository condition reduced the median request
-count from five to four and median input by about 11%, while the tool-result
-condition showed no median input reduction. These descriptive observations
-identify ownership targets; three repetitions do not support population or tail
+Median provider input was largest for repository reading: 229,550 tokens cold
+and 229,730 immediate-warm, with eight requests in both conditions. Tool-result
+heavy input increased from 90,935 cold to 104,334 warm while request count fell
+from five to four; bounded implementation and managed-child warm conditions
+also used more median input than cold. These descriptive observations identify
+ownership targets, but three repetitions do not support population or tail
 claims.
 
 Retained failed attempts in the manifest document the target-evidence,
 session-owner, request-projection, authority-oracle, host-sandbox,
 capability-count, description-materialization, write-authority, and
-managed-route defects corrected before this cohort. They are not mixed into the
+managed-route, stale capability-provenance cache partition, and unloaded
+Runtime-build defects corrected before this cohort. They are not mixed into the
 frozen cohort.
 
 ## Claim and decision
@@ -48,8 +62,10 @@ this intentionally drifted baseline.
 
 ## Frozen protocol
 
-The machine-readable authority is [manifest.json](manifest.json). A run is
-invalid if its protocol, input, or source contract digest; canonical
+The machine-readable record is [manifest.json](manifest.json). It freezes the
+replacement cohort's working-tree source identity and explicitly retains the
+independent-reproduction limitation above. A replacement run is invalid if its
+protocol, input, or source contract digest; canonical
 configuration revision; route; model; deliberation level; authority; tool
 projection; task input; cache condition; or limits differ from the manifest.
 The diagnostic CLI path passes `--disable-mcp`; canonical MCP configuration is
@@ -66,6 +82,14 @@ cache partition and, where the strategy supports continuation, the same
 canonical session; `long_session` uses the declared scripted turns in one
 canonical session. A provider contract that cannot express a condition records
 that cell as unsupported; it is not silently omitted or treated as zero.
+
+Replacement runs must also prove that cold and immediate-warm observations have
+the same opaque Runtime cache-partition identity for every top-level and
+managed-child request lineage. That partition includes the
+selected account. Live dispatch fails closed unless fresh, unexpired usage
+evidence identifies the registered Plus accounts and the target account policy
+contains exactly that allowlist; internal benchmark commands receive the same
+explicit account list.
 
 Each trial is bounded to eight provider requests, 32 tool calls, one managed
 child, 500,000 cumulative input tokens, 50,000 cumulative output tokens, and

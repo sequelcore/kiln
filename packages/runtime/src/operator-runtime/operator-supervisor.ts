@@ -8,8 +8,13 @@ import {
   OperatorSupervisorIdentitySchema,
   type OperatorSupervisorIdentity,
 } from "@kilnai/gateway-contracts";
-import type { OperatorRuntimeListenerInspection } from "./operator-listener.js";
+import {
+  requestOperatorRuntimeShutdown,
+  type OperatorRuntimeListenerInspection,
+  type OperatorRuntimeShutdownResult,
+} from "./operator-listener.js";
 import { runWithLifecycleFileLock } from "../utils/lifecycle-file-lock.js";
+import { terminateWindowsProcessTree } from "../utils/windows-process-tree.js";
 
 const STATE_FILE = "state.json";
 const CREDENTIALS_FILE = "credentials.json";
@@ -117,6 +122,11 @@ export class OperatorRuntimeSupervisor {
   readonly #version: string;
   readonly #launch: OperatorRuntimeLaunchDescriptor;
   readonly #inspect: OperatorRuntimeListenerInspector;
+  readonly #requestShutdown: (input: {
+    readonly port: number;
+    readonly controlToken: string;
+    readonly identity: OperatorSupervisorIdentity;
+  }) => Promise<OperatorRuntimeShutdownResult>;
   readonly #process: OperatorRuntimeProcessAdapter;
   readonly #createInstanceId: () => string;
   readonly #createCredentialMaterial: () => OperatorRuntimeCredentialMaterial;
@@ -133,6 +143,11 @@ export class OperatorRuntimeSupervisor {
     readonly version: string;
     readonly launch: OperatorRuntimeLaunchDescriptor;
     readonly inspect: OperatorRuntimeListenerInspector;
+    readonly requestShutdown?: (input: {
+      readonly port: number;
+      readonly controlToken: string;
+      readonly identity: OperatorSupervisorIdentity;
+    }) => Promise<OperatorRuntimeShutdownResult>;
     readonly processAdapter?: OperatorRuntimeProcessAdapter;
     readonly createInstanceId?: () => string;
     readonly createCredentialMaterial?: () => OperatorRuntimeCredentialMaterial;
@@ -155,6 +170,7 @@ export class OperatorRuntimeSupervisor {
       throw new Error("Operator runtime launch descriptor version does not match the supervisor version.");
     }
     this.#inspect = input.inspect;
+    this.#requestShutdown = input.requestShutdown ?? requestOperatorRuntimeShutdown;
     this.#process = input.processAdapter ?? nodeOperatorRuntimeProcessAdapter;
     this.#createInstanceId = input.createInstanceId ?? randomUUID;
     this.#createCredentialMaterial = input.createCredentialMaterial ?? createRandomCredentialMaterial;
@@ -324,9 +340,18 @@ export class OperatorRuntimeSupervisor {
     if (state.state !== "present" || !identitiesEqual(current.identity, identityFromState(state.value))) {
       return foreign("listener-identity-mismatch");
     }
-    await this.#process.terminate(state.value.pid);
     const credentials = await readCredentialSnapshot(this.#runtimeDir);
     if (credentials.state !== "present") return foreign("invalid-runtime-credentials");
+    const shutdown = await this.#requestShutdown({
+      port: this.#port,
+      controlToken: credentials.value.controlToken,
+      identity: current.identity,
+    });
+    if (shutdown.state === "foreign") return foreign(mapInspectionReason(shutdown.reason));
+    if (shutdown.state === "stopped" && !this.#process.isAlive(state.value.pid)) {
+      await this.#removeOwnedFiles();
+      return shutdown;
+    }
     for (let attempt = 0; attempt < this.#shutdownAttempts; attempt += 1) {
       const inspection = await this.#inspect({
         port: this.#port,
@@ -338,11 +363,17 @@ export class OperatorRuntimeSupervisor {
           await this.#removeOwnedFiles();
           return inspection;
         }
+        if (attempt === Math.max(0, this.#shutdownAttempts - 10)) {
+          await this.#process.terminate(state.value.pid);
+        }
         if (attempt + 1 < this.#shutdownAttempts) await this.#wait(this.#pollIntervalMs);
         continue;
       }
       if (inspection.state === "foreign") return foreign(mapInspectionReason(inspection.reason));
       if (!identitiesEqual(inspection.identity, current.identity)) return foreign("listener-identity-mismatch");
+      if (attempt === Math.max(0, this.#shutdownAttempts - 10) && this.#process.isAlive(state.value.pid)) {
+        await this.#process.terminate(state.value.pid);
+      }
       if (attempt + 1 < this.#shutdownAttempts) await this.#wait(this.#pollIntervalMs);
     }
     return foreign("shutdown-timeout");
@@ -417,6 +448,12 @@ export const nodeOperatorRuntimeProcessAdapter: OperatorRuntimeProcessAdapter = 
     return { pid: child.pid };
   },
   async terminate(pid) {
+    if (process.platform === "win32") {
+      if (!await terminateWindowsProcessTree(pid)) {
+        throw new Error("Owned operator runtime process tree could not be terminated.");
+      }
+      return;
+    }
     process.kill(pid, "SIGTERM");
   },
   isAlive(pid) {

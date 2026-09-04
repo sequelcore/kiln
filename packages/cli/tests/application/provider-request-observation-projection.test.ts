@@ -53,6 +53,10 @@ describe("provider request observation projection", () => {
       { state: "observed", value: 2 },
     ]);
     expect(observations[1]?.usage.input).toEqual({ tokens: 10, measurement: "estimated" });
+    expect(observations[0]?.cache.partitionIdentity).toEqual({
+      state: "observed",
+      hash: `sha256:${"1".repeat(64)}`,
+    });
     expect(JSON.stringify(observations)).not.toContain("private-");
     expect(JSON.stringify(observations)).not.toContain("Hash");
   });

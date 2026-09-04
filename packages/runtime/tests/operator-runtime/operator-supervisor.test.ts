@@ -117,7 +117,7 @@ describe("OperatorRuntimeSupervisor", () => {
     expect(JSON.stringify(await timedOut.doctor())).not.toContain(controlToken);
   });
 
-  it("stops only the exact persisted listener owner and restart rotates credentials", async () => {
+  it("requests shutdown from only the exact persisted listener owner and restart rotates credentials", async () => {
     root = await tempRuntime();
     const processAdapter = adapter(222);
     let current: OperatorSupervisorIdentity | undefined;
@@ -130,7 +130,6 @@ describe("OperatorRuntimeSupervisor", () => {
       if (!current && input.expectedIdentity) current = input.expectedIdentity;
       return current ? { state: "ready", identity: current } : { state: "stopped" };
     });
-    vi.mocked(processAdapter.terminate).mockImplementation(async () => { current = undefined; stopping = true; });
     const ids = ["instance-a", "instance-b"];
     let credentialGeneration = 7;
     const supervisor = createSupervisor(root, inspect, processAdapter, {
@@ -139,13 +138,46 @@ describe("OperatorRuntimeSupervisor", () => {
         const bytes = Buffer.alloc(32, credentialGeneration++);
         return { controlToken: bytes.toString("base64url"), sessionSecret: bytes };
       },
+      requestShutdown: async () => {
+        current = undefined;
+        stopping = true;
+        return { state: "accepted" };
+      },
     });
     await supervisor.start();
     const firstCredentials = await readFile(join(root, "credentials.json"), "utf8");
 
     await expect(supervisor.restart()).resolves.toMatchObject({ state: "ready", identity: { instanceId: "instance-b" } });
-    expect(processAdapter.terminate).toHaveBeenCalledWith(222);
+    expect(processAdapter.terminate).not.toHaveBeenCalled();
     expect(await readFile(join(root, "credentials.json"), "utf8")).not.toBe(firstCredentials);
+  });
+
+  it("terminates the exact persisted owner when graceful shutdown closes the listener but leaves the process alive", async () => {
+    root = await tempRuntime();
+    await writeCredentials(root);
+    await writeFile(join(root, "state.json"), `${JSON.stringify(runtimeState())}\n`);
+    let alive = true;
+    const processAdapter = adapter(222);
+    vi.mocked(processAdapter.isAlive).mockImplementation(() => alive);
+    vi.mocked(processAdapter.terminate).mockImplementation(async () => {
+      alive = false;
+    });
+    let shutdownAccepted = false;
+    const inspect = vi.fn<OperatorRuntimeListenerInspector>(async () => shutdownAccepted
+      ? { state: "stopped" }
+      : { state: "ready", identity: identity() });
+    const supervisor = createSupervisor(root, inspect, processAdapter, {
+      shutdownAttempts: 2,
+      requestShutdown: async () => {
+        shutdownAccepted = true;
+        return { state: "accepted" };
+      },
+    });
+
+    await expect(supervisor.stop()).resolves.toEqual({ state: "stopped" });
+    expect(processAdapter.terminate).toHaveBeenCalledOnce();
+    expect(processAdapter.terminate).toHaveBeenCalledWith(222);
+    expect(await supervisor.readState()).toBeNull();
   });
 
   it("never terminates a live stale owner or a listener with mismatched ownership", async () => {
@@ -252,6 +284,7 @@ function createSupervisor(
     createCredentialMaterial: () => ({ controlToken, sessionSecret }),
     nowEpochSeconds: () => 1_780_000_000,
     wait: async () => undefined,
+    requestShutdown: async () => ({ state: "accepted" }),
     ...overrides,
   });
 }

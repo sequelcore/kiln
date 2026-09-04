@@ -249,6 +249,9 @@ export function terminalManagedInvocationResult(input: {
       ...(recentProgressEvents.length > 0 ? { progressEventCount, recentProgressEvents } : {}),
       ...(resourceLease ? { resourceLease } : {}),
       ...(input.record.diagnostics ? { diagnostics: input.record.diagnostics } : {}),
+      ...(input.record.providerRequestObservations
+        ? { providerRequestObservations: input.record.providerRequestObservations }
+        : {}),
       ...(recovery ? { managedInvocationRecovery: recovery } : {}),
       ...(handoffRecovery ? { managedInvocationRecovery: handoffRecovery } : {}),
       ...(phaseCompletion ? { managedInvocationPhaseCompletion: phaseCompletion } : {}),

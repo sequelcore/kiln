@@ -4,6 +4,7 @@ import { readGlobalConfig, readGlobalExecutionTargetCatalog } from "../config/gl
 
 export interface AccountUsageInspectionService {
   inspect(): Promise<AccountUsageInspection>;
+  refresh(): Promise<AccountUsageRefresh>;
 }
 
 export interface AccountUsageInspection {
@@ -26,6 +27,17 @@ export interface AccountUsageInspectionEntry {
   readonly confidence: string;
   readonly operatorAction: AccountUsageOperatorAction;
   readonly eligibleTargets: readonly string[];
+}
+
+export interface AccountUsageRefresh {
+  readonly operation: "account-usage-refresh";
+  readonly accounts: readonly AccountUsageInspectionEntry[];
+  readonly evidence: {
+    readonly authority: "global-execution-catalog";
+    readonly observedAt: string;
+    readonly refreshedProviders: readonly string[];
+    readonly failedProviders: readonly string[];
+  };
 }
 
 export type AccountUsageEvidenceState =
@@ -55,52 +67,96 @@ export function createAccountUsageInspectionService(
   kilnHome?: string,
 ): AccountUsageInspectionService {
   const defaults = options ?? defaultOptions(kilnHome);
-  return {
-    async inspect() {
-      const now = defaults.now?.() ?? new Date();
-      const catalog = defaults.readExecutionTargetCatalog();
-      const usageByProvider = new Map<string, readonly ProviderUsageSnapshot[]>();
-      const refreshFailures = new Set<string>();
-      const credentialsByProvider = new Map<string, ReadonlySet<string>>();
-      for (const provider of new Set(catalog.accounts.map((account) => account.providerId))) {
-        const retained = await defaults.readProviderUsage(provider);
-        let usage = retained;
-        if (defaults.refreshProviderUsage !== undefined) {
-          try {
-            const refreshed = await defaults.refreshProviderUsage(provider);
-            const refreshedIds = new Set(refreshed.map((entry) => entry.credentialId));
-            usage = [...retained.filter((entry) => !refreshedIds.has(entry.credentialId)), ...refreshed];
-          } catch {
-            refreshFailures.add(provider);
-          }
+  const load = async (mode: "inspect" | "refresh"): Promise<{
+    readonly catalog: ExecutionTargetCatalog;
+    readonly usageByProvider: ReadonlyMap<string, readonly ProviderUsageSnapshot[]>;
+    readonly credentialsByProvider: ReadonlyMap<string, ReadonlySet<string>>;
+    readonly refreshFailures: ReadonlySet<string>;
+    readonly providers: readonly string[];
+  }> => {
+    const catalog = defaults.readExecutionTargetCatalog();
+    const providers = [...new Set(catalog.accounts.map((account) => account.providerId))].sort();
+    const refreshProviderUsage = defaults.refreshProviderUsage;
+    if (mode === "refresh" && refreshProviderUsage === undefined) {
+      throw new Error("Provider usage refresh is unavailable.");
+    }
+    const usageByProvider = new Map<string, readonly ProviderUsageSnapshot[]>();
+    const refreshFailures = new Set<string>();
+    const credentialsByProvider = new Map<string, ReadonlySet<string>>();
+    for (const provider of providers) {
+      const retained = await defaults.readProviderUsage(provider);
+      let usage = retained;
+      if (mode === "refresh" && refreshProviderUsage !== undefined) {
+        try {
+          const refreshed = await refreshProviderUsage(provider);
+          const refreshedIds = new Set(refreshed.map((entry) => entry.credentialId));
+          usage = [...retained.filter((entry) => !refreshedIds.has(entry.credentialId)), ...refreshed];
+        } catch {
+          refreshFailures.add(provider);
         }
-        usageByProvider.set(provider, usage);
-        credentialsByProvider.set(provider, new Set(await defaults.listCredentialIds(provider)));
       }
-      const accounts = catalog.accounts.map((account): AccountUsageInspectionEntry => {
-        const usage = usageByProvider.get(account.providerId)?.find((entry) => entry.credentialId === account.credentialId);
-        const executable = credentialsByProvider.get(account.providerId)?.has(account.credentialId) === true;
-        const fresh = usage !== undefined && Date.parse(usage.observedAt) <= now.getTime() && Date.parse(usage.validUntil) > now.getTime();
-        const freshness = usage === undefined ? "missing" as const : fresh ? "fresh" as const : "stale" as const;
-        const evidenceState = accountUsageEvidenceState(usage, freshness, refreshFailures.has(account.providerId));
-        const blocked = !executable || (fresh && usage?.availability === "exhausted");
-        return {
-          provider: account.providerId,
-          accountId: account.id,
-          credentialId: account.credentialId,
-          ...(usage?.plan === undefined ? {} : { plan: usage.plan }),
-          availability: usage?.availability ?? "unknown",
-          ...(usage?.primary === undefined ? {} : { primary: usage.primary }),
-          ...(usage?.secondary === undefined ? {} : { secondary: usage.secondary }),
-          freshness,
-          evidenceState,
-          source: usage?.source ?? "unknown",
-          confidence: usage?.confidence ?? "unknown",
-          operatorAction: accountUsageOperatorAction(evidenceState, usage?.availability),
-          eligibleTargets: blocked ? [] : eligibleTargetIds(catalog, account.id),
-        };
-      }).sort((a, b) => a.accountId.localeCompare(b.accountId));
+      usageByProvider.set(provider, usage);
+      credentialsByProvider.set(provider, new Set(await defaults.listCredentialIds(provider)));
+    }
+    return { catalog, usageByProvider, credentialsByProvider, refreshFailures, providers };
+  };
+
+  const project = (
+    loaded: Awaited<ReturnType<typeof load>>,
+    now: Date,
+  ): readonly AccountUsageInspectionEntry[] => loaded.catalog.accounts.map((account): AccountUsageInspectionEntry => {
+    const usage = loaded.usageByProvider.get(account.providerId)?.find(
+      (entry) => entry.credentialId === account.credentialId,
+    );
+    const executable = loaded.credentialsByProvider.get(account.providerId)?.has(account.credentialId) === true;
+    const fresh = usage !== undefined
+      && Date.parse(usage.observedAt) <= now.getTime()
+      && Date.parse(usage.validUntil) > now.getTime();
+    const freshness = usage === undefined ? "missing" as const : fresh ? "fresh" as const : "stale" as const;
+    const evidenceState = accountUsageEvidenceState(
+      usage,
+      freshness,
+      loaded.refreshFailures.has(account.providerId),
+    );
+    const blocked = !executable || (fresh && usage?.availability === "exhausted");
+    return {
+      provider: account.providerId,
+      accountId: account.id,
+      credentialId: account.credentialId,
+      ...(usage?.plan === undefined ? {} : { plan: usage.plan }),
+      availability: usage?.availability ?? "unknown",
+      ...(usage?.primary === undefined ? {} : { primary: usage.primary }),
+      ...(usage?.secondary === undefined ? {} : { secondary: usage.secondary }),
+      freshness,
+      evidenceState,
+      source: usage?.source ?? "unknown",
+      confidence: usage?.confidence ?? "unknown",
+      operatorAction: accountUsageOperatorAction(evidenceState, usage?.availability),
+      eligibleTargets: blocked ? [] : eligibleTargetIds(loaded.catalog, account.id),
+    };
+  }).sort((a, b) => a.accountId.localeCompare(b.accountId));
+
+  return {
+    async inspect(): Promise<AccountUsageInspection> {
+      const loaded = await load("inspect");
+      const now = defaults.now?.() ?? new Date();
+      const accounts = project(loaded, now);
       return { operation: "account-usage", accounts, evidence: { authority: "global-execution-catalog", observedAt: now.toISOString() } };
+    },
+    async refresh(): Promise<AccountUsageRefresh> {
+      const loaded = await load("refresh");
+      const now = defaults.now?.() ?? new Date();
+      const accounts = project(loaded, now);
+      return {
+        operation: "account-usage-refresh",
+        accounts,
+        evidence: {
+          authority: "global-execution-catalog",
+          observedAt: now.toISOString(),
+          refreshedProviders: loaded.providers.filter((provider) => !loaded.refreshFailures.has(provider)),
+          failedProviders: [...loaded.refreshFailures].sort(),
+        },
+      };
     },
   };
 }
@@ -114,7 +170,10 @@ function defaultOptions(kilnHome?: string): CreateAccountUsageInspectionServiceO
       return catalog;
     },
     readProviderUsage: async (provider) => provider === "codex-oauth" ? codex.listRetainedUsage() : [],
-    refreshProviderUsage: async (provider) => provider === "codex-oauth" ? codex.refreshUsage() : [],
+    refreshProviderUsage: async (provider) => {
+      if (provider !== "codex-oauth") throw new Error(`Provider usage refresh is unsupported for '${provider}'.`);
+      return codex.refreshUsage();
+    },
     listCredentialIds: async (provider) => provider === "codex-oauth" ? (await codex.listExecutionAccounts()).map((entry) => entry.credentialId) : [],
   };
 }

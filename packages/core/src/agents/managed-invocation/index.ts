@@ -8,6 +8,7 @@ import { validateResolvedCommunicationIntent } from "../communication-policy.js"
 import type { ResolvedCommunicationIntent } from "../communication-policy.js";
 import type { SessionExecutionScope } from "../../events/session-execution-scope.js";
 import type { ExecutionSessionEphemeralHarnessStateEvidence } from "../../events/execution-session-event.js";
+import type { ProviderRequestObservation } from "../../events/provider-request-observation.js";
 import {
   compareManagedAgentExternalRuntimeAttachment,
   type ManagedAgentExternalRuntimeAttachmentIdentity,
@@ -997,6 +998,7 @@ export interface ManagedAgentInvocationRecord {
   readonly diagnostics?: readonly ManagedAgentDiagnosticPointer[];
   readonly usage?: ManagedAgentUsageReport;
   readonly coordinationUsage?: ManagedAgentCoordinationUsageReport;
+  readonly providerRequestObservations?: readonly ProviderRequestObservation[];
   readonly resultHandoff?: ManagedAgentResultHandoff;
   readonly replayResources?: readonly ManagedAgentReplayResource[];
   readonly writeEvidence?: readonly ManagedAgentWriteEvidence[];
@@ -1524,6 +1526,9 @@ export function defineManagedAgentInvocationRecord(input: ManagedAgentInvocation
     ...(input.usage !== undefined ? { usage: requireUsageReport(input.usage, capabilitySnapshot.adapterDescriptor) } : {}),
     ...(input.coordinationUsage !== undefined
       ? { coordinationUsage: defineManagedAgentCoordinationUsageReport(input.coordinationUsage) }
+      : {}),
+    ...(input.providerRequestObservations !== undefined
+      ? { providerRequestObservations: input.providerRequestObservations.map((observation) => ({ ...observation })) }
       : {}),
     ...(input.resultHandoff !== undefined ? { resultHandoff: requireResultHandoff(input.resultHandoff) } : {}),
     ...(input.replayResources !== undefined ? { replayResources: input.replayResources.map(requireReplayResource) } : {}),

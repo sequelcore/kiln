@@ -31,7 +31,7 @@ describe("account usage inspection", () => {
     expect(JSON.stringify(result)).not.toMatch(/email|access_token|refresh_token|fileIdentity|path|raw/i);
   });
 
-  it("refreshes provider usage before projecting the canonical sanitized snapshot", async () => {
+  it("keeps inspection read-only and refreshes only through the explicit application operation", async () => {
     const refreshProviderUsage = vi.fn(async () => usage);
     const service = createAccountUsageInspectionService({
       readExecutionTargetCatalog: () => catalog,
@@ -41,13 +41,42 @@ describe("account usage inspection", () => {
       now: () => new Date("2026-07-22T12:00:00.000Z"),
     });
 
-    const result = await service.inspect();
+    const inspected = await service.inspect();
+    expect(refreshProviderUsage).not.toHaveBeenCalled();
+
+    const result = await service.refresh();
 
     expect(refreshProviderUsage).toHaveBeenCalledWith("codex-oauth");
+    expect(inspected.operation).toBe("account-usage");
+    expect(result.operation).toBe("account-usage-refresh");
     expect(result.accounts).toEqual([
       expect.objectContaining({ accountId: "free", evidenceState: "fresh", operatorAction: "none" }),
       expect.objectContaining({ accountId: "plus", evidenceState: "fresh", operatorAction: "wait-for-provider-reset" }),
     ]);
+  });
+
+  it("projects refresh freshness against time observed after the provider call", async () => {
+    const refreshedAt = "2026-07-22T12:00:01.000Z";
+    let currentTime = new Date("2026-07-22T12:00:00.000Z");
+    const service = createAccountUsageInspectionService({
+      readExecutionTargetCatalog: () => catalog,
+      readProviderUsage: async () => [],
+      refreshProviderUsage: async () => {
+        currentTime = new Date("2026-07-22T12:00:02.000Z");
+        return usage.map((snapshot) => ({
+          ...snapshot,
+          observedAt: refreshedAt,
+          validUntil: "2026-07-22T12:05:01.000Z",
+        }));
+      },
+      listCredentialIds: async () => ["credential-plus", "credential-free"],
+      now: () => currentTime,
+    });
+
+    const result = await service.refresh();
+
+    expect(result.accounts.every((account) => account.freshness === "fresh")).toBe(true);
+    expect(result.evidence.observedAt).toBe("2026-07-22T12:00:02.000Z");
   });
 
   it.each([
@@ -69,7 +98,7 @@ describe("account usage inspection", () => {
       now: () => new Date("2026-07-22T12:00:00.000Z"),
     });
 
-    expect((await service.inspect()).accounts).toEqual([
+    expect((await service.refresh()).accounts).toEqual([
       expect.objectContaining({ evidenceState, operatorAction, freshness: "fresh", source }),
       expect.objectContaining({ evidenceState, operatorAction, freshness: "fresh", source }),
     ]);
@@ -91,5 +120,31 @@ describe("account usage inspection", () => {
       expect.objectContaining({ evidenceState: "stale", freshness: "stale", operatorAction: "refresh-provider-usage" }),
       expect.objectContaining({ evidenceState: "stale", freshness: "stale", operatorAction: "refresh-provider-usage" }),
     ]);
+  });
+
+  it("reports a provider refresh failure without presenting retained evidence as current", async () => {
+    const expired = usage.map((snapshot) => ({
+      ...snapshot,
+      validUntil: "2026-07-22T11:59:59.000Z",
+    }));
+    const service = createAccountUsageInspectionService({
+      readExecutionTargetCatalog: () => catalog,
+      readProviderUsage: async () => expired,
+      refreshProviderUsage: async () => { throw new Error("private provider failure"); },
+      listCredentialIds: async () => ["credential-plus", "credential-free"],
+      now: () => new Date("2026-07-22T12:00:00.000Z"),
+    });
+
+    const result = await service.refresh();
+
+    expect(result.evidence).toMatchObject({
+      refreshedProviders: [],
+      failedProviders: ["codex-oauth"],
+    });
+    expect(result.accounts).toEqual([
+      expect.objectContaining({ evidenceState: "provider-failed", operatorAction: "retry-provider-usage-refresh" }),
+      expect.objectContaining({ evidenceState: "provider-failed", operatorAction: "retry-provider-usage-refresh" }),
+    ]);
+    expect(JSON.stringify(result)).not.toContain("private provider failure");
   });
 });

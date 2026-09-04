@@ -1,6 +1,5 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { spawn } from "node:child_process";
-import { win32 } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import type {
   CommandProcessHandle,
@@ -9,6 +8,9 @@ import type {
   CommandProcessRunner,
   CommandProcessSink,
 } from "@kilnai/core/tools";
+import { terminateWindowsProcessTree } from "../utils/windows-process-tree.js";
+
+export { resolveWindowsTaskkillExecutable } from "../utils/windows-process-tree.js";
 
 const PROCESS_STOP_GRACE_MS = 2_000;
 const PROCESS_KILL_OBSERVATION_MS = 500;
@@ -113,22 +115,8 @@ async function terminateProcessTree(
 ): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return;
   if (process.platform === "win32" && child.pid !== undefined) {
-    const taskkillExecutable = resolveWindowsTaskkillExecutable(process.env.SystemRoot);
-    if (taskkillExecutable === undefined) {
-      child.kill(signal);
-      return;
-    }
-    await new Promise<void>((resolve) => {
-      const killer = spawn(taskkillExecutable, ["/pid", String(child.pid), "/t", "/f"], {
-        windowsHide: true,
-        shell: false,
-      });
-      killer.once("error", () => {
-        child.kill();
-        resolve();
-      });
-      killer.once("close", () => resolve());
-    });
+    const terminated = await terminateWindowsProcessTree(child.pid);
+    if (!terminated) child.kill(signal);
     return;
   }
   if (child.pid !== undefined) {
@@ -140,13 +128,6 @@ async function terminateProcessTree(
     }
   }
   child.kill(signal);
-}
-
-export function resolveWindowsTaskkillExecutable(systemRoot: string | undefined): string | undefined {
-  if (typeof systemRoot !== "string"
-    || systemRoot.includes("\u0000")
-    || !win32.isAbsolute(systemRoot)) return undefined;
-  return win32.join(systemRoot, "System32", "taskkill.exe");
 }
 
 async function waitForTerminalObservation(observation: Promise<void>, timeoutMs: number): Promise<void> {

@@ -213,6 +213,7 @@ export function projectRunBuiltinToolOptions(
 
 export function createRunHostToolSandbox(input: {
   readonly cwd: string;
+  readonly addDir?: string;
   readonly sessionId: string;
   readonly configurationRevisionId: `sha256:${string}`;
   readonly permissionPolicy: KilnPermissionPolicy;
@@ -227,7 +228,9 @@ export function createRunHostToolSandbox(input: {
       config: {
         fsPolicy: readWrite ? "read-write" : "read-only",
         netPolicy: sandbox === "danger-full-access" ? "full" : "none",
-        allowedPaths: sandbox === "danger-full-access" ? [] : [input.cwd],
+        allowedPaths: sandbox === "danger-full-access"
+          ? []
+          : [input.cwd, ...(input.addDir ? [input.addDir] : [])],
         deniedPaths: [],
         allowedDomains: sandbox === "danger-full-access" ? ["*"] : [],
       },
@@ -1837,6 +1840,7 @@ export async function runCommand(
       ? undefined
       : createRunHostToolSandbox({
           cwd: context.workingDirectory,
+          addDir: flags.addDir,
           sessionId: effectiveSessionId,
           configurationRevisionId: configurationRevision.revisionSetId as `sha256:${string}`,
           permissionPolicy: config.permissionPolicy,
@@ -1915,7 +1919,7 @@ export async function runCommand(
     accumulatedText,
     inputTokens = 0,
     outputTokens = 0,
-    providerRequests,
+    providerRequests = [],
     toolCallCount,
     turnDepth,
     successfulProviderId,

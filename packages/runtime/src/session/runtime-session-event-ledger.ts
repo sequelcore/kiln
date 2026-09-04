@@ -1971,7 +1971,9 @@ export function projectProviderRequestObservation(
         },
     capacity,
     cache: {
-      partitionIdentity: { state: "unknown" },
+      partitionIdentity: request.cachePartition?.hash
+        ? { state: "observed", hash: request.cachePartition.hash }
+        : { state: "unknown" },
       regions: (request.cacheRegions ?? []).map(({ source, stability, bytes, includedInStablePrefix }) => ({
         source,
         stability,
@@ -1990,4 +1992,27 @@ export function projectProviderRequestObservation(
     ...(effectivePrompt ? { effectivePrompt } : {}),
     ...(conversationProjection ? { conversationProjection } : {}),
   };
+}
+
+/** Projects one content-free observation per physical provider attempt. */
+export function projectProviderRequestObservations(input: {
+  readonly requests: readonly ProviderRequestEvidence[];
+  readonly routeId?: string;
+  readonly contextUsage?: ContextUsageProjection;
+  readonly managedInvocation?: ProviderRequestObservation["managedInvocation"];
+}): readonly ProviderRequestObservation[] {
+  return input.requests.flatMap((request) => {
+    const attempts = request.physicalAttempts?.length ? request.physicalAttempts : [undefined];
+    return attempts.map((attempt, attemptIndex) => ({
+      ...projectProviderRequestObservation(
+        request,
+        input.routeId,
+        input.contextUsage,
+        attempt,
+        request.providerResponseObserved !== false
+          && (attempt === undefined || attemptIndex === attempts.length - 1),
+      ),
+      ...(input.managedInvocation ? { managedInvocation: input.managedInvocation } : {}),
+    }));
+  });
 }

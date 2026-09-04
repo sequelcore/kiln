@@ -10,13 +10,13 @@ function readJson(path: string): Record<string, unknown> {
 }
 
 describe("context efficiency diagnostic preregistration", () => {
-  it("freezes all required task classes and the completed Slice 2 baseline", () => {
+  it("retains all required task classes and the post-review-limited Slice 2 diagnostic", () => {
     const manifest = readJson("docs/benchmarks/context-efficiency-diagnostic-v1/manifest.json");
     const tasks = manifest.tasks as readonly { readonly id: string; readonly conditions: readonly string[] }[];
     const readiness = manifest.collectionReadiness as { readonly status: string; readonly missing: readonly string[] };
 
     expect(manifest.schemaVersion).toBe("kiln-context-efficiency-diagnostic-manifest-v1");
-    expect(manifest.status).toBe("baseline_frozen");
+    expect(manifest.status).toBe("diagnostic_collected_post_review_limited");
     expect(tasks.map((task) => task.id)).toEqual([
       "trivial_exact",
       "repository_read_only",
@@ -29,17 +29,23 @@ describe("context efficiency diagnostic preregistration", () => {
       new Set(["cold", "immediate_warm", "long_session"]),
     );
     expect(readiness).toMatchObject({
-      status: "baseline_frozen",
+      status: "diagnostic_collected_post_review_limited",
       missing: [],
       lastAttempt: {
-        status: "baseline_frozen",
+        status: "diagnostic_collected_post_review_limited",
         logicalRows: 33,
         validRows: 33,
         invalidRows: 0,
         completedCells: 11,
         expectedCells: 11,
-        physicalModelTransports: 106,
-        failureRows: 30,
+        physicalModelTransports: 155,
+        failureRows: 22,
+        warmPairs: 15,
+        warmPartitionMatches: 15,
+        warmPartitionValidationScope: "top_level_requests_only",
+        managedChildPartitionValidation: "not_retained_not_verified",
+        providerReportedCacheReadTokens: 844800,
+        accountPolicy: "registered_plus_only",
         verdict: "diagnostic-only",
       },
     });

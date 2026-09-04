@@ -564,6 +564,7 @@ export interface SessionAgentInvocationEvidence {
   readonly diagnostics?: readonly SessionAgentInvocationDiagnosticPointer[];
   readonly usage?: SessionAgentInvocationUsageReport;
   readonly coordinationUsage?: ManagedAgentCoordinationUsageReport;
+  readonly providerRequestObservations?: readonly ProviderRequestObservation[];
   readonly resultHandoff?: SessionAgentInvocationResultHandoff;
   readonly writeAuthority?: ManagedAgentWriteAuthority;
   readonly writeEvidence?: readonly ManagedAgentWriteEvidence[];

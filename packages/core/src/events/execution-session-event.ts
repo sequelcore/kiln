@@ -155,6 +155,7 @@ export interface ProviderRequestCacheRegionEvidence {
 
 export type ProviderRequestCachePartitionDimensionSource =
   | "tenant"
+  | "account"
   | "route"
   | "policy"
   | "authority";

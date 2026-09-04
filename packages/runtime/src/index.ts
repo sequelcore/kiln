@@ -1144,6 +1144,7 @@ export type {
   OperatorRuntimeListener,
   OperatorRuntimeListenerFetch,
   OperatorRuntimeListenerInspection,
+  OperatorRuntimeShutdownResult,
   OperatorRuntimeMcpRequest,
   OperatorRuntimeSessionOpenInput,
   OperatorRuntimeSessionOpenResult,
@@ -1161,6 +1162,8 @@ export {
   OPERATOR_RUNTIME_REQUEST_MAX_BYTES,
   OPERATOR_RUNTIME_SESSION_PATH,
   OPERATOR_RUNTIME_SESSION_REQUEST_MAX_BYTES,
+  OPERATOR_RUNTIME_SHUTDOWN_PATH,
+  requestOperatorRuntimeShutdown,
   startOperatorRuntimeListener,
 } from "./operator-runtime/operator-listener.js";
 export type {
@@ -1346,6 +1349,7 @@ export {
   ProjectContextArtifactCache,
   prepareOperatorAdoptionTurn,
   projectProviderRequestObservation,
+  projectProviderRequestObservations,
   projectRuntimeLifecycleAttributionAllocations,
   projectToolPermissionAdmissionFromPerCallConfig,
   CAPABILITY_DESCRIBE_TOOL_NAME,

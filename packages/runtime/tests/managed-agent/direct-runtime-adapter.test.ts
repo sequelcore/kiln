@@ -26,6 +26,7 @@ import {
 } from "../../src/agents/managed-invocation/direct-runtime-adapter.js";
 import { ManagedEconomicLifecycleTimeoutError } from "../../src/agents/managed-invocation/economic-dispatch-coordinator.js";
 import { createInternalConsumedWriteApproval } from "../../src/agents/managed-invocation/internal-consumed-write-approval.js";
+import { terminalManagedInvocationResult } from "../../src/agents/managed-invocation/runtime-tool/result-projection.js";
 import { createAttachedRuntimeBuiltinToolSurface } from "../../src/gateway/attached-runtime-tool-surface.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { deriveRuntimeConvergencePolicyInput } from "../../src/session/runtime-execution-envelope.js";
@@ -936,6 +937,41 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       { name: "input", value: 30 },
       { name: "output", value: 15 },
     ]));
+    expect(result.record.providerRequestObservations).toHaveLength(3);
+    expect(result.record.providerRequestObservations).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        managedInvocation: {
+          invocationId: "inv-direct-1",
+          childSessionId: expect.any(String),
+          childTurnId: expect.any(String),
+        },
+        cache: {
+          partitionIdentity: expect.objectContaining({ state: "observed" }),
+          regions: expect.any(Array),
+          measurement: expect.any(String),
+          readTokens: expect.any(Number),
+          writeTokens: expect.any(Number),
+        },
+      }),
+    ]));
+    const toolProjection = terminalManagedInvocationResult({
+      toolName: "managed_agent.join",
+      rawInput: {},
+      routeId: "openai:read-only",
+      request: request({
+        input: {
+          summary: "Verify the README heading.",
+          handoff: {
+            requiredResultFields: ["summary", "evidence", "verificationResults", "residualRisks"],
+            residualRiskRequired: true,
+          },
+        },
+      }),
+      record: result.record,
+      sessionEventIds: [],
+    });
+    expect(JSON.parse(toolProjection.output)).not.toHaveProperty("providerRequestObservations");
+    expect(toolProjection.metadata.providerRequestObservations).toHaveLength(3);
     expect(provider.createMessage).toHaveBeenCalledTimes(3);
     expect((provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[1]?.[0]).toMatchObject({
       tools: [expect.objectContaining({ name: "managed_agent.submit_handoff", strict: true })],
@@ -1678,6 +1714,14 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       uri: "kiln://managed-agents/invocations/inv-direct-1/resources/failure",
       kind: "failure",
     }]);
+    expect(result.record.providerRequestObservations).toEqual([
+      expect.objectContaining({
+        managedInvocation: expect.objectContaining({ invocationId: "inv-direct-1" }),
+        cache: expect.objectContaining({
+          partitionIdentity: expect.objectContaining({ state: "observed" }),
+        }),
+      }),
+    ]);
     expect(result.record.resultHandoff?.summary).toContain(
       "Direct provider managed invocation failed for provider opencode-go, model kimi-k2.6.",
     );
@@ -1897,6 +1941,11 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       throw new Error("expected completed");
     }
     expect(result.record.lifecycleState).toBe("timed_out");
+    expect(result.record.providerRequestObservations).toEqual([
+      expect.objectContaining({
+        managedInvocation: expect.objectContaining({ invocationId: "inv-direct-1" }),
+      }),
+    ]);
     expect(snapshot?.progressEvents).toEqual(expect.arrayContaining([
       expect.objectContaining({
         kind: "tool_called",
@@ -1990,6 +2039,11 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
           summary: "Operator stopped direct child.",
           resourceUris: ["kiln://managed-agents/invocations/inv-direct-1/transcript"],
         },
+        providerRequestObservations: [
+          expect.objectContaining({
+            managedInvocation: expect.objectContaining({ invocationId: "inv-direct-1" }),
+          }),
+        ],
       },
     });
     expect(service.status("inv-direct-1")?.error).toBeUndefined();

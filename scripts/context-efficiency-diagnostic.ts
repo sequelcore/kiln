@@ -1,8 +1,14 @@
 import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { promisify } from "node:util";
+import {
+  createAccountUsageInspectionService,
+  type AccountUsageInspectionEntry,
+} from "../packages/cli/src/application/account-usage-inspection.js";
 import { readRuntimeConfigurationRevision } from "../packages/cli/src/application/runtime-configuration-revision.js";
 import {
   readGlobalConfig,
@@ -21,6 +27,13 @@ const FORBIDDEN_EVIDENCE_KEYS = new Set([
   "rawToolResult",
   "credential",
 ]);
+const execFileAsync = promisify(execFile);
+const REQUIRED_SOURCE_CONTRACT_PATHS = [
+  "packages/cli/src/application/canonical-run-session-dispatcher.ts",
+  "packages/cli/src/wrapper/permission-policy-authorizer.ts",
+  "packages/core/src/context/effective-prompt-observation.ts",
+  "packages/runtime/src/gateway/effective-prompt-observation-mapper.ts",
+] as const;
 
 export interface ContextEfficiencyCollectedTrial {
   readonly taskId: string;
@@ -174,6 +187,7 @@ export function buildInternalBenchmarkCommand(input: {
       ? "kiln-managed-child-agent"
       : undefined;
   if (!profile) throw new Error(`Unsupported internal benchmark strategy '${input.trial.executionStrategy}'.`);
+  const plusAccountIds = readDeclaredPlusAccountIds(input.identity);
   return [
     "bun",
     "packages/cli/src/index.ts",
@@ -189,6 +203,8 @@ export function buildInternalBenchmarkCommand(input: {
     "0",
     "--target",
     requireString(input.identity.targetId, "target identity"),
+    "--accounts",
+    plusAccountIds.join(","),
     "--deliberation-level",
     requireString(input.identity.deliberationLevel, "deliberation level"),
     ...(input.executionEnvelopePath ? ["--execution-envelope", input.executionEnvelopePath] : []),
@@ -216,6 +232,37 @@ export function createBunContextEfficiencyCommandRunner(): ContextEfficiencyComm
       }
     },
   };
+}
+
+async function computeGitWorktreeFingerprint(repositoryRoot: string): Promise<string> {
+  const diff = await runGitForFingerprint(repositoryRoot, ["diff", "--binary", "--no-ext-diff", "HEAD"]);
+  const untrackedOutput = await runGitForFingerprint(
+    repositoryRoot,
+    ["ls-files", "--others", "--exclude-standard", "-z"],
+  );
+  const hash = createHash("sha256").update(diff, "utf8");
+  for (const path of untrackedOutput.split("\0").filter(Boolean).sort()) {
+    const target = resolve(repositoryRoot, path);
+    const targetRelative = relative(repositoryRoot, target);
+    if (targetRelative.startsWith("..") || isAbsolute(targetRelative)) {
+      throw new Error(`Git reported an untracked path outside the repository: ${path}`);
+    }
+    hash.update(`\0${path}\0`, "utf8").update(await readFile(target));
+  }
+  return `sha256:${hash.digest("hex")}`;
+}
+
+async function runGitForFingerprint(repositoryRoot: string, args: readonly string[]): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync("git", [...args], {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+      maxBuffer: 32 * 1024 * 1024,
+    });
+    return stdout;
+  } catch (error) {
+    throw new Error(`Unable to fingerprint benchmark worktree: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 function classifyPredispatchFailure(value: unknown): ContextEfficiencyInvalidDiagnostic {
@@ -246,10 +293,13 @@ export function createProductionContextEfficiencyDispatcher(input: {
   readonly repositoryRoot: string;
   readonly manifest: unknown;
   readonly commandRunner?: ContextEfficiencyCommandRunner;
+  readonly worktreeFingerprint?: () => Promise<string>;
 }): ProductionContextEfficiencyDispatcher {
   const repositoryRoot = resolve(input.repositoryRoot);
   const identity = readManifestIdentity(input.manifest);
   const commandRunner = input.commandRunner ?? createBunContextEfficiencyCommandRunner();
+  const worktreeFingerprint = input.worktreeFingerprint
+    ?? (() => computeGitWorktreeFingerprint(repositoryRoot));
   let generatedFixtureRoot: string | undefined;
   const generatedFixturePaths = new Map<string, string>();
   const executionEnvelopePaths = new Map<string, string>();
@@ -303,6 +353,7 @@ export function createProductionContextEfficiencyDispatcher(input: {
   ): Promise<RunEnvelope> => {
     const executionEnvelopePath = await resolveExecutionEnvelopePath(trial, task);
     const oracle = requireRecord(task.oracle, "task oracle");
+    const beforeWorktree = await worktreeFingerprint();
     const output = await runCommand(buildCliRunCommand({
       repositoryRoot,
       identity,
@@ -326,7 +377,14 @@ export function createProductionContextEfficiencyDispatcher(input: {
       );
     }
     assertFrozenRunIdentity(envelope, identity);
-    return envelope;
+    const afterWorktree = await worktreeFingerprint();
+    return {
+      ...envelope,
+      diagnostics: {
+        ...envelope.diagnostics,
+        workspaceUnchanged: beforeWorktree === afterWorktree,
+      },
+    };
   };
 
   return {
@@ -515,6 +573,7 @@ interface RunEnvelope {
     readonly oraclePassed?: boolean;
     readonly authorityPassed?: boolean;
     readonly requestedAuthority?: string;
+    readonly workspaceUnchanged?: boolean;
   };
 }
 
@@ -821,6 +880,7 @@ export async function dispatchContextEfficiencySchedule(input: {
   }));
   const schedule = buildContextEfficiencySchedule(input.manifest);
   const coldSessionByTaskRepeat = new Map<string, string>();
+  const coldPartitionByTaskRepeat = new Map<string, string>();
   const invalidRetryUsedByCell = new Set<string>();
   const collected: ContextEfficiencyCollectedTrial[] = [];
   for (const trial of schedule) {
@@ -856,6 +916,16 @@ export async function dispatchContextEfficiencySchedule(input: {
             throw new Error(`Cold CLI trial '${pairKey}' did not return a continuation session identity.`);
           }
           coldSessionByTaskRepeat.set(pairKey, result.continuationSessionId);
+          coldPartitionByTaskRepeat.set(pairKey, readCachePartitionSignature(result.output));
+        } else if (trial.condition === "immediate_warm") {
+          const coldPartition = coldPartitionByTaskRepeat.get(pairKey);
+          const warmPartition = readCachePartitionSignature(result.output);
+          if (!coldPartition || coldPartition !== warmPartition) {
+            throw new ContextEfficiencyInvalidTrialError(
+              "collector_failure",
+              `Warm trial '${pairKey}' did not preserve the cold trial's observed cache partition.`,
+            );
+          }
         }
         collected.push({
           taskId: trial.taskId,
@@ -885,6 +955,58 @@ export async function dispatchContextEfficiencySchedule(input: {
     }
   }
   return collected;
+}
+
+function readCachePartitionSignature(output: unknown): string {
+  const run = validateContextEfficiencyRunEnvelope(output);
+  const observations = (run.telemetry.providerRequests ?? []).map((rawRequest) =>
+    requireRecord(rawRequest, "provider-request observation"));
+  const lineageIndexes = new Map<string, number>();
+  const partitionHashesByLineage = new Map<string, Set<string>>();
+  for (const observation of observations) {
+    const managedInvocation = observation.managedInvocation === undefined
+      ? undefined
+      : requireRecord(observation.managedInvocation, "managed provider-request lineage");
+    const lineageIdentity = managedInvocation === undefined
+      ? "top-level"
+      : [
+          managedInvocation.invocationId,
+          managedInvocation.childSessionId,
+          managedInvocation.childTurnId,
+        ].map(String).join(":");
+    let lineage = "top-level";
+    if (managedInvocation !== undefined) {
+      let lineageIndex = lineageIndexes.get(lineageIdentity);
+      if (lineageIndex === undefined) {
+        lineageIndex = lineageIndexes.size;
+        lineageIndexes.set(lineageIdentity, lineageIndex);
+      }
+      lineage = `managed-child:${lineageIndex}`;
+    }
+    const cache = requireRecord(observation.cache, "provider-request cache evidence");
+    const identity = requireRecord(cache.partitionIdentity, "provider-request cache partition identity");
+    if (identity.state !== "observed" || typeof identity.hash !== "string") {
+      throw new ContextEfficiencyInvalidTrialError(
+        "collector_failure",
+        "Cold/warm comparison requires an observed cache-partition identity.",
+      );
+    }
+    const hashes = partitionHashesByLineage.get(lineage) ?? new Set<string>();
+    hashes.add(identity.hash);
+    partitionHashesByLineage.set(lineage, hashes);
+  }
+  if (partitionHashesByLineage.size === 0) {
+    throw new ContextEfficiencyInvalidTrialError(
+      "collector_failure",
+      "Cold/warm comparison requires at least one provider-request observation.",
+    );
+  }
+  return digestCanonicalValue(
+    [...partitionHashesByLineage.entries()].map(([lineage, hashes]) => ({
+      lineage,
+      hashes: [...hashes].sort(),
+    })),
+  );
 }
 
 export async function dispatchContextEfficiencyPredispatchProbe(input: {
@@ -1046,9 +1168,14 @@ export function verifyContextEfficiencySourceContract(input: {
       `Current configuration revision differs from the frozen diagnostic identity: expected ${String(identity.configurationRevisionId)}, observed ${input.configurationRevisionId.trim()}.`,
     );
   }
+  const sourceContractPaths = readStringArray(identity.sourceContractPaths, "frozen source-contract paths");
+  const missingRequiredPaths = REQUIRED_SOURCE_CONTRACT_PATHS.filter((path) => !sourceContractPaths.includes(path));
+  if (missingRequiredPaths.length > 0) {
+    throw new Error(`Frozen source contract is incomplete; missing: ${missingRequiredPaths.join(", ")}.`);
+  }
   verifyFileContract({
     repositoryRoot,
-    rawPaths: identity.sourceContractPaths,
+    rawPaths: sourceContractPaths,
     expectedDigest: identity.sourceContractDigest,
     label: "source",
   });
@@ -1171,7 +1298,8 @@ function withTaskEvaluation(
       break;
     case "required_terms_and_no_diff":
       oraclePassed = readStringArray(oracle.requiredTerms, "required oracle terms")
-        .every((term) => answer.includes(term));
+        .every((term) => answer.includes(term))
+        && run.diagnostics.workspaceUnchanged === true;
       break;
     case "fixture_checksum_and_tool_trajectory":
       oraclePassed = answer.trim() === requireString(oracle.expectedChecksum, "fixture checksum")
@@ -1326,7 +1454,7 @@ async function main(args: readonly string[]): Promise<void> {
     const repositoryRoot = resolve(readFlag(args, "--repository-root"));
     const manifest = JSON.parse(await readFile(resolve(manifestPath), "utf8")) as unknown;
     await verifyCurrentContextEfficiencyIdentity({ repositoryRoot, manifest });
-    verifyCurrentContextEfficiencyExecutionTarget({ manifest });
+    await verifyCurrentContextEfficiencyExecutionTarget({ manifest });
     process.stdout.write(`${JSON.stringify({ status: "ready", providerQuotaUsed: false })}\n`);
     return;
   }
@@ -1339,7 +1467,7 @@ async function main(args: readonly string[]): Promise<void> {
     const repositoryRoot = resolve(readFlag(args, "--repository-root"));
     const manifest = JSON.parse(await readFile(resolve(manifestPath), "utf8")) as unknown;
     await verifyCurrentContextEfficiencyIdentity({ repositoryRoot, manifest });
-    verifyCurrentContextEfficiencyExecutionTarget({ manifest });
+    await verifyCurrentContextEfficiencyExecutionTarget({ manifest });
     const dispatcher = createProductionContextEfficiencyDispatcher({ repositoryRoot, manifest });
     try {
       const trials = await dispatchContextEfficiencySchedule({
@@ -1364,7 +1492,7 @@ async function main(args: readonly string[]): Promise<void> {
     const repositoryRoot = resolve(readFlag(args, "--repository-root"));
     const manifest = JSON.parse(await readFile(resolve(manifestPath), "utf8")) as unknown;
     await verifyCurrentContextEfficiencyIdentity({ repositoryRoot, manifest });
-    verifyCurrentContextEfficiencyExecutionTarget({ manifest });
+    await verifyCurrentContextEfficiencyExecutionTarget({ manifest });
     const dispatcher = createProductionContextEfficiencyDispatcher({ repositoryRoot, manifest });
     try {
       const trials = await dispatchContextEfficiencyPredispatchProbe({
@@ -1391,12 +1519,15 @@ async function main(args: readonly string[]): Promise<void> {
   await writeFile(resolve(outputPath), `${JSON.stringify(report, null, 2)}\n`, "utf8");
 }
 
-function verifyCurrentContextEfficiencyExecutionTarget(input: { readonly manifest: unknown }): void {
+async function verifyCurrentContextEfficiencyExecutionTarget(input: { readonly manifest: unknown }): Promise<void> {
   const authority = readGlobalExecutionTargetAuthority(readGlobalConfig());
   if (!authority) throw new Error("The frozen diagnostic execution-target catalog is unavailable.");
+  const accountUsage = await createAccountUsageInspectionService().inspect();
   verifyContextEfficiencyExecutionTarget({
     manifest: input.manifest,
     targets: authority.executionCatalog.targets,
+    accountPolicies: authority.executionCatalog.accountPolicies,
+    accountUsage: accountUsage.accounts,
   });
 }
 
@@ -1407,7 +1538,17 @@ export function verifyContextEfficiencyExecutionTarget(input: {
     readonly providerId: string;
     readonly providerModelId?: string;
     readonly economics?: { readonly fallbackPosture?: string };
+    readonly accountPolicyId?: string;
   }[];
+  readonly accountPolicies?: readonly {
+    readonly id: string;
+    readonly accountIds: readonly string[];
+  }[];
+  readonly accountUsage: readonly Pick<
+    AccountUsageInspectionEntry,
+    "provider" | "accountId" | "plan" | "availability" | "evidenceState" | "source" | "confidence" | "eligibleTargets"
+  >[];
+  readonly now?: Date;
 }): void {
   const identity = readManifestIdentity(input.manifest);
   const targetId = requireString(identity.targetId, "frozen target identity");
@@ -1420,6 +1561,55 @@ export function verifyContextEfficiencyExecutionTarget(input: {
   if (target.economics?.fallbackPosture !== "disabled") {
     throw new Error("Frozen diagnostic target does not disable provider fallback.");
   }
+  const plusAccountIds = readFreshPlusAccountIds(identity, input.now);
+  const accountPolicy = input.accountPolicies?.find((candidate) => candidate.id === target.accountPolicyId);
+  if (!accountPolicy) {
+    throw new Error("Frozen diagnostic target lacks an inspectable account policy.");
+  }
+  if (stableStringify([...accountPolicy.accountIds].sort()) !== stableStringify([...plusAccountIds].sort())) {
+    throw new Error("Frozen diagnostic target account policy is not restricted to the registered Plus accounts.");
+  }
+  for (const accountId of plusAccountIds) {
+    const usage = input.accountUsage.find((entry) =>
+      entry.provider === target.providerId && entry.accountId === accountId
+    );
+    if (!usage
+      || usage.plan !== "plus"
+      || usage.availability !== "available"
+      || usage.evidenceState !== "fresh"
+      || usage.source !== "provider-endpoint"
+      || usage.confidence !== "authoritative"
+      || !usage.eligibleTargets.includes(targetId)) {
+      throw new Error(`Registered Plus account '${accountId}' lacks fresh canonical provider evidence for '${targetId}'.`);
+    }
+  }
+}
+
+function readFreshPlusAccountIds(
+  identity: Readonly<Record<string, unknown>>,
+  now = new Date(),
+): readonly string[] {
+  const accountIds = readDeclaredPlusAccountIds(identity);
+  const policy = requireRecord(identity.plusAccountPolicy, "frozen Plus account policy");
+  const expiresAt = Date.parse(requireString(policy.expiresAt, "Plus account evidence expiry"));
+  if (!Number.isFinite(expiresAt) || expiresAt <= now.getTime()) {
+    throw new Error("Registered Plus account evidence is stale; refresh it before live benchmarking.");
+  }
+  return accountIds;
+}
+
+function readDeclaredPlusAccountIds(
+  identity: Readonly<Record<string, unknown>>,
+): readonly string[] {
+  const policy = requireRecord(identity.plusAccountPolicy, "frozen Plus account policy");
+  if (policy.plan !== "plus" || policy.evidenceState !== "fresh") {
+    throw new Error("Live diagnostic dispatch requires fresh evidence for registered Plus accounts.");
+  }
+  const accountIds = readStringArray(policy.allowedAccountIds, "registered Plus account ids");
+  if (accountIds.length === 0 || new Set(accountIds).size !== accountIds.length) {
+    throw new Error("Live diagnostic dispatch requires a non-empty unique Plus account allowlist.");
+  }
+  return accountIds;
 }
 
 async function verifyCurrentContextEfficiencyIdentity(input: {

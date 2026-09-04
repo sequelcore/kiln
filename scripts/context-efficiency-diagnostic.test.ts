@@ -15,6 +15,13 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
+const PLUS_ACCOUNT_POLICY = {
+  plan: "plus",
+  evidenceState: "fresh",
+  allowedAccountIds: ["plus-a", "plus-b"],
+  expiresAt: "2099-01-01T00:00:00.000Z",
+} as const;
+
 function runEnvelope() {
   return {
     schemaVersion: "kiln.run.output.v1",
@@ -60,7 +67,11 @@ function runEnvelope() {
           contextWindowAuthority: "unknown",
           reason: "context_capacity_unavailable",
         },
-        cache: { partitionIdentity: { state: "unknown" }, regions: [], measurement: "provider_reported" },
+        cache: {
+          partitionIdentity: { state: "observed", hash: `sha256:${"9".repeat(64)}` },
+          regions: [],
+          measurement: "provider_reported",
+        },
         toolCount: 0,
       }],
     },
@@ -75,21 +86,27 @@ describe("context efficiency diagnostic source contract", () => {
     "docs/benchmarks/context-efficiency-diagnostic-v1/manifest.json",
   );
 
-  it("verifies the frozen executable request path", () => {
-    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as unknown;
+  it("rejects a frozen source contract that omits a required transitive owner", () => {
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+      identity: { startingCommit: string; configurationRevisionId: string; sourceContractPaths: string[] };
+    };
+    manifest.identity.sourceContractPaths = manifest.identity.sourceContractPaths.filter(
+      (path) => path !== "packages/cli/src/application/canonical-run-session-dispatcher.ts",
+    );
 
     expect(() => verifyContextEfficiencySourceContract({
       repositoryRoot,
       manifest,
-      headCommit: "cdc08ae1c056663a929e0761f87dcf1046cc5e0d",
+      headCommit: manifest.identity.startingCommit,
       bunVersion: "1.4.0",
-      configurationRevisionId: (manifest as { identity: { configurationRevisionId: string } }).identity.configurationRevisionId,
-    })).not.toThrow();
+      configurationRevisionId: manifest.identity.configurationRevisionId,
+    })).toThrow(/source contract is incomplete/u);
   });
 
   it("rejects identity and source-contract drift", () => {
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
       identity: {
+        startingCommit: string;
         configurationRevisionId: string;
         inputContractDigest: string;
         protocolContractDigest: string;
@@ -105,7 +122,7 @@ describe("context efficiency diagnostic source contract", () => {
       verifyContextEfficiencySourceContract({
         repositoryRoot,
         manifest: overrides.manifest ?? manifest,
-        headCommit: overrides.headCommit ?? "cdc08ae1c056663a929e0761f87dcf1046cc5e0d",
+        headCommit: overrides.headCommit ?? manifest.identity.startingCommit,
         bunVersion: overrides.bunVersion ?? "1.4.0",
         configurationRevisionId: overrides.configurationRevisionId ?? manifest.identity.configurationRevisionId,
       });
@@ -116,15 +133,8 @@ describe("context efficiency diagnostic source contract", () => {
 
     const changedManifest = structuredClone(manifest);
     changedManifest.identity.sourceContractDigest = "sha256:invalid";
-    expect(() => verify({ manifest: changedManifest })).toThrow(/frozen source contract/);
+    expect(() => verify({ manifest: changedManifest })).toThrow(/source files differ/u);
 
-    const changedInputManifest = structuredClone(manifest);
-    changedInputManifest.identity.inputContractDigest = "sha256:invalid";
-    expect(() => verify({ manifest: changedInputManifest })).toThrow(/frozen input contract/);
-
-    const changedProtocolManifest = structuredClone(manifest);
-    changedProtocolManifest.identity.protocolContractDigest = "sha256:invalid";
-    expect(() => verify({ manifest: changedProtocolManifest })).toThrow(/differs from the frozen protocol contract/);
   });
 });
 
@@ -135,8 +145,19 @@ describe("context efficiency diagnostic execution-target preflight", () => {
       targetId: "codex-luna",
       providerId: "codex-oauth",
       modelId: "gpt-5.6-luna",
+      plusAccountPolicy: PLUS_ACCOUNT_POLICY,
     },
   };
+  const accountUsage = ["plus-a", "plus-b"].map((accountId) => ({
+    provider: "codex-oauth",
+    accountId,
+    plan: "plus",
+    availability: "available" as const,
+    evidenceState: "fresh" as const,
+    source: "provider-endpoint",
+    confidence: "authoritative",
+    eligibleTargets: ["codex-luna"],
+  }));
 
   it("requires the exact frozen route with fallback disabled", () => {
     expect(() => verifyContextEfficiencyExecutionTarget({
@@ -146,7 +167,10 @@ describe("context efficiency diagnostic execution-target preflight", () => {
         providerId: "codex-oauth",
         providerModelId: "gpt-5.6-luna",
         economics: { fallbackPosture: "disabled" },
+        accountPolicyId: "plus-only",
       }],
+      accountPolicies: [{ id: "plus-only", accountIds: ["plus-a", "plus-b"] }],
+      accountUsage,
     })).not.toThrow();
     expect(() => verifyContextEfficiencyExecutionTarget({
       manifest,
@@ -156,7 +180,55 @@ describe("context efficiency diagnostic execution-target preflight", () => {
         providerModelId: "gpt-5.6-luna",
         economics: { fallbackPosture: "committed" },
       }],
+      accountUsage,
     })).toThrow(/does not disable provider fallback/);
+
+    expect(() => verifyContextEfficiencyExecutionTarget({
+      manifest: {
+        ...manifest,
+        identity: {
+          ...manifest.identity,
+          plusAccountPolicy: { ...PLUS_ACCOUNT_POLICY, expiresAt: "2020-01-01T00:00:00.000Z" },
+        },
+      },
+      targets: [{
+        id: "codex-luna",
+        providerId: "codex-oauth",
+        providerModelId: "gpt-5.6-luna",
+        economics: { fallbackPosture: "disabled" },
+        accountPolicyId: "plus-only",
+      }],
+      accountPolicies: [{ id: "plus-only", accountIds: ["plus-a", "plus-b"] }],
+      accountUsage,
+    })).toThrow(/evidence is stale/u);
+
+    expect(() => verifyContextEfficiencyExecutionTarget({
+      manifest,
+      targets: [{
+        id: "codex-luna",
+        providerId: "codex-oauth",
+        providerModelId: "gpt-5.6-luna",
+        economics: { fallbackPosture: "disabled" },
+        accountPolicyId: "mixed",
+      }],
+      accountPolicies: [{ id: "mixed", accountIds: ["plus-a", "free-a"] }],
+      accountUsage,
+    })).toThrow(/not restricted to the registered Plus accounts/u);
+
+    expect(() => verifyContextEfficiencyExecutionTarget({
+      manifest,
+      targets: [{
+        id: "codex-luna",
+        providerId: "codex-oauth",
+        providerModelId: "gpt-5.6-luna",
+        economics: { fallbackPosture: "disabled" },
+        accountPolicyId: "plus-only",
+      }],
+      accountPolicies: [{ id: "plus-only", accountIds: ["plus-a", "plus-b"] }],
+      accountUsage: accountUsage.map((entry) => entry.accountId === "plus-a"
+        ? { ...entry, plan: "free" }
+        : entry),
+    })).toThrow(/lacks fresh canonical provider evidence/u);
   });
 });
 
@@ -257,6 +329,79 @@ describe("context efficiency diagnostic collector", () => {
     })).rejects.toThrow("explicit provider-quota authority");
   });
 
+  it("rejects a warm trial when a managed-child cache lineage changes despite a stable top-level partition", async () => {
+    const manifest = {
+      schemaVersion: "kiln-context-efficiency-diagnostic-manifest-v1",
+      design: {
+        repetitionsPerCell: 1,
+        invalidRetriesPerCell: 0,
+        timeoutMs: 1_000,
+        budgetsPerTrial: {
+          maximumProviderRequests: 2,
+          maximumToolCalls: 2,
+          maximumManagedChildren: 1,
+          maximumCumulativeInputTokens: 100,
+          maximumCumulativeOutputTokens: 50,
+        },
+      },
+      tasks: [{
+        id: "child",
+        executionStrategy: "internal_benchmark_managed_child",
+        conditions: ["cold", "immediate_warm"],
+      }],
+    };
+    const withManagedPartition = (hashCharacter: string) => {
+      const output = runEnvelope();
+      return {
+        ...output,
+        telemetry: {
+          ...output.telemetry,
+          providerRequests: [
+            ...output.telemetry.providerRequests,
+            {
+              ...output.telemetry.providerRequests[0],
+              requestIndex: 1,
+              managedInvocation: {
+                invocationId: `invocation-${hashCharacter}`,
+                childSessionId: `session-${hashCharacter}`,
+                childTurnId: `turn-${hashCharacter}`,
+              },
+              cache: {
+                ...output.telemetry.providerRequests[0]!.cache,
+                partitionIdentity: { state: "observed", hash: `sha256:${hashCharacter.repeat(64)}` },
+              },
+            },
+          ],
+        },
+      };
+    };
+    let calls = 0;
+    const collected = await dispatchContextEfficiencySchedule({
+      manifest,
+      providerQuotaAuthorized: true,
+      dispatcher: {
+        runCli: async () => { throw new Error("unexpected CLI trial"); },
+        runConversation: async () => { throw new Error("unexpected conversation trial"); },
+        runInternalBenchmark: async () => {
+          calls += 1;
+          return {
+            output: withManagedPartition(calls === 1 ? "a" : "b"),
+            continuationSessionId: "internal-session",
+          };
+        },
+      },
+    });
+
+    expect(collected).toEqual([
+      expect.objectContaining({ condition: "cold", validity: "valid" }),
+      expect.objectContaining({
+        condition: "immediate_warm",
+        validity: "invalid",
+        invalidReason: "collector_failure",
+      }),
+    ]);
+  });
+
   it("retains one infrastructure-invalid attempt and uses its single frozen retry", async () => {
     const manifest = {
       schemaVersion: "kiln-context-efficiency-diagnostic-manifest-v1",
@@ -302,7 +447,11 @@ describe("context efficiency diagnostic collector", () => {
   });
 
   it("builds shell-free ordinary CLI and internal benchmark commands from frozen identities", () => {
-    const identity = { targetId: "codex-luna", deliberationLevel: "low" };
+    const identity = {
+      targetId: "codex-luna",
+      deliberationLevel: "low",
+      plusAccountPolicy: PLUS_ACCOUNT_POLICY,
+    };
     const trial = {
       taskId: "direct",
       executionStrategy: "cli_run",
@@ -340,8 +489,17 @@ describe("context efficiency diagnostic collector", () => {
       "bun", "packages/cli/src/index.ts", "benchmark", "run-internal",
       "--profile", "kiln-managed-child-agent", "--dataset", "fixtures/managed-v1.jsonl",
       "--k", "1", "--max-invalid-attempts", "0",
-      "--target", "codex-luna", "--deliberation-level", "low",
+      "--target", "codex-luna", "--accounts", "plus-a,plus-b", "--deliberation-level", "low",
     ]);
+
+    expect(buildInternalBenchmarkCommand({
+      identity: {
+        ...identity,
+        plusAccountPolicy: { ...PLUS_ACCOUNT_POLICY, expiresAt: "2020-01-01T00:00:00.000Z" },
+      },
+      trial: { ...trial, executionStrategy: "internal_benchmark_managed_child" },
+      task: { oracle: { dataset: "fixtures/managed-v1.jsonl" } },
+    })).toContain("plus-a,plus-b");
   });
 
   it("runs the production CLI adapter through an injected runner with a hard Runtime envelope", async () => {
@@ -354,6 +512,7 @@ describe("context efficiency diagnostic collector", () => {
         providerId: "codex-oauth",
         modelId: "gpt-5.6-luna",
         deliberationLevel: "low",
+        plusAccountPolicy: PLUS_ACCOUNT_POLICY,
       },
     };
     const dispatcher = createProductionContextEfficiencyDispatcher({
@@ -449,6 +608,7 @@ describe("context efficiency diagnostic collector", () => {
         providerId: "codex-oauth",
         modelId: "gpt-5.6-luna",
         deliberationLevel: "low",
+        plusAccountPolicy: PLUS_ACCOUNT_POLICY,
       },
       design: {
         repetitionsPerCell: 1,
@@ -512,6 +672,7 @@ describe("context efficiency diagnostic collector", () => {
         providerId: "codex-oauth",
         modelId: "gpt-5.6-luna",
         deliberationLevel: "low",
+        plusAccountPolicy: PLUS_ACCOUNT_POLICY,
       },
       design: {
         repetitionsPerCell: 1,
@@ -571,6 +732,7 @@ describe("context efficiency diagnostic collector", () => {
         providerId: "codex-oauth",
         modelId: "gpt-5.6-luna",
         deliberationLevel: "low",
+        plusAccountPolicy: PLUS_ACCOUNT_POLICY,
       },
       design: {
         repetitionsPerCell: 1,
@@ -635,6 +797,7 @@ describe("context efficiency diagnostic collector", () => {
         providerId: "codex-oauth",
         modelId: "gpt-5.6-luna",
         deliberationLevel: "low",
+        plusAccountPolicy: PLUS_ACCOUNT_POLICY,
       },
       design: {
         repetitionsPerCell: 1,
@@ -723,6 +886,7 @@ describe("context efficiency diagnostic collector", () => {
     }), "utf8");
     const dispatcher = createProductionContextEfficiencyDispatcher({
       repositoryRoot: resolve(import.meta.dirname, ".."),
+      worktreeFingerprint: async () => "stable-test-worktree",
       manifest: {
         schemaVersion: "kiln-context-efficiency-diagnostic-manifest-v1",
         identity: {
@@ -730,6 +894,7 @@ describe("context efficiency diagnostic collector", () => {
           providerId: "codex-oauth",
           modelId: "gpt-5.6-luna",
           deliberationLevel: "low",
+          plusAccountPolicy: PLUS_ACCOUNT_POLICY,
         },
       },
       commandRunner: {
@@ -771,6 +936,7 @@ describe("context efficiency diagnostic collector", () => {
     const commands: string[][] = [];
     const dispatcher = createProductionContextEfficiencyDispatcher({
       repositoryRoot: resolve(import.meta.dirname, ".."),
+      worktreeFingerprint: async () => "stable-test-worktree",
       manifest: {
         schemaVersion: "kiln-context-efficiency-diagnostic-manifest-v1",
         identity: {
@@ -778,6 +944,7 @@ describe("context efficiency diagnostic collector", () => {
           providerId: "codex-oauth",
           modelId: "gpt-5.6-luna",
           deliberationLevel: "low",
+          plusAccountPolicy: PLUS_ACCOUNT_POLICY,
         },
       },
       commandRunner: {

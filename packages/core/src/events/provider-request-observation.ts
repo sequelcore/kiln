@@ -70,6 +70,11 @@ export interface ProviderRequestObservation {
   readonly providerId: string;
   readonly modelId: string;
   readonly routeId?: string;
+  readonly managedInvocation?: {
+    readonly invocationId: string;
+    readonly childSessionId: string;
+    readonly childTurnId: string;
+  };
   readonly deliberation:
     | {
         readonly state: "observed";
@@ -101,7 +106,9 @@ export interface ProviderRequestObservation {
   readonly reconciliation: ProviderRequestReconciliationObservation;
   readonly capacity: ModelRequestCapacityEvidence;
   readonly cache: {
-    readonly partitionIdentity: { readonly state: "unknown" };
+    readonly partitionIdentity:
+      | { readonly state: "unknown" }
+      | { readonly state: "observed"; readonly hash: string };
     readonly regions: readonly {
       readonly source: "tool_schema" | "system" | "messages";
       readonly stability: "stable" | "volatile";

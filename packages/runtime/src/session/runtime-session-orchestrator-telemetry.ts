@@ -130,6 +130,7 @@ export interface ProviderRequestRegionEvidence {
 
 type ProviderRequestCachePartitionDimensionSource =
   | "tenant"
+  | "account"
   | "route"
   | "policy"
   | "authority";
@@ -292,6 +293,7 @@ export function buildProviderRequestToolProjectionEvidence(input: {
 
 export interface ProviderRequestCachePartitionInput {
   readonly tenantId?: string;
+  readonly accountId?: string;
   readonly provider?: string;
   readonly model?: string;
   readonly canonicalModel?: string;
@@ -602,13 +604,17 @@ function buildCachePartitionEvidence(
     provider: input?.provider ?? "unknown",
     model: input?.model ?? "unknown",
     canonicalModel: input?.canonicalModel ?? "unknown",
-    deliberationResolution: input?.deliberationResolution ?? { status: "not-requested" },
-    communicationResolution: input?.communicationResolution ?? { status: "not-requested" },
+    deliberationResolution: cacheResolutionIdentity(input?.deliberationResolution),
+    communicationResolution: cacheResolutionIdentity(input?.communicationResolution),
+  };
+  const accountValue = {
+    accountId: input?.accountId ?? "unknown",
   };
   const policyValue = input?.policyIdentity ?? { policy: "default" };
   const authorityValue = input?.authority ?? { authority: "unknown" };
   const dimensions = [
     cachePartitionDimension("tenant", tenantValue, "session tenant identity"),
+    cachePartitionDimension("account", accountValue, "provider account identity"),
     cachePartitionDimension("route", routeValue, "provider route identity"),
     cachePartitionDimension("policy", policyValue, "efficiency and routing policy identity"),
     cachePartitionDimension("authority", authorityValue, "effective turn authority scope"),
@@ -620,6 +626,15 @@ function buildCachePartitionEvidence(
     })))),
     dimensions,
   };
+}
+
+function cacheResolutionIdentity(value: unknown): object {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return { status: "not-requested" };
+  }
+  return Object.fromEntries(
+    Object.entries(value).filter(([key]) => key !== "capabilityEvidence" && key !== "identity"),
+  );
 }
 
 function cachePartitionDimension(

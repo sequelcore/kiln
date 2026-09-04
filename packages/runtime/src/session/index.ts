@@ -1,5 +1,8 @@
 export { RuntimeSession } from "./runtime-session.js";
-export { projectProviderRequestObservation } from "./runtime-session-event-ledger.js";
+export {
+  projectProviderRequestObservation,
+  projectProviderRequestObservations,
+} from "./runtime-session-event-ledger.js";
 export type { RuntimeSessionConfig, SerializedSessionData, AgentTurnEntry } from "./runtime-session.js";
 export {
   PORTABLE_INVOCATION_SETTLEMENT_SCHEMA,

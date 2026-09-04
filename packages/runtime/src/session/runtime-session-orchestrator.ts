@@ -2691,6 +2691,7 @@ function buildRuntimeProviderRequestCachePartition(
   const authority = readExecutionTurnAuthority(perCallConfig);
   return {
     tenantId: perCallConfig?.tenantId ?? session.tenantId,
+    accountId: perCallConfig?.runtimeModelRoundDispatch?.accountId,
     provider: routing.routingDecision?.provider
       ?? routing.executionIdentity?.provider
       ?? routing.effectiveProvider.name,
@@ -2702,12 +2703,10 @@ function buildRuntimeProviderRequestCachePartition(
     communicationResolution: routing.communicationResolution,
     policyIdentity: {
       executionEnvelope,
-      modelRoutingPolicy: projectModelRoutingPolicy(perCallConfig?.modelRoutingPolicy),
       toolAllowlist: [...readExecutionToolAllowlist(perCallConfig)].sort(),
       contextPolicy: perCallConfig?.contextPolicy,
     },
     authority: {
-      admissionId: perCallConfig!.authorityAdmission!.admissionId,
       ...(authority
         ? {
             requestedAuthority: authority.requestedAuthority,
@@ -2716,26 +2715,6 @@ function buildRuntimeProviderRequestCachePartition(
           }
         : {}),
     },
-  };
-}
-
-function projectModelRoutingPolicy(
-  policy: PerCallToolConfig["modelRoutingPolicy"] | undefined,
-): Record<string, unknown> | undefined {
-  if (!policy) {
-    return undefined;
-  }
-  return {
-    task: policy.task,
-    rankingEvidence: policy.rankingEvidence,
-    routeCapabilities: policy.routeCapabilities
-      ? [...policy.routeCapabilities.entries()]
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([route, capabilities]) => ({
-          route,
-          deliberation: capabilities.deliberation,
-        }))
-      : undefined,
   };
 }
 

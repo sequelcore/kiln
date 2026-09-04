@@ -658,6 +658,15 @@ describe("createBenchmarkSessionExecutor", () => {
               errorCode: "economic_commitment_unavailable",
               status: "denied",
               kind: "managed-invocation",
+              invocationId: "managed-1",
+              providerRequestObservations: [{
+                version: "v1",
+                managedInvocation: {
+                  invocationId: "managed-1",
+                  childSessionId: "child-1",
+                  childTurnId: "child-1:turn:1",
+                },
+              }],
             },
           },
         }],
@@ -705,7 +714,10 @@ describe("createBenchmarkSessionExecutor", () => {
         physicalRegions: expect.arrayContaining([
           { source: "tool_schema", bytes: 25, measurement: "measured" },
         ]),
+      }), expect.objectContaining({
+        managedInvocation: expect.objectContaining({ invocationId: "managed-1" }),
       })],
+      managedInvocations: [expect.objectContaining({ invocationId: "managed-1" })],
       toolResultDiagnostics: [{
         name: "managed_agent.invoke",
         isError: true,

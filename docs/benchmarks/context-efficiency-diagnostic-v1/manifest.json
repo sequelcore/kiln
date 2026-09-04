@@ -1,6 +1,6 @@
 {
   "schemaVersion": "kiln-context-efficiency-diagnostic-manifest-v1",
-  "status": "baseline_frozen",
+  "status": "diagnostic_collected_post_review_limited",
   "claim": {
     "kind": "diagnostic-bottleneck-distribution",
     "evaluatedObject": "Kiln direct Runtime path on one fixed execution target",
@@ -9,11 +9,11 @@
   },
   "identity": {
     "repository": "sequelcore/kiln",
-    "startingCommit": "cdc08ae1c056663a929e0761f87dcf1046cc5e0d",
-    "configurationRevisionId": "sha256:a6504436085433acf6c02198b9a0e5c9c84008fbca7842c604c81118cec2059a",
-    "protocolContractDigest": "sha256:f8e3ce8c7deebb391391df730062ae7a43a53aa9b3ff89925d307a2de867d106",
+    "startingCommit": "8ee090b0c2aa168f9a8a319f3c65bbaa4c6bf1e5",
+    "configurationRevisionId": "sha256:55139b5925e5443742278f7132f597cd78689283709f61b808d702a3bbf82008",
+    "protocolContractDigest": "sha256:b6dd869d0a7bc32ae33acc421b730b50a8346aa4dadf9ba71f7f793913d2c0e7",
     "protocolContractDigestMethod": "sha256 of canonical claim, identity, design, tasks, evidence, gates, and retention with the protocol digest fields omitted",
-    "sourceContractDigest": "sha256:8617b6c214f4bbf4e23a7bdd476bb45cc7c1aabc15e5c32da2f8e53e24e244ee",
+    "sourceContractDigest": "sha256:1d5d05b586843c2258dee8492736fd375afc48f5a0887637aa26d4c4885d4242",
     "sourceContractDigestMethod": "sha256 of sorted '<path> <git-blob-id>' rows for the Slice 1 request path",
     "sourceContractPaths": [
       "packages/core/src/agents/index.ts",
@@ -35,6 +35,7 @@
       "packages/runtime/src/session/runtime-session-orchestrator.types.ts",
       "packages/runtime/src/tools/default-builtin-tool-surface.ts",
       "packages/cli/src/application/benchmark-session-executor.ts",
+      "packages/cli/src/application/canonical-run-session-dispatcher.ts",
       "packages/cli/src/application/config-mutation-operations.ts",
       "packages/cli/src/application/execution-target-evidence-refresh.ts",
       "packages/cli/src/application/execution-target-evidence-renewal.ts",
@@ -51,17 +52,20 @@
       "packages/cli/src/config/managed-agent-direct-adapters.ts",
       "packages/cli/src/index.ts",
       "packages/cli/src/wrapper/provider-session.ts",
+      "packages/cli/src/wrapper/permission-policy-authorizer.ts",
       "packages/cli/src/wrapper/session-registry.ts",
       "packages/cli/src/wrapper/session-store.ts",
       "packages/gateway-contracts/src/effective-prompt-observation.ts",
       "packages/gateway-contracts/src/config-mutation.ts",
       "packages/gateway-contracts/src/frames.ts",
       "packages/gateway-contracts/src/operator-event-presentation.ts",
+      "packages/core/src/context/effective-prompt-observation.ts",
       "packages/gui/src/lib/session-store/session-detail-replay.ts",
       "packages/gui/src/lib/session-store/turn-streaming-slice.ts",
       "packages/gui/src/lib/ws-client.ts",
       "packages/runtime/src/agents/managed-invocation/runtime-tool/tool-factories.ts",
       "packages/runtime/src/capabilities/runtime-capability-composition.ts",
+      "packages/runtime/src/gateway/effective-prompt-observation-mapper.ts",
       "scripts/context-efficiency-diagnostic.ts"
     ],
     "inputContractDigest": "sha256:34ee08fc0ed1a0a939708b8c5351d9026c2779333a1858b7036f813696505967",
@@ -82,7 +86,19 @@
     "fallback": "disabled",
     "mcp": "disabled_by_cli_flag",
     "concurrency": 1,
-    "bunVersion": "1.4.0"
+    "bunVersion": "1.4.0",
+    "plusAccountPolicy": {
+      "plan": "plus",
+      "evidenceState": "fresh",
+      "allowedAccountIds": [
+        "codex-04dc1471",
+        "codex-1720ceb0"
+      ],
+      "observedAt": "2026-09-04T15:12:46.236Z",
+      "expiresAt": "2026-09-04T15:17:46.236Z",
+      "source": "provider-endpoint",
+      "confidence": "authoritative"
+    }
   },
   "design": {
     "repetitionsPerCell": 3,
@@ -227,7 +243,7 @@
     "report": "content_free_projection_only"
   },
   "collectionReadiness": {
-    "status": "baseline_frozen",
+    "status": "diagnostic_collected_post_review_limited",
     "missing": [],
     "priorAttempts": [
       {
@@ -386,22 +402,65 @@
         "rootCause": "terminal_cli_failure_output_omitted_retained_provider_request_evidence_and_the_luna_scout_intent_lacked_its_governed_agent_definition",
         "correctiveAction": "project_provider_request_evidence_in_terminal_failure_output_add_the_luna_scout_agent_definition_and_honor_explicit_tool_permission_rules",
         "verdict": "not_a_baseline"
+      },
+      {
+        "localDate": "2026-09-01",
+        "status": "plus_only_collection_warm_cells_invalid",
+        "artifactDigest": "sha256:8a5029adc2c00b08628bbd0ab00127cdf4ba82060047c1b87e5a89dde0d2649f",
+        "logicalRows": 40,
+        "validRows": 12,
+        "invalidRows": 28,
+        "physicalModelTransportsInValidRows": 53,
+        "failureRows": 10,
+        "rootCause": "warm_cache_partition_identity_included_ephemeral_route_evidence_and_tool_runs_lacked_complete_noninteractive_file_governance",
+        "verdict": "not_a_baseline"
+      },
+      {
+        "localDate": "2026-09-01",
+        "status": "plus_only_collection_warm_cells_invalid",
+        "artifactDigest": "sha256:f73392d7ba0dbf3258d907bb56c8797c83cfe3e5cd57f7838c5535b888342ca7",
+        "logicalRows": 38,
+        "validRows": 18,
+        "invalidRows": 20,
+        "physicalModelTransportsInValidRows": 87,
+        "failureRows": 12,
+        "rootCause": "the_live_operator_runtime_had_not_loaded_the_rebuilt_cache_partition_contract_and_all_warm_cells_failed_partition_comparison",
+        "verdict": "not_a_baseline"
+      },
+      {
+        "localDate": "2026-09-01",
+        "status": "historical_complete_collection_not_reproducible",
+        "artifactDigest": "sha256:089c60d310733efeb7ad8e38a2406a21ff3fba7b126bb872d2ff6b48c43ea8c6",
+        "logicalRows": 33,
+        "validRows": 33,
+        "invalidRows": 0,
+        "completedCells": 11,
+        "expectedCells": 11,
+        "physicalModelTransports": 106,
+        "failureRows": 30,
+        "verdict": "diagnostic-only"
       }
     ],
     "lastAttempt": {
-      "localDate": "2026-09-01",
-      "status": "baseline_frozen",
-      "artifactDigest": "sha256:089c60d310733efeb7ad8e38a2406a21ff3fba7b126bb872d2ff6b48c43ea8c6",
-      "protocolContractDigest": "sha256:f8e3ce8c7deebb391391df730062ae7a43a53aa9b3ff89925d307a2de867d106",
-      "sourceContractDigest": "sha256:8617b6c214f4bbf4e23a7bdd476bb45cc7c1aabc15e5c32da2f8e53e24e244ee",
-      "configurationRevisionId": "sha256:a6504436085433acf6c02198b9a0e5c9c84008fbca7842c604c81118cec2059a",
+      "localDate": "2026-09-04",
+      "status": "diagnostic_collected_post_review_limited",
+      "artifactDigest": "sha256:e3368f37dcedbd3ca08a846d4772c7f9e8cc07e6183bf063262e38f0008c4e4d",
+      "protocolContractDigest": "sha256:b6dd869d0a7bc32ae33acc421b730b50a8346aa4dadf9ba71f7f793913d2c0e7",
+      "sourceContractDigest": "sha256:1d5d05b586843c2258dee8492736fd375afc48f5a0887637aa26d4c4885d4242",
+      "configurationRevisionId": "sha256:55139b5925e5443742278f7132f597cd78689283709f61b808d702a3bbf82008",
       "logicalRows": 33,
       "validRows": 33,
       "invalidRows": 0,
       "completedCells": 11,
       "expectedCells": 11,
-      "physicalModelTransports": 106,
-      "failureRows": 30,
+      "physicalModelTransports": 155,
+      "failureRows": 22,
+      "warmPairs": 15,
+      "warmPartitionMatches": 15,
+      "warmPartitionValidationScope": "top_level_requests_only",
+      "managedChildPartitionValidation": "not_retained_not_verified",
+      "providerReportedCacheReadTokens": 844800,
+      "accountPolicy": "registered_plus_only",
       "verdict": "diagnostic-only"
     }
   }

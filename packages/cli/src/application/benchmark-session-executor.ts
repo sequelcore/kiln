@@ -4,6 +4,7 @@ import type {
   BenchmarkItemExecutor,
   DeliberationResolution,
   ModelDeliberationCapabilities,
+  ProviderRequestObservation,
 } from "@kilnai/core";
 import type { BenchmarkItemExecutionContext } from "@kilnai/core/eval";
 import {
@@ -784,10 +785,15 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     });
     const boundExecution = [...result.executionBindings].reverse().find((binding) => binding.status === "bound");
     const observedRouteId = boundExecution?.routeId ?? expectedRouteId;
-    const providerRequestObservations = projectProviderRequestObservations({
+    const parentProviderRequestObservations = projectProviderRequestObservations({
       requests: result.providerRequests ?? [],
       ...(observedRouteId ? { routeId: observedRouteId } : {}),
     });
+    const managedInvocations = collectManagedInvocationMetadata(result.transcript);
+    const providerRequestObservations = [
+      ...parentProviderRequestObservations,
+      ...managedInvocations.flatMap((invocation) => readManagedProviderRequestObservations(invocation)),
+    ];
     const executionIdentityMismatch = boundExecution !== undefined
       && ((expectedRouteId !== undefined && boundExecution.routeId !== expectedRouteId)
         || (scheduledAccountOverrideId !== undefined && boundExecution.accountId !== scheduledAccountOverrideId));
@@ -910,6 +916,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         sessionSucceeded: result.sessionSucceeded,
         providerRequests: result.providerRequests,
         providerRequestObservations,
+        managedInvocations,
         deliberationResolution,
         ...(isFormalScreening ? {
           formalScreeningArm,
@@ -1176,6 +1183,40 @@ function closeBuiltinResources(options: {
   } catch {
     // fail-open cleanup
   }
+}
+
+function collectManagedInvocationMetadata(transcript: readonly unknown[]): readonly Record<string, unknown>[] {
+  const byInvocationId = new Map<string, Record<string, unknown>>();
+  for (const entry of transcript) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry) || !("event" in entry)) continue;
+    const event = entry.event;
+    if (!event || typeof event !== "object" || Array.isArray(event) || !("metadata" in event)) continue;
+    const metadata = event.metadata;
+    if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) continue;
+    const record = metadata as Record<string, unknown>;
+    if (record.kind !== "managed-invocation" || typeof record.invocationId !== "string") continue;
+    const prior = byInvocationId.get(record.invocationId);
+    if (!prior || record.providerRequestObservations !== undefined) {
+      byInvocationId.set(record.invocationId, record);
+    }
+  }
+  return [...byInvocationId.values()];
+}
+
+function readManagedProviderRequestObservations(
+  metadata: Record<string, unknown>,
+): readonly ProviderRequestObservation[] {
+  if (!Array.isArray(metadata.providerRequestObservations)) return [];
+  return metadata.providerRequestObservations.filter(
+    (observation): observation is ProviderRequestObservation => Boolean(
+      observation
+      && typeof observation === "object"
+      && !Array.isArray(observation)
+      && "version" in observation
+      && observation.version === "v1"
+      && "managedInvocation" in observation,
+    ),
+  );
 }
 
 async function recordDirectRouteHealth(

@@ -100,4 +100,7 @@ Use `start` when the runtime must already be stopped, `ensure` when either an
 existing ready instance or a newly started instance is acceptable, and `stop`
 when no operator surface or native-harness bridge should use the runtime.
 Lifecycle commands act through the exact-instance supervisor; do not kill an
-unverified process by port or executable name.
+unverified process by port or executable name. Normal shutdown uses the
+control-token-authenticated private listener and binds the request to the exact
+persisted instance identity. The supervisor may terminate only that verified
+PID if the authenticated owner accepts shutdown but does not settle.

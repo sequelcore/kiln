@@ -14,8 +14,10 @@ import {
   OPERATOR_RUNTIME_REQUEST_MAX_BYTES,
   OPERATOR_RUNTIME_SESSION_PATH,
   OPERATOR_RUNTIME_SESSION_REQUEST_MAX_BYTES,
+  OPERATOR_RUNTIME_SHUTDOWN_PATH,
   type OperatorRuntimeListenerFetch,
   inspectOperatorRuntimeListener,
+  requestOperatorRuntimeShutdown,
   startOperatorRuntimeListener,
 } from "../../src/operator-runtime/operator-listener.js";
 import { createTestFetch } from "../fetch-fixture.js";
@@ -52,6 +54,7 @@ interface StartedTestListener {
   readonly handler: ReturnType<typeof vi.fn>;
   readonly sessionOpen: ReturnType<typeof vi.fn>;
   readonly applicationHandler: ReturnType<typeof vi.fn>;
+  readonly shutdownRequested: Promise<void>;
   readonly bound: { readonly hostname: string; readonly port: number };
 }
 
@@ -92,7 +95,7 @@ async function startTestListener(): Promise<StartedTestListener> {
     },
   });
   if (!listenerFetch || !bound) throw new Error("listener was not bound");
-  return { fetch: listenerFetch, close: runtime.close, stop, handler, sessionOpen, applicationHandler, bound };
+  return { fetch: listenerFetch, close: runtime.close, stop, handler, sessionOpen, applicationHandler, shutdownRequested: runtime.shutdownRequested, bound };
 }
 
 const sessionOpenInput = {
@@ -316,12 +319,36 @@ describe("startOperatorRuntimeListener", () => {
     expect(started.handler).not.toHaveBeenCalled();
   });
 
+  it("accepts shutdown only for the authenticated exact runtime instance", async () => {
+    const started = await startTestListener();
+    const headers = {
+      host: `127.0.0.1:${port}`,
+      origin,
+      [OPERATOR_RUNTIME_CONTROL_TOKEN_HEADER]: controlToken,
+      "x-kiln-instance-id": identity.instanceId,
+    };
+    const mismatch = await started.fetch(new Request(`${origin}${OPERATOR_RUNTIME_SHUTDOWN_PATH}`, {
+      method: "POST",
+      headers: { ...headers, "x-kiln-instance-id": "another-instance" },
+    }));
+    expect(mismatch.status).toBe(409);
+
+    const response = await started.fetch(new Request(`${origin}${OPERATOR_RUNTIME_SHUTDOWN_PATH}`, {
+      method: "POST",
+      headers,
+    }));
+    expect(response.status).toBe(202);
+    expect(response.headers.get("x-kiln-service")).toBe("operator-runtime");
+    await started.shutdownRequested;
+  });
+
   it("closes idempotently and remains closed when stop throws", async () => {
     const started = await startTestListener();
     started.stop.mockImplementationOnce(() => { throw new Error("stop failed"); });
     expect(() => started.close()).toThrow("stop failed");
     expect(() => started.close()).not.toThrow();
     expect(started.stop).toHaveBeenCalledTimes(1);
+    expect(started.stop).toHaveBeenCalledWith(false);
   });
 
   it("propagates listener startup failure without invoking the MCP handler", async () => {
@@ -522,5 +549,27 @@ describe("inspectOperatorRuntimeListener", () => {
       controlToken,
       fetch: createTestFetch(async () => { throw Object.assign(new Error("private error"), { cause: { code } }); }),
     })).resolves.toEqual({ state: "stopped" });
+  });
+});
+
+describe("requestOperatorRuntimeShutdown", () => {
+  it("binds the control token and exact instance identity to the private request", async () => {
+    const fetchMock = createTestFetch(vi.fn<(...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>>(
+      async () => new Response(null, {
+        status: 202,
+        headers: { "x-kiln-service": "operator-runtime" },
+      }),
+    ));
+    await expect(requestOperatorRuntimeShutdown({
+      port,
+      controlToken,
+      identity,
+      fetch: fetchMock,
+    })).resolves.toEqual({ state: "accepted" });
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe(`${origin}${OPERATOR_RUNTIME_SHUTDOWN_PATH}`);
+    expect(init).toMatchObject({ method: "POST", cache: "no-store", redirect: "error" });
+    expect(new Headers(init?.headers).get("x-kiln-instance-id")).toBe(identity.instanceId);
+    expect(new Headers(init?.headers).get(OPERATOR_RUNTIME_CONTROL_TOKEN_HEADER)).toBe(controlToken);
   });
 });
