@@ -290,6 +290,132 @@ describe("context efficiency diagnostic collector", () => {
     expect(schedule.every((trial) => trial.invalidRetryLimit === 1 && trial.timeoutMs === 180_000)).toBe(true);
   });
 
+  it("keeps the 33-row schedule when the collection physical-request cap is omitted", async () => {
+    const manifest = JSON.parse(readFileSync(resolve(
+      import.meta.dirname,
+      "../docs/benchmarks/context-efficiency-post-fix-v1/protocol.json",
+    ), "utf8")) as { design: { maximumPhysicalProviderRequestsForCollection?: number } };
+    delete manifest.design.maximumPhysicalProviderRequestsForCollection;
+    let calls = 0;
+    const collected = await dispatchContextEfficiencySchedule({
+      manifest,
+      providerQuotaAuthorized: true,
+      dispatcher: {
+        runCli: async ({ continuationSessionId }) => {
+          calls += 1;
+          return { output: runEnvelope(), continuationSessionId: continuationSessionId ?? `session-${calls}` };
+        },
+        runConversation: async () => { calls += 1; return { output: runEnvelope() }; },
+        runInternalBenchmark: async () => {
+          calls += 1;
+          return { output: runEnvelope(), continuationSessionId: `benchmark-session-${calls}` };
+        },
+      },
+    });
+
+    expect(calls).toBe(33);
+    expect(collected).toHaveLength(33);
+  });
+
+  it("stops before a retry whose full allocation would exceed the frozen collection cap", async () => {
+    const manifest = {
+      schemaVersion: "kiln-context-efficiency-post-fix-manifest-v1",
+      design: {
+        repetitionsPerCell: 1, invalidRetriesPerCell: 1, timeoutMs: 1_000,
+        maximumPhysicalProviderRequestsForCollection: 2,
+        budgetsPerTrial: {
+          maximumProviderRequests: 2, maximumToolCalls: 1, maximumManagedChildren: 1,
+          maximumCumulativeInputTokens: 100, maximumCumulativeOutputTokens: 50,
+        },
+      },
+      tasks: [{ id: "direct", executionStrategy: "cli_run", conditions: ["cold"] }],
+    };
+    let calls = 0;
+    const checkpoints: unknown[] = [];
+    const collected = await dispatchContextEfficiencySchedule({
+      manifest,
+      providerQuotaAuthorized: true,
+      checkpoint: async (rows) => { checkpoints.push(structuredClone(rows)); },
+      dispatcher: {
+        runCli: async () => {
+          calls += 1;
+          throw new ContextEfficiencyInvalidTrialError(
+            "infrastructure_failure", "terminal failure with observed dispatch", undefined,
+            { output: runEnvelope(), dispatchEvidence: "observed" },
+          );
+        },
+        runConversation: async () => ({ output: runEnvelope() }),
+        runInternalBenchmark: async () => ({ output: runEnvelope() }),
+      },
+    });
+
+    expect(calls).toBe(1);
+    expect(collected).toEqual([expect.objectContaining({ validity: "invalid", dispatchEvidence: "observed" })]);
+    expect(checkpoints.at(-1)).toEqual(collected);
+  });
+
+  it("counts settled parent and managed-child requests from an observed invalid attempt against the collection cap", async () => {
+    const manifest = {
+      schemaVersion: "kiln-context-efficiency-post-fix-manifest-v1",
+      design: {
+        repetitionsPerCell: 1, invalidRetriesPerCell: 1, timeoutMs: 1_000,
+        maximumPhysicalProviderRequestsForCollection: 3,
+        budgetsPerTrial: {
+          maximumProviderRequests: 2, maximumToolCalls: 1, maximumManagedChildren: 1,
+          maximumCumulativeInputTokens: 100, maximumCumulativeOutputTokens: 50,
+        },
+      },
+      tasks: [{ id: "child", executionStrategy: "cli_run", conditions: ["cold"] }],
+    };
+    const parent = runEnvelope();
+    const observedParentAndChild = {
+      ...parent,
+      telemetry: {
+        ...parent.telemetry,
+        providerRequests: [...parent.telemetry.providerRequests, {
+          ...parent.telemetry.providerRequests[0],
+          requestIndex: 1,
+          managedInvocation: { invocationId: "child-invocation", childSessionId: "child-session", childTurnId: "child-turn" },
+        }],
+      },
+    };
+    let calls = 0;
+    const collected = await dispatchContextEfficiencySchedule({
+      manifest,
+      providerQuotaAuthorized: true,
+      dispatcher: {
+        runCli: async () => {
+          calls += 1;
+          throw new ContextEfficiencyInvalidTrialError(
+            "infrastructure_failure", "parent and child settled", undefined,
+            { output: observedParentAndChild, dispatchEvidence: "observed" },
+          );
+        },
+        runConversation: async () => ({ output: runEnvelope() }),
+        runInternalBenchmark: async () => ({ output: runEnvelope() }),
+      },
+    });
+
+    expect(calls).toBe(1);
+    expect(collected).toHaveLength(1);
+    expect(collected[0]).toMatchObject({ validity: "invalid", output: observedParentAndChild });
+  });
+
+  it("rejects a collection cap above the frozen schedule worst case", () => {
+    expect(() => buildContextEfficiencySchedule({
+      schemaVersion: "kiln-context-efficiency-post-fix-manifest-v1",
+      design: {
+        repetitionsPerCell: 1, invalidRetriesPerCell: 1, timeoutMs: 1_000,
+        maximumPhysicalProviderRequestsForCollection: 5,
+        budgetsPerTrial: {
+          maximumProviderRequests: 2, maximumToolCalls: 1, maximumManagedChildren: 1,
+          maximumCumulativeInputTokens: 100, maximumCumulativeOutputTokens: 50,
+        },
+      },
+      tasks: [{ id: "direct", executionStrategy: "cli_run", conditions: ["cold"] }],
+    })).toThrow(/physical-provider-request ceiling/u);
+  });
+
   it("bounds the diagnostic probe to one cold trivial request and one physical transport", async () => {
     const manifest = JSON.parse(readFileSync(resolve(
       import.meta.dirname,

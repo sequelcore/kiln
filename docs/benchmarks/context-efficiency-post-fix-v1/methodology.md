@@ -1,8 +1,8 @@
 # Context Efficiency Post-Fix Control v1
 
-Status: Offline implementation and independent review passed on 2026-09-04.
-Live admission remains open.
-No execution manifest is frozen and no post-fix provider measurements exist.
+Status: The first frozen collection completed on 2026-09-04 as diagnostic-only.
+See [reconciled results and permission diagnosis](collection-1.md). A valid
+promotion control remains unestablished.
 
 Owner: [Roadmap 06.5](../../roadmap/06.5-end-to-end-harness-efficiency.md).
 Preregistration: [Protocol template](protocol.json).
@@ -117,23 +117,25 @@ and settlement after collection. The collector labels results `diagnostic-only`
 until an independent review justifies an identity-bound internal control.
 Only that reviewed result can be used for a later preregistered candidate.
 
-## Current verification and live-admission gate
+## Current verification and remaining gate
 
-Independent review reports no remaining high or medium implementation findings.
-The six focused scripts suites pass 110 tests; ten affected CLI suites pass
-179 tests and the CLI test typecheck passes. Scripts typecheck, workspace
-compilation, documentation validation, and the affected Runtime request-envelope
-and adapter checks pass (41 Runtime tests). The fixture verifier includes real
-passing/failing Bun execution and out-of-scope edits, including rejection of
-Windows drive-relative paths.
+Offline collector checks and independent review passed before the first frozen
+collection. The executed source passed 110 scripts tests, 179 affected CLI
+tests, 41 Runtime checks, typechecks, compilation, and documentation validation.
+The subsequent ordinary CLI account-policy operation passed 42 authority tests
+and 25 CLI tests, with no high or medium review findings.
 
-Canonical account inspection confirms two available Plus accounts. However,
-`codex-luna` references a shared worker account policy that also admits Free
-accounts. The freezer correctly refuses this policy for a Plus-only protocol.
-The operator approved the private proposal for a dedicated Plus-only policy and
-up to 352 physical requests. CLI-only execution is required. The missing
-`target.update_account_policy` operation now uses the existing configuration
-mutation authority. Its 42 authority tests and 25 CLI tests pass, including
-revision conflicts, unchanged shared policies, preserved YAML comments, and
-truthful reconciliation outcomes. No provider
-measurements have been collected and no execution manifest has been frozen.
+The operator-approved Plus-only policy is applied. The first cohort consumed
+124 of the authorized 352 requests; all are settled and retained. Its
+[reviewed result](collection-1.md) is diagnostic-only. A new file-access policy
+decision is required before a changed-policy rerun.
+
+The collection dispatcher additionally supports the frozen
+`design.maximumPhysicalProviderRequestsForCollection` ceiling. It defaults to
+the schedule's worst-case allocation and can be lower when prior cohorts have
+consumed part of the approved quota. It reserves the next full attempt before
+dispatch, counts observed invalid and child requests, and stops without further
+dispatch when the remainder is insufficient. Unknown settlement remains a halt.
+The proposed next template caps collection at the remaining 228 requests and
+binds the prior report digest; it is neither a replacement for the first frozen
+manifest nor permission to change file-access policy.

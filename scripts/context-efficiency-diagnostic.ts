@@ -1057,6 +1057,16 @@ export function buildContextEfficiencySchedule(manifest: unknown): readonly Cont
     }
   }
   const maximumAttempts = schedule.length + cellCount * invalidRetryLimit;
+  const declaredPhysicalProviderRequestCap = design.maximumPhysicalProviderRequestsForCollection;
+  const maximumPhysicalProviderRequestsForCollection = declaredPhysicalProviderRequestCap === undefined
+    ? maximumAttempts * budgets.maximumProviderRequests
+    : declaredPhysicalProviderRequestCap;
+  if (typeof maximumPhysicalProviderRequestsForCollection !== "number"
+    || !Number.isSafeInteger(maximumPhysicalProviderRequestsForCollection)
+    || maximumPhysicalProviderRequestsForCollection < 1
+    || maximumPhysicalProviderRequestsForCollection > maximumAttempts * budgets.maximumProviderRequests) {
+    throw new Error("Frozen collection physical-provider-request ceiling must be a positive allocation no greater than the schedule worst case.");
+  }
   if ((design.maximumScheduledTrialsIncludingInvalidRetries !== undefined
       && design.maximumScheduledTrialsIncludingInvalidRetries !== maximumAttempts)
     || (design.maximumProviderRequestsAcrossScheduledTrials !== undefined
@@ -1086,6 +1096,7 @@ export async function dispatchContextEfficiencySchedule(input: {
     return [task.id, task] as const;
   }));
   const schedule = buildContextEfficiencySchedule(input.manifest);
+  const collectionPhysicalProviderRequestCap = readCollectionPhysicalProviderRequestCap(input.manifest, schedule);
   const coldSessionByTaskRepeat = new Map<string, string>();
   const coldPartitionByTaskRepeat = new Map<string, string>();
   const invalidRetryUsedByCell = new Set<string>();
@@ -1098,6 +1109,12 @@ export async function dispatchContextEfficiencySchedule(input: {
     const retryAvailable = trial.invalidRetryLimit > 0 && !invalidRetryUsedByCell.has(cellKey);
     const maximumAttempts = retryAvailable ? 2 : 1;
     for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
+      const observedPhysicalProviderRequests = countSettledPhysicalProviderRequests(collected);
+      if (observedPhysicalProviderRequests === undefined
+        || observedPhysicalProviderRequests + trial.budgets.maximumProviderRequests > collectionPhysicalProviderRequestCap) {
+        await input.checkpoint?.([...collected]);
+        return collected;
+      }
       await input.verifyIdentity?.();
       let result: ContextEfficiencyStrategyResult | undefined;
       // Reserve before dispatch. A killed collector leaves a conservative
@@ -1212,6 +1229,72 @@ export async function dispatchContextEfficiencySchedule(input: {
   return collected;
 }
 
+function readCollectionPhysicalProviderRequestCap(
+  manifest: unknown,
+  schedule: readonly ContextEfficiencyScheduledTrial[],
+): number {
+  const design = isRecord(manifest) && isRecord(manifest.design) ? manifest.design : undefined;
+  if (!design || schedule.length === 0) throw new Error("Frozen collection design is unavailable.");
+  const maximumAttempts = schedule.length
+    + new Set(schedule.map((trial) => `${trial.taskId}\0${trial.condition}`)).size * schedule[0]!.invalidRetryLimit;
+  const scheduleWorstCase = maximumAttempts * schedule[0]!.budgets.maximumProviderRequests;
+  const declaredCap = design.maximumPhysicalProviderRequestsForCollection;
+  const cap = declaredCap === undefined ? scheduleWorstCase : declaredCap;
+  if (typeof cap !== "number" || !Number.isSafeInteger(cap) || cap < 1 || cap > scheduleWorstCase) {
+    throw new Error("Frozen collection physical-provider-request ceiling is invalid.");
+  }
+  return cap;
+}
+
+/**
+ * Counts every retained settled physical request, including a failed attempt's
+ * parent and managed-child observations. Duplicate or unsettled evidence is
+ * not safe to budget around and therefore stops the cohort before dispatch.
+ */
+function countSettledPhysicalProviderRequests(
+  trials: readonly ContextEfficiencyCollectedTrial[],
+): number | undefined {
+  const physicalRequestIds = new Set<string>();
+  for (const trial of trials) {
+    if (trial.output === undefined) continue;
+    let run: RunEnvelope;
+    try {
+      run = validateContextEfficiencyRunEnvelope(trial.output);
+    } catch {
+      return undefined;
+    }
+    const requests = run.telemetry.providerRequests ?? [];
+    if (!hasSettledContextEfficiencyProviderEvidence(requests)) return undefined;
+    for (const request of requests) {
+      let projected;
+      try {
+        projected = projectContextEfficiencyProviderEvidence(request);
+      } catch {
+        return undefined;
+      }
+      const attempt = projected.dispatch.attempt;
+      if (attempt.state !== "observed") return undefined;
+      const lineage = projected.managedInvocation;
+      const physicalRequestId = JSON.stringify([
+        trial.taskId,
+        trial.condition,
+        trial.repetition,
+        trial.attempt ?? 1,
+        run.telemetry.sessionId,
+        projected.collectorTurnIndex ?? 0,
+        lineage?.invocationId ?? "parent",
+        lineage?.childSessionId ?? null,
+        lineage?.childTurnId ?? null,
+        projected.requestIndex,
+        attempt.value,
+      ]);
+      if (physicalRequestIds.has(physicalRequestId)) return undefined;
+      physicalRequestIds.add(physicalRequestId);
+    }
+  }
+  return physicalRequestIds.size;
+}
+
 function readCachePartitionSignature(output: unknown): string {
   const run = validateContextEfficiencyRunEnvelope(output);
   const observations = (run.telemetry.providerRequests ?? []).map((rawRequest) =>
@@ -1283,6 +1366,7 @@ export async function dispatchContextEfficiencyPredispatchProbe(input: {
       invalidRetriesPerCell: 0,
       maximumScheduledTrialsIncludingInvalidRetries: 1,
       maximumProviderRequestsAcrossScheduledTrials: 1,
+      maximumPhysicalProviderRequestsForCollection: 1,
       budgetsPerTrial: { ...budgets, maximumProviderRequests: 1 },
     },
     tasks: [{ ...task, conditions: ["cold"] }],

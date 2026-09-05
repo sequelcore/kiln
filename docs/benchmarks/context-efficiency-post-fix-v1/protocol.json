@@ -27,6 +27,14 @@
                                             ]
                  },
     "design":  {
+      "maximumPhysicalProviderRequestsForCollection": 228,
+      "quotaAuthorization": {
+        "maximumPhysicalProviderRequestsAcrossCollections": 352,
+        "previouslyConsumedPhysicalProviderRequests": 124,
+        "priorReportDigest": "sha256:0ac57380c02c0170301e8cd8cb5d9b2a5fcefaef0bf297614187c142dc637a9e",
+        "remainingPhysicalProviderRequests": 228
+      },
+
                    "repetitionsPerCell":  3,
                    "invalidRetriesPerCell":  1,
                    "timeoutMs":  180000,
