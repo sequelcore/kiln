@@ -567,7 +567,38 @@ describe("context efficiency diagnostic collector", () => {
         condition: "immediate_warm",
         validity: "invalid",
         invalidReason: "collector_failure",
+        dispatchEvidence: "observed",
       }),
+    ]);
+    expect(collected[1]).not.toHaveProperty("reservedMaximumProviderRequests");
+  });
+
+  it("does not dispatch an internal warm trial whose cold trial was invalid", async () => {
+    const manifest = {
+      schemaVersion: "kiln-context-efficiency-post-fix-manifest-v1",
+      design: { repetitionsPerCell: 1, invalidRetriesPerCell: 0, timeoutMs: 1_000,
+        budgetsPerTrial: { maximumProviderRequests: 2, maximumToolCalls: 2, maximumManagedChildren: 1,
+          maximumCumulativeInputTokens: 100, maximumCumulativeOutputTokens: 50 } },
+      tasks: [{ id: "child", executionStrategy: "internal_benchmark_managed_child", conditions: ["cold", "immediate_warm"] }],
+    };
+    const calls: string[] = [];
+    const collected = await dispatchContextEfficiencySchedule({
+      manifest,
+      providerQuotaAuthorized: true,
+      dispatcher: {
+        runCli: async () => { throw new Error("unexpected CLI trial"); },
+        runConversation: async () => { throw new Error("unexpected conversation trial"); },
+        runInternalBenchmark: async ({ trial }) => {
+          calls.push(trial.condition);
+          throw new ContextEfficiencyInvalidTrialError("infrastructure_failure", "Canonical trial invalid", undefined,
+            { output: runEnvelope(), dispatchEvidence: "observed" });
+        },
+      },
+    });
+    expect(calls).toEqual(["cold"]);
+    expect(collected).toEqual([
+      expect.objectContaining({ condition: "cold", validity: "invalid", dispatchEvidence: "observed" }),
+      expect.objectContaining({ condition: "immediate_warm", validity: "invalid", dispatchEvidence: "not_dispatched" }),
     ]);
   });
 
@@ -655,12 +686,13 @@ describe("context efficiency diagnostic collector", () => {
     expect(buildInternalBenchmarkCommand({
       identity,
       trial: { ...trial, executionStrategy: "internal_benchmark_managed_child" },
-      task: { oracle: { dataset: "fixtures/managed-v1.jsonl" } },
+      task: { authority: "audited", oracle: { dataset: "fixtures/managed-v1.jsonl" } },
     })).toEqual([
       "bun", "packages/cli/src/index.ts", "benchmark", "run-internal",
       "--profile", "kiln-managed-child-agent", "--dataset", "fixtures/managed-v1.jsonl",
       "--k", "1", "--max-invalid-attempts", "0",
       "--target", "codex-luna", "--accounts", "plus-a,plus-b", "--deliberation-level", "low",
+      "--authority", "audited",
     ]);
 
     expect(buildInternalBenchmarkCommand({
@@ -669,7 +701,7 @@ describe("context efficiency diagnostic collector", () => {
         plusAccountPolicy: { ...PLUS_ACCOUNT_POLICY, expiresAt: "2020-01-01T00:00:00.000Z" },
       },
       trial: { ...trial, executionStrategy: "internal_benchmark_managed_child" },
-      task: { oracle: { dataset: "fixtures/managed-v1.jsonl" } },
+      task: { authority: "read_only", oracle: { dataset: "fixtures/managed-v1.jsonl" } },
     })).toContain("plus-a,plus-b");
   });
 
@@ -1037,6 +1069,53 @@ describe("context efficiency diagnostic collector", () => {
       ]);
     } finally {
       await dispatcher.cleanup();
+    }
+  });
+
+  it("accepts canonical audited admission for the template's bounded implementation task", async () => {
+    const repositoryRoot = resolve(import.meta.dirname, "..");
+    const template = JSON.parse(readFileSync(resolve(repositoryRoot,
+      "docs/benchmarks/context-efficiency-post-fix-v1/protocol.json"), "utf8")) as {
+        tasks: Array<Record<string, unknown>>;
+      };
+    const task = template.tasks.find((entry) => entry.id === "bounded_implementation");
+    if (!task) throw new Error("Missing bounded implementation task");
+    const root = mkdtempSync(resolve(tmpdir(), "kiln-context-efficiency-test-"));
+    const artifactPath = resolve(root, "benchmark.json");
+    const request = runEnvelope().telemetry.providerRequests[0]!;
+    writeFileSync(artifactPath, JSON.stringify({ runs: [{ consistency: {
+      k: 1,
+      itemResults: [{ itemId: "fixture-item", totalRuns: 1, invalidTrialCount: 0, passCount: 1, allPassed: true }],
+      runs: [{ results: [{ itemId: "fixture-item", durationMs: 1_000,
+        tokenUsage: { inputTokens: 10, outputTokens: 2 }, trial: { status: "valid" },
+        metadata: { sessionId: "audited-session", sessionSucceeded: true,
+          providerId: "codex-oauth", modelId: "gpt-5.6-luna",
+          providerRequestObservations: [{ ...request, authority: {
+            state: "observed", requestedAuthority: "audited", admittedAuthority: "audited", completeness: "authoritative",
+          } }], managedInvocations: [], toolCalls: [],
+        },
+      }] }],
+    } }] }));
+    const dispatcher = createProductionContextEfficiencyDispatcher({
+      repositoryRoot,
+      manifest: { schemaVersion: "kiln-context-efficiency-post-fix-manifest-v1",
+        identity: { targetId: "codex-luna", providerId: "codex-oauth", modelId: "gpt-5.6-luna",
+        deliberationLevel: "low", plusAccountPolicy: PLUS_ACCOUNT_POLICY } },
+      commandRunner: { run: async () => ({ exitCode: 0, stdout: JSON.stringify({ outputPath: artifactPath }), stderr: "" }) },
+    });
+    try {
+      const result = await dispatcher.runInternalBenchmark({ task, trial: {
+        taskId: "bounded_implementation", executionStrategy: "internal_benchmark_isolated_fixture",
+        condition: "cold", repetition: 1, invalidRetryLimit: 0, timeoutMs: 1_000,
+        budgets: { maximumProviderRequests: 2, maximumToolCalls: 2, maximumManagedChildren: 1,
+          maximumCumulativeInputTokens: 100, maximumCumulativeOutputTokens: 50 },
+      } });
+      expect(validateContextEfficiencyRunEnvelope(result.output).diagnostics).toMatchObject({
+        requestedAuthority: "audited", authorityPassed: true,
+      });
+    } finally {
+      await dispatcher.cleanup();
+      rmSync(root, { recursive: true, force: true });
     }
   });
 

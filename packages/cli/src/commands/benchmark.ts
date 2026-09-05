@@ -26,6 +26,7 @@ import {
 import { createFileArtifactResourceStore } from "@kilnai/runtime";
 import type { KilnAppConfig } from "../config.js";
 import type { KilnGlobalConfig } from "../config/global-config.js";
+import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import {
   resolveFormalScreeningConfig,
   type ResolvedFormalScreeningConfig,
@@ -138,7 +139,7 @@ function printHelp(): void {
     "  kiln benchmark tracks",
     "  kiln benchmark readiness --baseline <path>",
     "  kiln benchmark report --baseline <path> --output <path> [--publication-manifest <path>] [--repository-root <path>]",
-    "  kiln benchmark run-internal --profile <id> [--dataset <path>] [--k <n>] [--max-invalid-attempts <n>] [--output <path>] [--target <execution-target-id>] [--accounts <id,id,...>] [--deliberation-level <id> | --deliberation-level-sweep <ids>] [--execution-envelope <path>]",
+    "  kiln benchmark run-internal --profile <id> [--dataset <path>] [--k <n>] [--max-invalid-attempts <n>] [--output <path>] [--target <execution-target-id>] [--accounts <id,id,...>] [--authority <auto|read_only|audited|destructive>] [--deliberation-level <id> | --deliberation-level-sweep <ids>] [--execution-envelope <path>]",
     "  kiln benchmark run-internal --profile kiln-formal-verification-pilot --k 2 --target <execution-target-id> --accounts <single-account-id>",
     "  kiln benchmark prepare-verifiers",
     "  kiln benchmark project-bfcl --input <path> --output <path>",
@@ -1179,6 +1180,7 @@ function readExecutorFlags(
   benchmarkPairIds?: readonly string[],
   benchmarkEvidenceRoot?: string,
 ): BenchmarkSessionExecutorFlags {
+  const requestedAuthority = readBenchmarkRequestedAuthority(args);
   return {
     targetId: readFlag(args, "--target"),
     ...(accountOverrideIds && accountOverrideIds.length > 0 ? { accountOverrideIds } : {}),
@@ -1186,6 +1188,7 @@ function readExecutorFlags(
     ...(benchmarkEvidenceRoot ? { benchmarkEvidenceRoot } : {}),
     skipGitRepoCheck: args.includes("--skip-git-repo-check"),
     deliberationLevel,
+    ...(requestedAuthority === undefined ? {} : { requestedAuthority }),
     ...(readFlag(args, "--execution-envelope")
       ? {
           executionEnvelope: JSON.parse(
@@ -1194,6 +1197,21 @@ function readExecutorFlags(
         }
       : {}),
   };
+}
+
+function readBenchmarkRequestedAuthority(args: readonly string[]): OperatorTurnRequestedAuthority | undefined {
+  const value = readFlag(args, "--authority");
+  if (value === undefined) {
+    if (args.includes("--authority")) {
+      throw new Error("benchmark --authority requires auto, read_only, audited, or destructive.");
+    }
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "auto" || normalized === "read_only" || normalized === "audited" || normalized === "destructive") {
+    return normalized;
+  }
+  throw new Error(`Unknown benchmark authority '${value}'. Use auto, read_only, audited, or destructive.`);
 }
 
 function readAccountPool(args: readonly string[]): readonly string[] {

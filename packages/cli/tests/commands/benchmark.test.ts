@@ -1023,6 +1023,7 @@ describe("benchmarkCommand", () => {
     const observedLevels: Array<string | undefined> = [];
     const observedRoutes: Array<string | undefined> = [];
     const observedAccounts: Array<string | undefined> = [];
+    const observedAuthorities: Array<string | undefined> = [];
 
     await benchmarkCommand(
       MOCK_APP_CONFIG,
@@ -1034,6 +1035,7 @@ describe("benchmarkCommand", () => {
         "--output", outputPath,
         "--target", "benchmark-codex",
         "--accounts", "subscription-a,subscription-b",
+        "--authority", "audited",
         "--deliberation-level-sweep", "low,luna-max",
       ],
       {
@@ -1041,6 +1043,7 @@ describe("benchmarkCommand", () => {
           observedLevels.push(flags.deliberationLevel);
           observedRoutes.push(flags.targetId);
           observedAccounts.push(flags.accountOverrideIds?.join(","));
+          observedAuthorities.push(flags.requestedAuthority);
           return async () => ({
             output: "status",
             durationMs: 10,
@@ -1078,6 +1081,7 @@ describe("benchmarkCommand", () => {
       "subscription-a,subscription-b",
       "subscription-a,subscription-b",
     ]);
+    expect(observedAuthorities).toEqual(["audited", "audited"]);
     expect(written.baseline).toBeUndefined();
     expect(written.runs.map((run) => run.deliberationLevel)).toEqual(["low", "luna-max"]);
     expect(written.baselines).toHaveLength(2);
@@ -1102,6 +1106,10 @@ describe("benchmarkCommand", () => {
       ...base,
       "--deliberation-level", "high",
     ])).rejects.toThrow("require explicit --target identity");
+    await expect(benchmarkCommand(MOCK_APP_CONFIG, "run-internal", [
+      ...base,
+      "--authority", "unbounded",
+    ])).rejects.toThrow("Unknown benchmark authority 'unbounded'");
   });
 
   it("projects BFCL input rows into Kiln JSONL datasets", async () => {

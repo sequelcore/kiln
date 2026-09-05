@@ -27,14 +27,14 @@
                                             ]
                  },
     "design":  {
-      "maximumPhysicalProviderRequestsForCollection": 228,
-      "quotaAuthorization": {
-        "maximumPhysicalProviderRequestsAcrossCollections": 352,
-        "previouslyConsumedPhysicalProviderRequests": 124,
-        "priorReportDigest": "sha256:0ac57380c02c0170301e8cd8cb5d9b2a5fcefaef0bf297614187c142dc637a9e",
-        "remainingPhysicalProviderRequests": 228
-      },
-
+                   "maximumPhysicalProviderRequestsForCollection":  39,
+                   "quotaAuthorization":  {
+                                              "maximumPhysicalProviderRequestsAcrossCollections":  352,
+                                              "previouslyConsumedPhysicalProviderRequests":  313,
+                                              "priorReportDigest":  "sha256:8fa96bcb1a0d2f36452cf9ee15098230bc54a2f903bf55ca761b9639eccd2963",
+                                              "remainingPhysicalProviderRequests":  39,
+                                              "priorReportReconciliationDigest":  "sha256:1b722c0dcde12a041d5fd2a414c4a9d0b9b85d69f178ca44cb1e82638ecc0965"
+                                          },
                    "repetitionsPerCell":  3,
                    "invalidRetriesPerCell":  1,
                    "timeoutMs":  180000,
@@ -151,7 +151,7 @@
                       "id":  "bounded_implementation",
                       "executionStrategy":  "internal_benchmark_isolated_fixture",
                       "authority":  "audited",
-                      "expectedRuntimeAuthority":  "destructive",
+                      "expectedRuntimeAuthority":  "audited",
                       "conditions":  [
                                          "cold",
                                          "immediate_warm"

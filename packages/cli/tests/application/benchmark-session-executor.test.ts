@@ -771,6 +771,22 @@ describe("createBenchmarkSessionExecutor", () => {
     expect(stderrWrite).toHaveBeenCalledWith(expect.stringContaining("[tool] status"));
   });
 
+  it("propagates explicit benchmark authority into the governed session", async () => {
+    const executor = createBenchmarkSessionExecutor({
+      appConfig: MOCK_APP_CONFIG,
+      flags: { requestedAuthority: "audited" },
+    });
+
+    await executor("Inspect only the fixture.", makeBenchmarkContext({
+      id: "explicit-audited-authority",
+      input: "Inspect only the fixture.",
+    }));
+
+    expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledWith(expect.objectContaining({
+      sessionConfig: expect.objectContaining({ requestedAuthority: "audited" }),
+    }));
+  });
+
   it("runs declared synthetic fixtures without loading project context from the repository root", async () => {
     const repositoryRoot = resolveProjectRoot().rootPath;
     const projectStateBinding = resolveProjectStateBinding(repositoryRoot);
@@ -998,6 +1014,44 @@ describe("createBenchmarkSessionExecutor", () => {
       added: [],
       deleted: [],
     });
+  });
+
+  it("honors explicit audited authority for a write benchmark profile", async () => {
+    const fixturePath = "packages/core/evals/fixtures/model-roster-backend-write-v2/idempotent-reservation";
+    benchmarkExecutorMocks.isDirectApiProvider.mockReturnValue(true);
+    benchmarkExecutorMocks.readGlobalConfig.mockReturnValue(
+      makeOperatorSurfaceGlobalConfig("opencode-go", "glm-5.2", "benchmark-write"),
+    );
+    benchmarkExecutorMocks.loadKilnConfig.mockResolvedValue({
+      version: "1",
+      permissions: {
+        approval: "never",
+        sandbox: "workspace-write",
+        safeDefaults: false,
+        tools: [
+          { tool: "write", action: "allow" },
+          { tool: "edit", action: "allow" },
+          { tool: "patch", action: "allow" },
+        ],
+      },
+    });
+    const executor = createBenchmarkSessionExecutor({
+      appConfig: MOCK_APP_CONFIG,
+      flags: { requestedAuthority: "audited" },
+    });
+
+    await executor("Fix the fixture.", makeBenchmarkContext({
+      id: "backend-write-audited",
+      input: "Fix the fixture.",
+      metadata: { workspaceFixture: fixturePath, benchmarkCaseId: "idempotent-reservation" },
+    }, {
+      id: "kiln-model-roster-backend-write",
+      access: "approved-write",
+    }));
+
+    expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledWith(expect.objectContaining({
+      sessionConfig: expect.objectContaining({ requestedAuthority: "audited" }),
+    }));
   });
 
   it("rejects a write profile before provider execution when configured write authority is absent", async () => {

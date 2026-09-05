@@ -239,6 +239,8 @@ export function buildInternalBenchmarkCommand(input: {
     plusAccountIds.join(","),
     "--deliberation-level",
     requireString(input.identity.deliberationLevel, "deliberation level"),
+    "--authority",
+    requireString(input.task.authority, "task authority"),
     ...(input.executionEnvelopePath ? ["--execution-envelope", input.executionEnvelopePath] : []),
   ];
 }
@@ -1125,6 +1127,14 @@ export async function dispatchContextEfficiencySchedule(input: {
         dispatchEvidence: "unknown", reservedMaximumProviderRequests: trial.budgets.maximumProviderRequests,
       }]);
       try {
+        if (trial.condition === "immediate_warm" && !coldPartitionByTaskRepeat.has(pairKey)) {
+          throw new ContextEfficiencyInvalidTrialError(
+            "canonical_transcript_unavailable",
+            `Warm trial '${pairKey}' has no valid cold cache partition.`,
+            undefined,
+            { dispatchEvidence: "not_dispatched" },
+          );
+        }
         if (trial.executionStrategy === "cli_run" || trial.executionStrategy === "cli_run_generated_fixture") {
           const continuationSessionId = trial.condition === "immediate_warm"
             ? coldSessionByTaskRepeat.get(pairKey)
@@ -1171,6 +1181,8 @@ export async function dispatchContextEfficiencySchedule(input: {
             throw new ContextEfficiencyInvalidTrialError(
               "collector_failure",
               `Warm trial '${pairKey}' did not preserve the cold trial's observed cache partition.`,
+              undefined,
+              { output: result.output, dispatchEvidence: "observed" },
             );
           }
         }

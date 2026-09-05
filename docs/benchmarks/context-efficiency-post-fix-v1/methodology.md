@@ -1,8 +1,8 @@
 # Context Efficiency Post-Fix Control v1
 
-Status: The first frozen collection completed on 2026-09-04 as diagnostic-only.
-See [reconciled results and permission diagnosis](collection-1.md). A valid
-promotion control remains unestablished.
+Status: Two frozen collections are reconciled as diagnostic-only. See the
+[first collection](collection-1.md) and [second collection](collection-2.md).
+A valid promotion control remains unestablished.
 
 Owner: [Roadmap 06.5](../../roadmap/06.5-end-to-end-harness-efficiency.md).
 Preregistration: [Protocol template](protocol.json).
@@ -125,12 +125,19 @@ tests, 41 Runtime checks, typechecks, compilation, and documentation validation.
 The subsequent ordinary CLI account-policy operation passed 42 authority tests
 and 25 CLI tests, with no high or medium review findings.
 
-The operator-approved Plus-only policy is applied. The first cohort consumed
-124 of the authorized 352 requests; all are settled and retained. Its
-[reviewed result](collection-1.md) is diagnostic-only. The operator approved
-temporary scoped file grants and ordinary CLI support for a separate rerun.
-Workspace-aware admission and governed restoration must pass verification
-before the grants are applied and the new source/configuration is frozen.
+The operator-approved Plus-only policy remains applied. The second cohort used
+reviewed workspace-aware file admission and temporary scoped grants, which were
+restored through governed rollback after terminal settlement. The two cohorts
+consumed 313 of the authorized 352 requests, leaving 39. The immutable second
+report retains an accounting uncertainty; its separate canonical reconciliation
+proves exact consumption without rewriting that report. Neither cohort is a
+promotion control.
+
+Follow-up collector checks prevent dispatching a warm trial without a valid
+cold cache partition and preserve completed-request accounting when a warm
+comparison fails. Internal benchmark commands explicitly carry the frozen task's
+requested authority. The managed agent's stale authority-profile reference
+remains a configuration gate; source must not bypass that failed admission.
 
 The collection dispatcher additionally supports the frozen
 `design.maximumPhysicalProviderRequestsForCollection` ceiling. It defaults to
@@ -138,6 +145,7 @@ the schedule's worst-case allocation and can be lower when prior cohorts have
 consumed part of the approved quota. It reserves the next full attempt before
 dispatch, counts observed invalid and child requests, and stops without further
 dispatch when the remainder is insufficient. Unknown settlement remains a halt.
-The proposed next template caps collection at the remaining 228 requests and
-binds the prior report digest; it is neither a replacement for the first frozen
-manifest nor permission to change file-access policy.
+The next template caps collection at the remaining 39 requests and binds the
+prior report and reconciliation digests. That allowance cannot cover a full
+corrected cohort. Any new authority configuration or additional quota needs its
+own concrete authorization; previous frozen manifests and reports remain intact.

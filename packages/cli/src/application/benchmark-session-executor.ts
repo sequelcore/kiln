@@ -31,7 +31,7 @@ import {
 import type { OperatorAdoptionRuntimeBinding } from "@kilnai/runtime";
 import type { KilnAppConfig } from "../config.js";
 import type { ResolvedKilnConfig } from "../kiln-yaml-types.js";
-import type { GuiModelDeliberationCapabilities } from "@kilnai/gateway-contracts";
+import type { GuiModelDeliberationCapabilities, OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import { defaultBuildSystemPrompt } from "../config.js";
 import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
 import type { SessionMode } from "../wrapper/index.js";
@@ -196,6 +196,8 @@ export interface BenchmarkSessionExecutorFlags {
   readonly benchmarkEvidenceRoot?: string;
   readonly skipGitRepoCheck?: boolean;
   readonly deliberationLevel?: string;
+  /** Explicit operator turn authority for an internal benchmark run. */
+  readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly executionEnvelope?: import("@kilnai/runtime").RuntimeExecutionEnvelope;
 }
 
@@ -623,7 +625,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       managedInvocation: managedInvocationAttachment,
       executionEnvelope,
       ...(providerTransportAdmission ? { providerTransportAdmission } : {}),
-      requestedAuthority: writeMode ? "destructive" as const : "read_only" as const,
+      requestedAuthority: options.flags?.requestedAuthority ?? (writeMode ? "destructive" as const : "read_only" as const),
       model: effectiveModel,
       deliberationResolution: executionDeliberation,
       boundedWork: boundedWork?.surface,
