@@ -130,7 +130,10 @@ Windows drive-relative paths.
 Canonical account inspection confirms two available Plus accounts. However,
 `codex-luna` references a shared worker account policy that also admits Free
 accounts. The freezer correctly refuses this policy for a Plus-only protocol.
-A private operator proposal records the exact policy change and collection
-ceiling. It has not been applied. Operator authorization is required for the
-configuration change and live collection; no provider measurements have been
-collected and no execution manifest has been frozen.
+The operator approved the private proposal for a dedicated Plus-only policy and
+up to 352 physical requests. CLI-only execution is required. The missing
+`target.update_account_policy` operation now uses the existing configuration
+mutation authority. Its 42 authority tests and 25 CLI tests pass, including
+revision conflicts, unchanged shared policies, preserved YAML comments, and
+truthful reconciliation outcomes. No provider
+measurements have been collected and no execution manifest has been frozen.

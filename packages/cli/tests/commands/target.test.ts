@@ -27,6 +27,10 @@ const mutationMocks = vi.hoisted(() => ({
 vi.mock("../../src/config/global-config.js", () => ({
   defaultGlobalConfig: () => ({ version: "7" }),
   readGlobalConfig: () => globalConfigMocks.config,
+  readGlobalConfigSnapshot: () => ({
+    config: globalConfigMocks.config,
+    revision: `sha256:${"a".repeat(64)}`,
+  }),
 }));
 
 vi.mock("../../src/application/config-mutation-authority.js", () => ({
@@ -57,7 +61,12 @@ describe("targetCommand", () => {
     });
     mutationMocks.approve.mockReset().mockReturnValue({ approvalId: "approval_target" });
     mutationMocks.apply.mockReset().mockResolvedValue({
-      settlement: { outcome: "committed", diagnostics: [] },
+      settlement: {
+        outcome: "committed",
+        diagnostics: [],
+        committedRevision: `sha256:${"b".repeat(64)}`,
+        activation: "next-session",
+      },
     });
     mutationMocks.save.mockReset();
   });
@@ -95,6 +104,144 @@ describe("targetCommand", () => {
   it("requires explicit approval before selecting a target with unknown authority impact", async () => {
     await expect(targetCommand(["select", "terra"]))
       .rejects.toThrow("repeat with --approve");
+    expect(mutationMocks.save).not.toHaveBeenCalled();
+    expect(mutationMocks.approve).not.toHaveBeenCalled();
+    expect(mutationMocks.apply).not.toHaveBeenCalled();
+  });
+
+  it("previews an account-policy proposal without applying it until explicitly approved", async () => {
+    const record = {
+      proposal: {
+        proposalId: "cfg_account_preview",
+        status: "valid",
+        approvalRequired: true,
+        diagnostics: [],
+        previewDiff: "targetCatalog account policy preview",
+      },
+    };
+    mutationMocks.propose.mockReturnValue(record);
+
+    await expect(targetCommand([
+      "account-policy", "terra",
+      "--policy-id", "codex-economy",
+      "--accounts", "account-a,account-b",
+      "--strategy", "economic-least-pressure",
+    ])).resolves.toBeUndefined();
+
+    expect(mutationMocks.propose).toHaveBeenCalledWith(expect.objectContaining({
+      operation: "target.update_account_policy",
+      payload: {
+        targetId: "terra",
+        policy: {
+          id: "codex-economy",
+          accountIds: ["account-a", "account-b"],
+          strategy: "economic-least-pressure",
+        },
+        expectedRevision: `sha256:${"a".repeat(64)}`,
+      },
+    }));
+    expect(consoleSpy).toHaveBeenCalledWith("targetCatalog account policy preview");
+    expect(consoleSpy).toHaveBeenCalledWith(
+      "Account-policy update previewed. Repeat with --approve to recreate this intent against the current configuration revision.",
+    );
+    expect(mutationMocks.save).not.toHaveBeenCalled();
+    expect(mutationMocks.approve).not.toHaveBeenCalled();
+    expect(mutationMocks.apply).not.toHaveBeenCalled();
+  });
+
+  it("saves, approves, and applies the exact valid account-policy proposal", async () => {
+    const record = {
+      proposal: {
+        proposalId: "cfg_exact_account_policy",
+        status: "valid",
+        approvalRequired: true,
+        diagnostics: [],
+        previewDiff: "exact account policy diff",
+      },
+    };
+    mutationMocks.propose.mockReturnValue(record);
+    mutationMocks.approve.mockReturnValue({ approvalId: "approval_exact_account_policy" });
+
+    await targetCommand([
+      "account-policy", "terra",
+      "--policy-id", "codex-economy",
+      "--accounts", "account-a,account-b",
+      "--strategy", "economic-least-pressure",
+      "--approve",
+    ]);
+
+    expect(mutationMocks.save).toHaveBeenCalledOnce();
+    expect(mutationMocks.save).toHaveBeenCalledWith(record);
+    expect(mutationMocks.approve).toHaveBeenCalledWith({
+      projectPath: process.cwd(), proposalId: "cfg_exact_account_policy", surface: "cli",
+    });
+    expect(mutationMocks.apply).toHaveBeenCalledWith({
+      projectPath: process.cwd(),
+      proposalId: "cfg_exact_account_policy",
+      approvalId: "approval_exact_account_policy",
+      requester: "operator",
+    });
+    expect(consoleSpy).toHaveBeenCalledWith(
+      `Updated account policy for execution target: terra (revision: sha256:${"b".repeat(64)}, activation: next-session)`,
+    );
+  });
+
+  it("does not report account-policy activation when reconciliation failed after commit", async () => {
+    mutationMocks.apply.mockResolvedValue({
+      settlement: {
+        outcome: "committed-reconciliation-failed",
+        diagnostics: [{ message: "execution-targets generation failed" }],
+        committedRevision: `sha256:${"c".repeat(64)}`,
+        activation: "next-session",
+      },
+    });
+
+    await expect(targetCommand([
+      "account-policy", "terra",
+      "--policy-id", "codex-economy",
+      "--accounts", "account-a",
+      "--strategy", "economic-least-pressure",
+      "--approve",
+    ])).rejects.toThrow(`committed at sha256:${"c".repeat(64)}, but execution-target reconciliation failed`);
+
+    expect(mutationMocks.save).toHaveBeenCalledOnce();
+    expect(mutationMocks.approve).toHaveBeenCalledOnce();
+    expect(mutationMocks.apply).toHaveBeenCalledOnce();
+    expect(consoleSpy.mock.calls.flat().join("\n")).not.toContain("Updated account policy");
+  });
+
+  it.each([
+    [["account-policy", "terra", "--policy-id", "policy", "--accounts", "account-a", "--strategy", "not-supported"], "--strategy must be economic-least-pressure"],
+    [["account-policy", "terra", "--policy-id", "policy", "--accounts", "account-a,account-a", "--strategy", "economic-least-pressure"], "--accounts must not contain duplicates"],
+    [["account-policy", "terra", "--policy-id", "policy", "--accounts", "", "--strategy", "economic-least-pressure"], "--accounts requires a value"],
+    [["account-policy", "terra", "--policy-id", "policy", "--accounts", "account-a", "--strategy", "economic-least-pressure", "--unknown"], "Unknown target account-policy flag"],
+  ])("rejects invalid account-policy CLI input without proposing a mutation", async (args, message) => {
+    await expect(targetCommand(args)).rejects.toThrow(message);
+    expect(mutationMocks.propose).not.toHaveBeenCalled();
+    expect(mutationMocks.save).not.toHaveBeenCalled();
+    expect(mutationMocks.approve).not.toHaveBeenCalled();
+    expect(mutationMocks.apply).not.toHaveBeenCalled();
+  });
+
+  it("does not save, approve, or apply an invalid account-policy proposal", async () => {
+    mutationMocks.propose.mockReturnValue({
+      proposal: {
+        proposalId: "cfg_invalid_account_policy",
+        status: "invalid",
+        approvalRequired: true,
+        diagnostics: [{ message: "Account policy references unknown account 'account-missing'." }],
+        previewDiff: "",
+      },
+    });
+
+    await expect(targetCommand([
+      "account-policy", "terra",
+      "--policy-id", "codex-economy",
+      "--accounts", "account-missing",
+      "--strategy", "economic-least-pressure",
+      "--approve",
+    ])).rejects.toThrow("unknown account");
+
     expect(mutationMocks.save).not.toHaveBeenCalled();
     expect(mutationMocks.approve).not.toHaveBeenCalled();
     expect(mutationMocks.apply).not.toHaveBeenCalled();

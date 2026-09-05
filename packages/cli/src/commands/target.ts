@@ -69,6 +69,10 @@ export async function targetCommand(args: readonly string[] = []): Promise<void>
     await selectTarget(args[1], args.includes("--approve"));
     return;
   }
+  if (args[0] === "account-policy") {
+    await updateTargetAccountPolicy(args.slice(1));
+    return;
+  }
   if (args[0] === "refresh-evidence") {
     await targetRefreshEvidenceCommand(args.slice(1));
     return;
@@ -180,6 +184,99 @@ async function selectTarget(targetId: string | undefined, operatorApproved: bool
     throw new Error(result.settlement.diagnostics.map((entry) => entry.message).join("; "));
   }
   console.log(`Selected execution target: ${id}`);
+}
+
+async function updateTargetAccountPolicy(args: readonly string[]): Promise<void> {
+  const options = parseTargetAccountPolicyArguments(args);
+  const snapshot = readGlobalConfigSnapshot();
+  const record = proposeConfigMutation({
+    projectPath: process.cwd(),
+    operation: "target.update_account_policy",
+    payload: {
+      targetId: options.targetId,
+      policy: {
+        id: options.policyId,
+        accountIds: options.accountIds,
+        strategy: options.strategy,
+      },
+      expectedRevision: snapshot.revision,
+    },
+  });
+  if (record.proposal.status !== "valid") {
+    throw new Error(record.proposal.diagnostics.map((entry) => entry.message).join("; "));
+  }
+  if (!options.approve) {
+    console.log(record.proposal.previewDiff);
+    console.log("Account-policy update previewed. Repeat with --approve to recreate this intent against the current configuration revision.");
+    return;
+  }
+  new ConfigMutationStore(process.cwd()).saveProposal(record);
+  const approval = approveConfigMutation({
+    projectPath: process.cwd(),
+    proposalId: record.proposal.proposalId,
+    surface: "cli",
+  });
+  const result = await applyConfigMutation({
+    projectPath: process.cwd(),
+    proposalId: record.proposal.proposalId,
+    approvalId: approval.approvalId,
+    requester: "operator",
+  });
+  if (result.settlement.outcome === "rejected") {
+    throw new Error(result.settlement.diagnostics.map((entry) => entry.message).join("; "));
+  }
+  const settlement = result.settlement;
+  if (settlement.outcome === "committed-reconciliation-failed") {
+    throw new Error(`Account-policy update committed at ${settlement.committedRevision ?? "unknown revision"}, but execution-target reconciliation failed.`);
+  }
+  console.log(`Updated account policy for execution target: ${options.targetId} (revision: ${settlement.committedRevision ?? "unknown"}, activation: ${settlement.activation})`);
+}
+
+function parseTargetAccountPolicyArguments(args: readonly string[]): {
+  readonly targetId: string;
+  readonly policyId: string;
+  readonly accountIds: readonly string[];
+  readonly strategy: "economic-least-pressure";
+  readonly approve: boolean;
+} {
+  const targetId = args[0]?.trim();
+  if (!targetId || targetId.startsWith("--")) {
+    throw new Error("target account-policy requires one target id.");
+  }
+  let policyId: string | undefined;
+  let accountIds: readonly string[] | undefined;
+  let strategy: "economic-least-pressure" | undefined;
+  let approve = false;
+  for (let index = 1; index < args.length; index += 1) {
+    const argument = args[index]!;
+    if (argument === "--approve") {
+      if (approve) throw new Error("target account-policy received --approve more than once.");
+      approve = true;
+      continue;
+    }
+    if (argument !== "--policy-id" && argument !== "--accounts" && argument !== "--strategy") {
+      throw new Error(`Unknown target account-policy flag '${argument}'.`);
+    }
+    const value = args[index + 1];
+    if (!value || value.startsWith("--")) throw new Error(`${argument} requires a value.`);
+    index += 1;
+    if (argument === "--policy-id") {
+      if (policyId !== undefined) throw new Error("target account-policy received --policy-id more than once.");
+      policyId = value.trim();
+    } else if (argument === "--accounts") {
+      if (accountIds !== undefined) throw new Error("target account-policy received --accounts more than once.");
+      accountIds = value.split(",").map((accountId) => accountId.trim()).filter(Boolean);
+    } else {
+      if (strategy !== undefined) throw new Error("target account-policy received --strategy more than once.");
+      if (value !== "economic-least-pressure") throw new Error("--strategy must be economic-least-pressure.");
+      strategy = value;
+    }
+  }
+  if (!policyId) throw new Error("target account-policy requires --policy-id.");
+  if (!accountIds || accountIds.length === 0) throw new Error("target account-policy requires --accounts.");
+  if (new Set(accountIds).size !== accountIds.length) throw new Error("--accounts must not contain duplicates.");
+  if (!strategy) throw new Error("target account-policy requires --strategy economic-least-pressure.");
+  return { targetId, policyId, accountIds, strategy, approve };
 }
 
 export async function targetCreateCommand(args: readonly string[], input: TargetCreateCommandInput = {}): Promise<void> {

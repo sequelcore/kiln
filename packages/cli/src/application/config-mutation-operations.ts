@@ -5,6 +5,7 @@ import {
   assertPolicyAdaptationPromotionEvidence,
   hashPolicyAdaptationConfiguration,
   parseSkillMd,
+  type ExecutionAccountPolicy,
   type PolicyAdaptationCandidate,
   type PolicyAdaptationEvaluationReport,
 } from "@kilnai/core";
@@ -108,6 +109,8 @@ export function normalizeConfigMutation(
       return normalizeTargetSelect(context, payload);
     case "target.create":
       return normalizeTargetCreate(context, payload);
+    case "target.update_account_policy":
+      return normalizeTargetAccountPolicyUpdate(context, payload);
     case "target.refresh_evidence":
       return normalizeTargetEvidenceRefresh(context, payload);
     case "native.import":
@@ -913,6 +916,118 @@ function normalizeNativeImport(
 
 function projectConfigPath(context: ConfigMutationContext): string {
   return projectBinding(context).configPath;
+}
+
+/**
+ * Binds one existing direct target to a policy without changing any policy
+ * already shared by other targets. A policy ID is either new and appended, or
+ * already present with exactly the same immutable account selection.
+ */
+function normalizeTargetAccountPolicyUpdate(
+  context: ConfigMutationContext,
+  rawPayload: unknown,
+): NormalizedConfigMutation {
+  const payload = asRecord(rawPayload);
+  const diagnostics: KilnConfigValidationDiagnostic[] = [];
+  const targetId = requireCanonicalId(payload.targetId, "targetId", diagnostics);
+  const policy = requireExecutionAccountPolicy(payload.policy, diagnostics);
+  const expectedRevision = requireConfigRevision(payload.expectedRevision, diagnostics);
+  const path = context.globalConfigPath;
+  const document = readValidGlobalDocument(path, diagnostics);
+  let nextContent = "";
+  if (document && targetId && policy.id) {
+    const actualRevision = existsSync(path) ? `sha256:${hashText(readFileSync(path, "utf-8"))}` : "absent";
+    if (expectedRevision !== actualRevision) {
+      diagnostics.push({ severity: "error", field: "expectedRevision", message: `Global configuration changed before account-policy update (expected ${expectedRevision}, found ${actualRevision}).` });
+    }
+    const current = parse(document.toString()) as Record<string, unknown>;
+    const currentIntent = asRecord(current.targetCatalog) as unknown as ExecutionTargetCatalogIntent;
+    const target = currentIntent.targets?.find((entry) => entry.id === targetId);
+    if (!currentIntent || typeof currentIntent.evidenceRevision !== "string") {
+      diagnostics.push({ severity: "error", field: "targetCatalog", message: "Global config must declare targetCatalog before updating an account policy." });
+    } else if (!target) {
+      diagnostics.push({ severity: "error", field: "targetId", message: `Execution target '${targetId}' is not configured.` });
+    } else if (target.kind !== "direct") {
+      diagnostics.push({ severity: "error", field: "targetId", message: `Execution target '${targetId}' is not a direct operator target.` });
+    } else {
+      const existingPolicy = currentIntent.accountPolicies.find((entry) => entry.id === policy.id);
+      if (existingPolicy && !sameExecutionAccountPolicy(existingPolicy, policy)) {
+        diagnostics.push({ severity: "error", field: "policy.id", message: `Account policy '${policy.id}' already exists with different accounts or strategy and cannot be mutated.` });
+      }
+      const accounts = new Map(currentIntent.accounts.map((account) => [account.id, account]));
+      for (const accountId of policy.accountIds) {
+        const account = accounts.get(accountId);
+        if (!account) {
+          diagnostics.push({ severity: "error", field: "policy.accountIds", message: `Account policy references unknown account '${accountId}'.` });
+        } else if (account.providerId !== target.providerId) {
+          diagnostics.push({ severity: "error", field: "policy.accountIds", message: `Account '${accountId}' does not belong to target provider '${target.providerId}'.` });
+        }
+      }
+      if (diagnostics.every((entry) => entry.severity !== "error")) {
+        try {
+          const evidence = readExecutionTargetEvidenceSnapshot({
+            globalConfigPath: context.globalConfigPath,
+            revision: currentIntent.evidenceRevision,
+          });
+          const nextIntent: ExecutionTargetCatalogIntent = {
+            ...currentIntent,
+            accountPolicies: existingPolicy ? currentIntent.accountPolicies : [...currentIntent.accountPolicies, policy],
+            targets: currentIntent.targets.map((entry) => entry.id === targetId
+              ? { ...entry, accountPolicyId: policy.id }
+              : entry),
+          };
+          projectExecutionTargetCatalogFromIntent(nextIntent, evidence, currentIntent.evidenceRevision);
+          const targetIndex = currentIntent.targets.findIndex((entry) => entry.id === targetId);
+          if (!existingPolicy) document.addIn(["targetCatalog", "accountPolicies"], policy);
+          document.setIn(["targetCatalog", "targets", targetIndex, "accountPolicyId"], policy.id);
+          nextContent = document.toString();
+          admitGlobalStructure(nextContent, diagnostics);
+        } catch (error) {
+          diagnostics.push({ severity: "error", field: "targetCatalog", message: errorMessage(error) });
+        }
+      }
+    }
+  }
+  return {
+    scope: "global",
+    payload: { targetId, policy, expectedRevision },
+    path,
+    nextContent,
+    diagnostics,
+    authorityImpact: "unknown",
+    affectedOwners: ["execution-routing"],
+    reconciliationTargets: ["execution-targets"],
+    activation: "next-session",
+  };
+}
+
+function requireExecutionAccountPolicy(
+  value: unknown,
+  diagnostics: KilnConfigValidationDiagnostic[],
+): ExecutionAccountPolicy {
+  const policy = asRecord(value);
+  const id = requireCanonicalId(policy.id, "policy.id", diagnostics);
+  const rawAccountIds = policy.accountIds;
+  const accountIds = Array.isArray(rawAccountIds)
+    ? rawAccountIds.map((accountId, index) => requireCanonicalId(accountId, `policy.accountIds[${index}]`, diagnostics))
+    : [];
+  if (!Array.isArray(rawAccountIds) || accountIds.length === 0) {
+    diagnostics.push({ severity: "error", field: "policy.accountIds", message: "Must be a non-empty account identifier array." });
+  }
+  if (new Set(accountIds).size !== accountIds.length) {
+    diagnostics.push({ severity: "error", field: "policy.accountIds", message: "Account identifiers must be unique." });
+  }
+  if (policy.strategy !== "economic-least-pressure") {
+    diagnostics.push({ severity: "error", field: "policy.strategy", message: "Must be economic-least-pressure." });
+  }
+  return { id, accountIds, strategy: "economic-least-pressure" };
+}
+
+function sameExecutionAccountPolicy(left: ExecutionAccountPolicy, right: ExecutionAccountPolicy): boolean {
+  return left.id === right.id
+    && left.strategy === right.strategy
+    && left.accountIds.length === right.accountIds.length
+    && left.accountIds.every((accountId, index) => accountId === right.accountIds[index]);
 }
 
 /**

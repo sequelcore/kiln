@@ -719,6 +719,13 @@ config-mutation operations. They require their own explicit contracts before an
 agent may request them through tools. Until then, agents must not simulate those
 changes by editing config files.
 
+`kiln target account-policy` changes one existing target's account-policy
+reference through `target.update_account_policy`. It creates a new policy or
+reuses an identical existing policy; it cannot edit a policy shared by other
+targets. The global revision fence, explicit approval, restore point,
+`execution-targets` reconciliation, and next-session activation belong to the
+existing configuration mutation authority. The CLI does not write YAML itself.
+
 `kiln_config.read` is read-only. It exposes the same bounded views as
 `kiln config read` and the setup/status surfaces. The `effective` view returns
 the complete secret-free projection. Provider, route, permission, skill, and

@@ -17,6 +17,7 @@ export const KILN_CONFIG_MUTATION_OPERATIONS = [
   "project.adopt",
   "target.select",
   "target.create",
+  "target.update_account_policy",
   "target.refresh_evidence",
   "native.import",
   "mutation.rollback",

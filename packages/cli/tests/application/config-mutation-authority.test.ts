@@ -1094,6 +1094,99 @@ describe("config mutation authority", () => {
     expect(readFileSync(globalConfigPath(), "utf-8")).toBe(before);
   });
 
+  it("atomically appends an account policy and rebinds only the requested target after approval", async () => {
+    const base = admittedTargetState();
+    const originalTarget = base.intent.targets[0]!;
+    const originalAccount = base.intent.accounts[0]!;
+    const otherTarget = { ...originalTarget, id: "other-target", label: "Other target" };
+    const secondAccount = { ...originalAccount, id: "second-plus-account", credentialId: "second-plus-credential" };
+    const evidence = {
+      ...base.evidence,
+      accounts: [...base.evidence.accounts, { ...base.evidence.accounts[0]!, accountId: "second-plus-account" }],
+      targets: [...base.evidence.targets, { ...base.evidence.targets[0]!, targetId: "other-target" }],
+    };
+    const intent = {
+      ...base.intent,
+      evidenceRevision: executionTargetEvidenceRevision(evidence),
+      accounts: [originalAccount, secondAccount],
+      targets: [originalTarget, otherTarget],
+    } satisfies ExecutionTargetCatalogIntent;
+    seedGlobalConfigWithTargetCatalog(intent);
+    writeExecutionTargetEvidenceSnapshot({ globalConfigPath: globalConfigPath(), snapshot: evidence });
+    const raw = readFileSync(globalConfigPath(), "utf-8");
+    const before = raw.replace(/(\s+- id: selected-target-policy)/u, "    # Shared policy rationale must survive a different target rebind.\n$1")
+      .replace(/(\s+- id: other-target)/u, "    # Unrelated target must retain its own YAML node.\n$1");
+    expect(before).not.toBe(raw);
+    writeFileSync(globalConfigPath(), before, "utf-8");
+    const expectedRevision = `sha256:${createHash("sha256").update(before).digest("hex")}`;
+    const record = propose("target.update_account_policy", {
+      targetId: "selected-target",
+      policy: {
+        id: "codex-oauth-context-efficiency-plus",
+        accountIds: ["selected-target-account", "second-plus-account"],
+        strategy: "economic-least-pressure",
+      },
+      expectedRevision,
+    });
+
+    expect(record.proposal.status).toBe("valid");
+    expect(record.proposal.authorityImpact).toBe("unknown");
+    expect(record.proposal.approvalRequired).toBe(true);
+    const rejected = await applyConfigMutation({
+      projectPath: tempDir,
+      proposalId: record.proposal.proposalId,
+      requester: "operator",
+      reconcile: reconcileOk,
+      readEffectiveState: async () => undefined,
+    });
+    expect(rejected.settlement.outcome).toBe("rejected");
+    expect(readFileSync(globalConfigPath(), "utf-8")).toBe(before);
+
+    const approval = approveConfigMutation({ projectPath: tempDir, proposalId: record.proposal.proposalId, surface: "cli" });
+    const result = await applyConfigMutation({
+      projectPath: tempDir,
+      proposalId: record.proposal.proposalId,
+      approvalId: approval.approvalId,
+      requester: "operator",
+      reconcile: reconcileOk,
+      readEffectiveState: async () => undefined,
+    });
+    expect(result.settlement.outcome).toBe("committed");
+    expect(result.settlement.reconciliationEffects).toEqual([]);
+    const config = parse(readFileSync(globalConfigPath(), "utf-8")) as KilnGlobalConfig;
+    expect(config.targetCatalog?.accountPolicies).toEqual([
+      ...intent.accountPolicies,
+      { id: "codex-oauth-context-efficiency-plus", accountIds: ["selected-target-account", "second-plus-account"], strategy: "economic-least-pressure" },
+    ]);
+    expect(config.targetCatalog?.targets).toEqual([
+      { ...originalTarget, accountPolicyId: "codex-oauth-context-efficiency-plus" },
+      otherTarget,
+    ]);
+    const committed = readFileSync(globalConfigPath(), "utf-8");
+    expect(committed).toContain("Shared policy rationale must survive a different target rebind.");
+    expect(committed).toContain("Unrelated target must retain its own YAML node.");
+  });
+
+  it("rejects attempts to alter an existing shared account policy", () => {
+    const state = admittedTargetState();
+    seedGlobalConfigWithTargetCatalog(state.intent);
+    writeExecutionTargetEvidenceSnapshot({ globalConfigPath: globalConfigPath(), snapshot: state.evidence });
+    const before = readFileSync(globalConfigPath(), "utf-8");
+    const record = propose("target.update_account_policy", {
+      targetId: "selected-target",
+      policy: {
+        id: "selected-target-policy",
+        accountIds: ["different-account"],
+        strategy: "economic-least-pressure",
+      },
+      expectedRevision: `sha256:${createHash("sha256").update(before).digest("hex")}`,
+    });
+
+    expect(record.proposal.status).toBe("invalid");
+    expect(record.proposal.diagnostics.some((entry) => entry.field === "policy.id")).toBe(true);
+    expect(readFileSync(globalConfigPath(), "utf-8")).toBe(before);
+  });
+
   it("refreshes only provenance-bound target evidence through explicit approval", async () => {
     const state = admittedTargetState();
     seedGlobalConfigWithTargetCatalog(state.intent);
