@@ -1274,6 +1274,7 @@ export class RuntimeSessionToolExecutor {
         toolInput,
         resolvedEffect,
         callerBound: runtimeAuthority,
+        ...(perCallConfig.workingDirectory ? { workingDirectory: perCallConfig.workingDirectory } : {}),
       });
     } catch (error) {
       return {

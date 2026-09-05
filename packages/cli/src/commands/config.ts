@@ -152,6 +152,24 @@ export async function configCommand(
       break;
     }
 
+    case "rollback": {
+      const positionals = readPositionalArgs(args);
+      const token = positionals[0];
+      if (!token || positionals.length !== 1) {
+        console.error("Usage: kiln config rollback <rollback-token> [--approve]");
+        process.exitCode = 1;
+        return;
+      }
+      await runGovernedConfigMutation({
+        projectPath: root,
+        operation: "mutation.rollback",
+        payload: { token },
+        approve: hasApproveFlag(args),
+        describe: "Restore recorded configuration",
+      });
+      break;
+    }
+
     case "reset": {
       const key = readPositionalArgs(args)[0];
       if (!key) {
@@ -177,6 +195,7 @@ export async function configCommand(
 function printConfigHelp(): void {
   console.log(`\nUsage: kiln config <subcommand>\n`);
   console.log("Subcommands:");
+  console.log("  rollback <token> [--approve] Restore a committed mutation's recorded configuration");
   console.log("  show              Print current config");
   console.log("  read [view]       Print canonical config/status view as JSON");
   console.log("  settings [query]  Print searchable settings (optionally --modified)");
@@ -304,6 +323,9 @@ async function runGovernedConfigMutation(input: {
   }
 
   console.log(`${input.describe}: ${settlement.outcome} (activation: ${settlement.activation}, ${settlement.activationObservation.state})`);
+  if (settlement.rollbackToken) {
+    console.log(`  rollback token: ${settlement.rollbackToken}`);
+  }
   console.log(`  activation: ${settlement.activationObservation.summary}`);
   for (const warning of settlement.diagnostics.filter((entry) => entry.severity === "warning")) {
     console.log(warning.message);

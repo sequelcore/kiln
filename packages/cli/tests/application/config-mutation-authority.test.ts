@@ -700,6 +700,136 @@ describe("config mutation authority", () => {
     expect(parse(readFileSync(globalConfigPath(), "utf-8")).ui.appearance).toEqual(appearance);
   });
 
+  it("rolls back a temporary global file grant without reverting the selected route", async () => {
+    const { intent } = admittedTargetState();
+    seedGlobalConfigWithTargetCatalog(intent);
+    const before = parse(readFileSync(globalConfigPath(), "utf-8")) as Record<string, unknown>;
+    writeFileSync(globalConfigPath(), stringify({
+      ...before,
+      permissions: {
+        approval: "on-request",
+        fileGovernance: {
+          denyGlobs: ["**/.env"],
+          askGlobs: ["**/secrets/**"],
+          allowGlobs: ["README.md"],
+        },
+      },
+    }), "utf-8");
+    const routeBefore = parse(readFileSync(globalConfigPath(), "utf-8")).targetCatalog;
+    const grant = propose("setting.set", {
+      scope: "global",
+      key: "permissions.fileGovernance.allowGlobs",
+      value: ["src/**", "package.json"],
+    });
+    expect(grant.proposal.approvalRequired).toBe(true);
+    const grantApproval = approveConfigMutation({
+      projectPath: tempDir,
+      projectStateBinding,
+      proposalId: grant.proposal.proposalId,
+    });
+    const committed = await applyConfigMutation({
+      projectPath: tempDir,
+      proposalId: grant.proposal.proposalId,
+      approvalId: grantApproval.approvalId,
+      requester: "operator",
+      reconcile: reconcileOk,
+      readEffectiveState: async () => undefined,
+    });
+    expect(committed.settlement.outcome).toBe("committed");
+
+    const rollback = propose("mutation.rollback", { token: committed.settlement.rollbackToken });
+    const rollbackApproval = approveConfigMutation({
+      projectPath: tempDir,
+      projectStateBinding,
+      proposalId: rollback.proposal.proposalId,
+    });
+    const restored = await applyConfigMutation({
+      projectPath: tempDir,
+      proposalId: rollback.proposal.proposalId,
+      approvalId: rollbackApproval.approvalId,
+      requester: "operator",
+      reconcile: reconcileOk,
+      readEffectiveState: async () => undefined,
+    });
+
+    expect(restored.settlement.outcome).toBe("committed");
+    const restoredConfig = parse(readFileSync(globalConfigPath(), "utf-8"));
+    expect(restoredConfig.permissions.fileGovernance).toEqual({
+      denyGlobs: ["**/.env"],
+      askGlobs: ["**/secrets/**"],
+      allowGlobs: ["README.md"],
+    });
+    expect(restoredConfig.targetCatalog).toEqual(routeBefore);
+  });
+
+  it("rejects a rollback when a later route selection changed the canonical revision", async () => {
+    const state = admittedTargetState();
+    seedGlobalConfigWithTargetCatalog(state.intent);
+    writeExecutionTargetEvidenceSnapshot({ globalConfigPath: globalConfigPath(), snapshot: state.evidence });
+    const before = parse(readFileSync(globalConfigPath(), "utf-8")) as Record<string, unknown>;
+    writeFileSync(globalConfigPath(), stringify({
+      ...before,
+      permissions: {
+        approval: "on-request",
+        fileGovernance: {
+          denyGlobs: ["**/.env"],
+          askGlobs: ["**/secrets/**"],
+          allowGlobs: ["README.md"],
+        },
+      },
+    }), "utf-8");
+
+    const grant = propose("setting.set", {
+      scope: "global",
+      key: "permissions.fileGovernance.allowGlobs",
+      value: ["src/**", "package.json"],
+    });
+    const grantApproval = approveConfigMutation({
+      projectPath: tempDir,
+      projectStateBinding,
+      proposalId: grant.proposal.proposalId,
+    });
+    const granted = await applyConfigMutation({
+      projectPath: tempDir,
+      proposalId: grant.proposal.proposalId,
+      approvalId: grantApproval.approvalId,
+      requester: "operator",
+      reconcile: reconcileOk,
+      readEffectiveState: async () => undefined,
+    });
+    expect(granted.settlement.outcome).toBe("committed");
+
+    const route = propose("target.select", {
+      targetId: "selected-target",
+      accountOverrideId: "selected-target-account",
+    });
+    const routeApproval = approveConfigMutation({
+      projectPath: tempDir,
+      projectStateBinding,
+      proposalId: route.proposal.proposalId,
+    });
+    const routed = await applyConfigMutation({
+      projectPath: tempDir,
+      proposalId: route.proposal.proposalId,
+      approvalId: routeApproval.approvalId,
+      requester: "operator",
+      reconcile: reconcileOk,
+      readEffectiveState: async () => undefined,
+    });
+    expect(routed.settlement.outcome).toBe("committed");
+    const bytesAfterRoute = readFileSync(globalConfigPath(), "utf-8");
+
+    const staleRollback = propose("mutation.rollback", { token: granted.settlement.rollbackToken });
+
+    expect(staleRollback.proposal.status).toBe("invalid");
+    expect(staleRollback.proposal.normalizedPayload).toMatchObject({
+      expectedRevision: granted.settlement.committedRevision,
+    });
+    expect(staleRollback.proposal.diagnostics.some((entry) => entry.field === "expectedRevision")).toBe(true);
+    expect(staleRollback.writes).toEqual([]);
+    expect(readFileSync(globalConfigPath(), "utf-8")).toBe(bytesAfterRoute);
+  });
+
   it("preserves operator comments and ordering when editing global configuration", async () => {
     mkdirSync(join(globalHome, "kiln"), { recursive: true });
     const authored = [

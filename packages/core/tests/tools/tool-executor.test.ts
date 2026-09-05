@@ -242,23 +242,28 @@ describe("DevToolExecutionBridge", () => {
     const execute = vi.fn(async () => ({ output: "must not execute", isError: false }));
     const registry = new DevToolRegistry();
     registry.register(makeTool("write", execute, READ_ONLY_EFFECT));
+    const authorize = vi.fn(() => ({
+      level: 4,
+      allowed: false,
+      requiresApproval: false,
+      reason: "configured policy forbids write",
+    }));
     const bridge = new DevToolExecutionBridge({
       registry,
       invocationAdmission: {
-        authorize: () => ({
-          level: 4,
-          allowed: false,
-          requiresApproval: false,
-          reason: "configured policy forbids write",
-        }),
+        authorize,
       },
     });
 
     await expect(bridge.execute({
       name: "write",
       input: {},
+      workingDirectory: "/workspace/core-execution",
       authority: { level: 1, allowed: true, requiresApproval: false, reason: "caller allows" },
     })).rejects.toMatchObject({ code: "TOOL_AUTHORIZATION_DENIED" });
+    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({
+      workingDirectory: "/workspace/core-execution",
+    }));
     expect(execute).not.toHaveBeenCalled();
   });
 

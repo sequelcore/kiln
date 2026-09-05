@@ -92,6 +92,8 @@ export interface ManagedDirectProviderRuntimeAdapterConfig {
   readonly builtinToolsProvider?: () => ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
   readonly capabilityMap?: ReadonlyMap<string, Capability>;
   readonly toolAuthority?: ReadonlyMap<string, AuthorityDescriptor>;
+  /** CLI-owned input-sensitive policy admitted with the attached tool surface. */
+  readonly toolInvocationAdmission?: import("@kilnai/core").InvocationAdmission;
   readonly writeAuthority?: ManagedAgentAdapterWriteAuthorityDescriptor;
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
   readonly providerTransportAdmission?: import("@kilnai/core").ProviderTransportAdmission;
@@ -537,7 +539,11 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
           : undefined;
       const perCallConfig: PerCallToolConfig = {
         tenantId: request.authority.memoryScope.scope.id,
+        workingDirectory: request.authority.workingDirectory.path,
         ...(childAuthority ? { authorityAdmission: childAuthority.bundle } : {}),
+        ...(this.config.toolInvocationAdmission
+          ? { toolInvocationAdmission: this.config.toolInvocationAdmission }
+          : {}),
         ...(input.attendedTrustedExecution !== undefined
           ? { attendedTrustedExecution: input.attendedTrustedExecution }
           : {}),

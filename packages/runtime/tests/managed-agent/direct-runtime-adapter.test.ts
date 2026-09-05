@@ -1285,6 +1285,38 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     expect(readTool).toHaveBeenCalledTimes(1);
   });
 
+  it("carries the admitted child workspace into input-sensitive tool admission", async () => {
+    const provider = providerWithResponses([
+      response("reading", [{ id: "tool-1", name: "read", input: { filePath: "docs/guide.md" } }]),
+      response("done"),
+    ]);
+    const authorize = vi.fn(() => ({
+      level: 1 as const,
+      allowed: true,
+      requiresApproval: false,
+      reason: "workspace file access admitted",
+    }));
+    const readTool = vi.fn(async () => "guide contents");
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [READ_TOOL],
+      builtinTools: new Map([["read", readTool]]),
+      toolInvocationAdmission: { authorize },
+    });
+
+    const result = await invokeManaged(new RuntimeManagedAgentInvocationService(), request(), adapter);
+
+    expect(result.status).toBe("completed");
+    expect(readTool).toHaveBeenCalledTimes(1);
+    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({
+      toolName: "read",
+      toolInput: { filePath: "docs/guide.md" },
+      workingDirectory: "C:/repo",
+    }));
+  });
+
   it("preserves a non-completed typed disposition instead of forcing handoff finalization", async () => {
     const provider = providerWithResponses([response("The required verifier was not run.")]);
     const baseRequest = request();

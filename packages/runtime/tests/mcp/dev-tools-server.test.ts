@@ -72,6 +72,40 @@ function readTextContent(content: NonNullable<ToolResult["content"]>): string {
 }
 
 describe("DevToolsMcpServer", () => {
+  it("binds its workspace to both tool admission and execution", async () => {
+    const registry = new DevToolRegistry();
+    const authorize = vi.fn(() => ({
+      level: 1 as const,
+      allowed: true,
+      requiresApproval: false,
+      reason: "configured allows",
+    }));
+    const execute = vi.fn(async (_input: ToolInput, _sandbox?: unknown): Promise<ToolResult> => ({
+      output: "ok",
+      content: [{ type: "text", text: "ok" }],
+      isError: false,
+    }));
+    registry.register({
+      ...makeTool("workspace_bound", execute),
+      execute,
+    });
+    const bridge = new DevToolExecutionBridge({ registry, invocationAdmission: { authorize } });
+    const server = new DevToolsMcpServer({ bridge, workingDirectory: "/workspace/direct-mcp" });
+
+    const response = await server.callTool("workspace_bound");
+
+    expect(response.isError).toBeUndefined();
+    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({
+      toolName: "workspace_bound",
+      workingDirectory: "/workspace/direct-mcp",
+    }));
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "workspace_bound" }),
+      { cwd: "/workspace/direct-mcp" },
+      undefined,
+    );
+  });
+
   it("lists the native tool schemas without projecting operator elicitation", () => {
     const server = createServer();
 

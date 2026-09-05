@@ -127,8 +127,10 @@ and 25 CLI tests, with no high or medium review findings.
 
 The operator-approved Plus-only policy is applied. The first cohort consumed
 124 of the authorized 352 requests; all are settled and retained. Its
-[reviewed result](collection-1.md) is diagnostic-only. A new file-access policy
-decision is required before a changed-policy rerun.
+[reviewed result](collection-1.md) is diagnostic-only. The operator approved
+temporary scoped file grants and ordinary CLI support for a separate rerun.
+Workspace-aware admission and governed restoration must pass verification
+before the grants are applied and the new source/configuration is frozen.
 
 The collection dispatcher additionally supports the frozen
 `design.maximumPhysicalProviderRequestsForCollection` ceiling. It defaults to

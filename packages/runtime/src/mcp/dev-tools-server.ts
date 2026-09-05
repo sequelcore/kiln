@@ -86,6 +86,8 @@ async function loadSdkModules(): Promise<SdkModules> {
 
 export interface DevToolsMcpServerOptions {
   readonly bridge: DevToolExecutionBridge;
+  /** Runtime-owned workspace used consistently for admission and builtin execution. */
+  readonly workingDirectory?: string;
   readonly tools?: readonly DevTool[];
   readonly resources?: ToolResourceRegistry;
   readonly resourceNotifications?: ToolResourceNotificationHub;
@@ -117,6 +119,7 @@ export interface DevToolsMcpListResourceTemplatesResult {
 
 export class DevToolsMcpServer {
   private readonly bridge: DevToolExecutionBridge;
+  private readonly workingDirectory: string | undefined;
   private readonly tools?: readonly DevTool[];
   private readonly resources?: ToolResourceRegistry;
   private readonly resourceNotifications?: ToolResourceNotificationHub;
@@ -127,6 +130,7 @@ export class DevToolsMcpServer {
 
   constructor(options: DevToolsMcpServerOptions) {
     this.bridge = options.bridge;
+    this.workingDirectory = options.workingDirectory;
     this.tools = options.tools;
     this.resources = options.resources;
     this.resourceNotifications = options.resourceNotifications;
@@ -196,12 +200,19 @@ export class DevToolsMcpServer {
   ): Promise<DevToolsMcpCallResult> {
     const progress = this.startProgressNotifications(name, extra);
     try {
+      const elicitation = resolveMcpElicitation(extra);
       const execution = await this.bridge.execute({
         name,
         input: args,
-        ...(resolveMcpElicitation(extra)
-          ? { sandbox: { operatorElicitation: { elicit: resolveMcpElicitation(extra) } } }
+        ...(this.workingDirectory || elicitation
+          ? {
+            sandbox: {
+              ...(this.workingDirectory ? { cwd: this.workingDirectory } : {}),
+              ...(elicitation ? { operatorElicitation: { elicit: elicitation } } : {}),
+            },
+          }
           : {}),
+        ...(this.workingDirectory ? { workingDirectory: this.workingDirectory } : {}),
       });
 
       const payload = {

@@ -42,7 +42,7 @@ export async function toolsCommand(
   const surfaceOptions = memoryAuthority
     ? await loadConfiguredBuiltinToolSurfaceOptions(appConfig, projectPath, { memoryAuthority })
     : await loadConfiguredBuiltinToolSurfaceOptions(appConfig, projectPath);
-  const surface = createDefaultBuiltinToolSurface(surfaceOptions);
+  const surface = createDefaultBuiltinToolSurface({ ...surfaceOptions, hostCwd: projectPath });
 
   if (flags.resources) {
     console.log(JSON.stringify(surface.resources.list().map(projectToolResourceDescriptor), null, 2));
@@ -66,6 +66,7 @@ export async function toolsCommand(
 
   const server = new DevToolsMcpServer({
     bridge: surface.bridge,
+    workingDirectory: projectPath,
     tools: surface.tools,
     resources: surface.resources,
     resourceNotifications: surface.resourceNotifications,

@@ -363,4 +363,14 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
     value: { kind: "enum", allowed: ["read-only", "workspace-write", "danger-full-access"] },
     reconciliationTargets: ["workflow-snapshot"],
   }),
+  // Global permission posture is canonical for ordinary CLI operator surfaces.
+  // This row owns only the explicit file allow-list; deny and ask rules remain
+  // operator-owned siblings in the same permissions document.
+  descriptor({
+    key: "permissions.fileGovernance.allowGlobs",
+    path: ["permissions", "fileGovernance", "allowGlobs"],
+    scopes: GLOBAL,
+    value: { kind: "string-list" },
+    reconciliationTargets: [],
+  }),
 ]);

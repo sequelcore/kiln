@@ -133,12 +133,16 @@ export function proposeConfigMutation(input: ProposeConfigMutationInput): Config
   const baseRevision = revisionOf(previousContent);
   const expectedRevision = input.operation === "setting.set" || input.operation === "setting.reset"
     ? expectedRevisionFromPayload(input.payload)
-    : { present: false } as const;
+    : input.operation === "mutation.rollback"
+      ? expectedRevisionFromPayload(normalized.payload)
+      : { present: false } as const;
   if (expectedRevision.present && expectedRevision.value !== baseRevision) {
     diagnostics.push({
       severity: "error",
       field: "expectedRevision",
-      message: "Configuration changed after the settings snapshot was loaded. Refresh and propose again.",
+      message: input.operation === "mutation.rollback"
+        ? "Configuration changed after the referenced mutation settled; rollback cannot restore over intervening changes."
+        : "Configuration changed after the settings snapshot was loaded. Refresh and propose again.",
     });
   }
   const status = diagnostics.some((diagnostic) => diagnostic.severity === "error") ? "invalid" : "valid";
@@ -540,7 +544,14 @@ function resolveRollbackMutation(
     removesPath: restore.previousContent === null,
     normalized: {
       scope: settlement.scope,
-      payload: { token: token.trim(), path: restore.path },
+      // The rollback restores whole canonical bytes. Bind it to the revision
+      // that produced this restore point so an intervening mutation cannot be
+      // silently erased while constructing the proposal.
+      payload: {
+        token: token.trim(),
+        path: restore.path,
+        expectedRevision: settlement.committedRevision,
+      },
       path: restore.path,
       nextContent: restore.previousContent ?? "",
       diagnostics,

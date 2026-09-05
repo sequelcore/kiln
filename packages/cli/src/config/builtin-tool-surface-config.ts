@@ -15,6 +15,7 @@ import {
 import {
   createFormalVerifyTool,
   createGentleReviewTool,
+  nodePhysicalPathResolver,
   createQualityAnalyzeTool,
   createStaticAnalyzeTool,
 } from "@kilnai/runtime";
@@ -23,6 +24,7 @@ import { resolveProjectStateBinding } from "../application/project-state-root.js
 import type { KilnAppConfig } from "../config.js";
 import { createPermissionEvaluator } from "../wrapper/permission-evaluator.js";
 import type { KilnPermissionPolicy } from "../wrapper/session.js";
+import { evaluateWorkspaceFileAdmission } from "./workspace-file-admission.js";
 import { ExternalEngagementResourceProvider } from "./external-engagement-resource-provider.js";
 import { type KilnGlobalConfig, readGlobalConfig } from "./global-config.js";
 import { loadConfiguredInteractiveUseToolSurfaceOptions } from "./interactive-use-config.js";
@@ -119,7 +121,7 @@ export interface ConfiguredBuiltinToolSurfaceOptions extends DefaultBuiltinToolR
 export function createConfiguredInvocationAdmission(policy: KilnPermissionPolicy): InvocationAdmission {
   const evaluator = createPermissionEvaluator(policy);
   const admission: InvocationAdmission = {
-    authorize({ toolName, toolInput, resolvedEffect }) {
+    authorize({ toolName, toolInput, resolvedEffect, workingDirectory }) {
       const decisions = [evaluator.evaluateTool(toolName)];
       const command = firstString(toolInput, ["command", "cmd"]);
       if (command !== undefined) {
@@ -127,7 +129,21 @@ export function createConfiguredInvocationAdmission(policy: KilnPermissionPolicy
       }
       const filePath = firstString(toolInput, ["filePath", "path", "file"]);
       if (filePath !== undefined) {
-        decisions.push(evaluator.evaluateFile(filePath));
+        const fileAdmission = evaluateWorkspaceFileAdmission({
+          evaluator,
+          physicalPathResolver: nodePhysicalPathResolver,
+          workingDirectory,
+          filePath,
+        });
+        if (fileAdmission.kind === "denied") {
+          return {
+            level: 4,
+            allowed: false,
+            requiresApproval: false,
+            reason: fileAdmission.reason,
+          };
+        }
+        decisions.push(fileAdmission.decision);
       }
       const destination =
         resolvedEffect.dataEgress === "none"

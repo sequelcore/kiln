@@ -43,6 +43,9 @@ vi.mock("@kilnai/runtime", () => ({
     inputSchema: { type: "object", properties: {}, required: [] },
     execute: vi.fn(async () => ({ output: "ok", isError: false })),
   })),
+  nodePhysicalPathResolver: {
+    resolve: (filePath: string) => filePath,
+  },
   PlaywrightBrowserCaptureRecorder: class MockPlaywrightBrowserCaptureRecorder {
     constructor(readonly options?: unknown) {}
   },
@@ -509,7 +512,12 @@ describe("builtin tool surface config", () => {
       admission.authorize({ toolName: "bash", toolInput: { command: "rm file" }, resolvedEffect: effect }).allowed,
     ).toBe(false);
     expect(
-      admission.authorize({ toolName: "read", toolInput: { path: "secrets/.env" }, resolvedEffect: effect }).allowed,
+      admission.authorize({
+        toolName: "read",
+        toolInput: { path: "secrets/.env" },
+        resolvedEffect: effect,
+        workingDirectory: process.cwd(),
+      }).allowed,
     ).toBe(false);
     expect(
       admission.authorize({
@@ -540,6 +548,33 @@ describe("builtin tool surface config", () => {
     expect(() => assertConfiguredInvocationAdmission({ authorize: admission.authorize }, policy)).toThrow(
       /counterfeit/iu,
     );
+  });
+
+  it("keeps an explicit file approval requirement above an allowed read tool", () => {
+    const admission = createConfiguredInvocationAdmission({
+      approval: "on-request",
+      tools: [{ tool: "read", action: "allow" }],
+      fileGovernance: { askGlobs: ["sensitive/*"] },
+    });
+    const effect = {
+      operation: "observe" as const,
+      boundaries: ["workspace"] as const,
+      reversibility: "reversible" as const,
+      dataEgress: "none" as const,
+      identityUse: "none" as const,
+      consequences: [] as const,
+      idempotency: "idempotent" as const,
+    };
+
+    expect(admission.authorize({
+      toolName: "read",
+      toolInput: { filePath: "sensitive/review.ts" },
+      resolvedEffect: effect,
+      workingDirectory: process.cwd(),
+    })).toMatchObject({
+      allowed: false,
+      requiresApproval: true,
+    });
   });
 
   it("does not synthesize a second default permission owner for runtime-attached sessions", async () => {

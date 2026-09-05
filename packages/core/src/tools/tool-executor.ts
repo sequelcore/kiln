@@ -28,6 +28,8 @@ const KILN_TIMEOUT_UNIT_SCHEMA_KEY = "x-kiln-timeout-unit";
 
 export interface DevToolExecutionRequest extends ToolExecutionRequest {
   readonly toolCallId?: string;
+  /** Authoritative execution workspace supplied by the invoking Runtime host. */
+  readonly workingDirectory?: string;
   readonly sandbox?: unknown;
   readonly retry?: RetryConfig;
   readonly executionContext?: DevToolExecutionContext;
@@ -116,6 +118,7 @@ export class DevToolExecutionBridge {
         request.sandbox,
         toolName === request.name ? request.authority : undefined,
         request.executionContext,
+        request.workingDirectory,
       );
     };
 
@@ -157,6 +160,7 @@ export class DevToolExecutionBridge {
       executedTool,
       request.input,
       execution.fallbackUsed ? undefined : request.authority,
+      request.workingDirectory,
     );
 
     return {
@@ -198,6 +202,7 @@ export class DevToolExecutionBridge {
     sandbox?: unknown,
     authority?: AuthorityDescriptor,
     executionContext?: DevToolExecutionContext,
+    workingDirectory?: string,
   ): Promise<ToolResult> {
     const tool = this.registry.lookup(toolName);
     if (!tool) {
@@ -207,13 +212,18 @@ export class DevToolExecutionBridge {
       });
     }
 
-    this.authorize(tool, input, authority);
+    this.authorize(tool, input, authority, workingDirectory);
     const result = await tool.execute({ name: toolName, input }, sandbox, executionContext);
     return this.resourceLinker?.link({ toolName, input, result }) ?? result;
   }
 
-  private authorize(tool: DevTool, input: Record<string, unknown>, authority?: AuthorityDescriptor): void {
-    const decision = this.getAuthorizationDecision(tool, input, authority);
+  private authorize(
+    tool: DevTool,
+    input: Record<string, unknown>,
+    authority?: AuthorityDescriptor,
+    workingDirectory?: string,
+  ): void {
+    const decision = this.getAuthorizationDecision(tool, input, authority, workingDirectory);
 
     if (!decision.allowed) {
       throw new KilnError("TOOL_AUTHORIZATION_DENIED", decision.reason, {
@@ -255,6 +265,7 @@ export class DevToolExecutionBridge {
     tool: DevTool,
     input: Record<string, unknown>,
     authority?: AuthorityDescriptor,
+    workingDirectory?: string,
   ): DevToolAuthorizationDecision & {
     readonly resolvedEffect: ResolvedInvocationEffect;
   } {
@@ -276,6 +287,7 @@ export class DevToolExecutionBridge {
       toolInput: input,
       resolvedEffect,
       ...(callerDecision ? { callerBound: callerDecision } : {}),
+      ...(workingDirectory ? { workingDirectory } : {}),
     });
     const decision = meetAuthorityDescriptors([
       effectDecision,

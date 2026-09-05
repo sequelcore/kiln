@@ -230,6 +230,41 @@ describe("configCommand", () => {
     expect(value.entries.every((entry) => entry.modified)).toBe(true);
   });
 
+  it("prints a usable rollback token and restores the exact prior global document through the CLI", async () => {
+    seedProjectConfig(tempDir);
+    seedGlobalConfig(globalHome);
+    const path = join(globalHome, "kiln", "config.yaml");
+    const before = readFileSync(path, "utf8");
+
+    await configCommand(MOCK_APP_CONFIG, "set", ["--global", "identity.name", "Temporary name", "--approve"], tempDir);
+    const output = consoleSpy.mock.calls.flat().join("\n");
+    const token = /rollback token: (cfg_[a-f0-9]+)/u.exec(output)?.[1];
+    expect(token).toBeDefined();
+    expect(readFileSync(path, "utf8")).not.toBe(before);
+    if (!token) throw new Error("Committed setting did not expose its rollback token.");
+
+    await configCommand(MOCK_APP_CONFIG, "rollback", [token, "--approve"], tempDir);
+
+    expect(readFileSync(path, "utf8")).toBe(before);
+    expect(consoleSpy.mock.calls.flat().join("\n")).toContain("Restore recorded configuration: committed");
+  });
+
+  it("rejects a missing rollback settlement without changing global configuration", async () => {
+    seedProjectConfig(tempDir);
+    seedGlobalConfig(globalHome);
+    const path = join(globalHome, "kiln", "config.yaml");
+    const before = readFileSync(path, "utf8");
+    const previousExitCode = process.exitCode;
+    try {
+      await configCommand(MOCK_APP_CONFIG, "rollback", ["cfg_missing", "--approve"], tempDir);
+      expect(process.exitCode).toBe(1);
+      expect(readFileSync(path, "utf8")).toBe(before);
+      expect(consoleErrorSpy.mock.calls.flat().join("\n")).toContain("No committed mutation settlement found");
+    } finally {
+      process.exitCode = previousExitCode;
+    }
+  });
+
   it("read projections prints canonical projection status", async () => {
     writeKiln(tempDir, DEFAULT_KILN);
 

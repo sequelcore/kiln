@@ -144,6 +144,50 @@ describe("governed configuration settings", () => {
     expect(parse(readFileSync(projectConfigPath(), "utf-8")).permissions.sandbox).toBe("danger-full-access");
   });
 
+  it("sets the global file allow-list only after approval and preserves explicit deny and ask rules", async () => {
+    mkdirSync(join(globalHome, "kiln"), { recursive: true });
+    writeFileSync(globalConfigPath(), stringify({
+      ...defaultGlobalConfig(),
+      permissions: {
+        approval: "on-request",
+        fileGovernance: {
+          denyGlobs: ["**/.env"],
+          askGlobs: ["**/secrets/**"],
+          allowGlobs: ["README.md"],
+        },
+      },
+    }), "utf-8");
+    const grant = ["src/**", "package.json"];
+    const record = propose({
+      scope: "global",
+      key: "permissions.fileGovernance.allowGlobs",
+      value: grant,
+    });
+
+    expect(record.proposal.status).toBe("valid");
+    expect(record.proposal.authorityImpact).toBe("unknown");
+    expect(record.proposal.approvalRequired).toBe(true);
+    expect(record.proposal.activation).toBe("next-session");
+
+    const refused = await apply(record.proposal.proposalId);
+    expect(refused.settlement.outcome).toBe("rejected");
+    expect(parse(readFileSync(globalConfigPath(), "utf-8")).permissions.fileGovernance.allowGlobs).toEqual(["README.md"]);
+
+    const approval = approveConfigMutation({
+      projectPath: tempDir,
+      projectStateBinding,
+      proposalId: record.proposal.proposalId,
+    });
+    const committed = await apply(record.proposal.proposalId, approval.approvalId);
+
+    expect(committed.settlement.outcome).toBe("committed");
+    expect(parse(readFileSync(globalConfigPath(), "utf-8")).permissions.fileGovernance).toEqual({
+      denyGlobs: ["**/.env"],
+      askGlobs: ["**/secrets/**"],
+      allowGlobs: grant,
+    });
+  });
+
   it("refuses a key in a scope its descriptor does not admit", () => {
     seedGlobalConfig();
     const projectOnly = propose({ scope: "global", key: "permissions.sandbox", value: "read-only" });
@@ -153,6 +197,14 @@ describe("governed configuration settings", () => {
     seedProjectConfig();
     const globalOnly = propose({ scope: "project", key: "identity.name", value: "Operator" });
     expect(globalOnly.proposal.status).toBe("invalid");
+
+    const globalPermissionOnly = propose({
+      scope: "project",
+      key: "permissions.fileGovernance.allowGlobs",
+      value: "src/**",
+    });
+    expect(globalPermissionOnly.proposal.status).toBe("invalid");
+    expect(globalPermissionOnly.proposal.diagnostics.map((entry) => entry.message).join(" ")).toContain("cannot be set in the project scope");
   });
 
   it("refuses an unknown key and an inadmissible value", () => {
@@ -309,6 +361,10 @@ describe("governed configuration settings", () => {
     for (const key of ["ui.appearance", "identity.name", "identity.timezone"]) {
       expect(configSettingGovernance(configSettingDescriptor(key)!, "global").authorityBearing).toBe(false);
     }
+    expect(configSettingGovernance(
+      configSettingDescriptor("permissions.fileGovernance.allowGlobs")!,
+      "global",
+    ).authorityBearing).toBe(true);
   });
 
   it("derives every global settings governance fact from the canonical global schema", () => {

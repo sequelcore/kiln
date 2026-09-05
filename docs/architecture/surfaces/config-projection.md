@@ -810,6 +810,26 @@ A settings change never mints canonical configuration. If the target scope has
 not been adopted yet, the proposal fails closed and directs the operator to setup
 or `kiln init` instead of writing a default file as a side effect.
 
+`kiln config set --global --approve permissions.fileGovernance.allowGlobs
+<comma-separated-patterns>` replaces the global file allowlist through that
+same lifecycle. This global-only setting grants file access subject to explicit
+ask/deny rules and the session's existing tool and workspace authority; it does
+not grant write authority by itself. Preserve any existing patterns when adding
+temporary grants.
+
+Concrete file admission resolves relative paths against the execution workspace
+supplied by the Runtime host. Parent and managed child calls carry their own
+workspace. Missing execution context fails closed; explicit ask/deny rules
+apply to original, normalized, and physical paths. A symlink cannot borrow an
+allowance for its lexical path to access an ungranted physical target.
+
+Successful CLI mutations print their recorded rollback token. `kiln config
+rollback <token> --approve` proposes and applies restoration through the same
+governed lifecycle. Restoration uses the recorded prior document, so operators
+cannot restore over intervening configuration changes: proposal creation checks
+the referenced settlement's committed revision, and apply checks that proposal's
+base revision again before writing.
+
 `setting.set` and `setting.reset` are the only paths that change an admitted
 configuration key. The settings operation catalog supplies scope eligibility,
 value admission, and reconciliation targets. It resolves activation, owning

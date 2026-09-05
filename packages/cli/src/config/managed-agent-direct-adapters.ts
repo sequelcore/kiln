@@ -177,6 +177,9 @@ export function createManagedDirectProviderAdapterFactory(
       ]),
       capabilityMap: runtimeCapabilities,
       toolAuthority: builtinToolSurface.toolAuthority,
+      ...(builtinToolSurface.toolInvocationAdmission
+        ? { toolInvocationAdmission: builtinToolSurface.toolInvocationAdmission }
+        : {}),
       ...(executionEnvelope ? { executionEnvelope } : {}),
       ...(options.providerTransportAdmission ? { providerTransportAdmission: options.providerTransportAdmission } : {}),
       economicIdentity: committedRequest.commitment.reservation.selectedIdentity,

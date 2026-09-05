@@ -780,6 +780,7 @@ describe("RuntimeSessionOrchestrator - tool execution", () => {
         ]]),
       });
       const config = {
+        workingDirectory: "/workspace/execution",
         toolAuthority: new Map([[
           "write",
           {
@@ -812,6 +813,9 @@ describe("RuntimeSessionOrchestrator - tool execution", () => {
       );
 
       expect(write).not.toHaveBeenCalled();
+      expect(config.toolInvocationAdmission.authorize).toHaveBeenCalledWith(expect.objectContaining({
+        workingDirectory: "/workspace/execution",
+      }));
       expect(result.toolExecutions).toEqual([
         expect.objectContaining({
           toolName: "write",

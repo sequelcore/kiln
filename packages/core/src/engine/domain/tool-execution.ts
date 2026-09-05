@@ -76,6 +76,8 @@ export interface InvocationAdmission {
     readonly toolInput: Readonly<Record<string, unknown>>;
     readonly resolvedEffect: ResolvedInvocationEffect;
     readonly callerBound?: AuthorityDescriptor;
+    /** Runtime-owned execution workspace; never derived from tool input. */
+    readonly workingDirectory?: string;
   }): AuthorityDescriptor;
 }
 

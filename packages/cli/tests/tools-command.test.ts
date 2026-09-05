@@ -83,6 +83,7 @@ const runtimeMocks = vi.hoisted(() => ({
     constructor(options: unknown) {
       expect(options).toEqual({
         bridge: coreMocks.bridge,
+        workingDirectory: process.cwd(),
         tools: coreMocks.tools,
         resources: coreMocks.resources,
         resourceNotifications: coreMocks.resourceNotifications,
@@ -151,6 +152,7 @@ describe("tools command", () => {
     await toolsCommand(APP_CONFIG, { mcp: true });
 
     expect(coreMocks.createDefaultBuiltinToolSurface).toHaveBeenCalledTimes(1);
+    expect(coreMocks.surfaceOptions).toMatchObject({ hostCwd: process.cwd() });
     expect(coreMocks.createDefaultBuiltinToolSurface).toHaveReturnedWith({
       bridge: coreMocks.bridge,
       toolNames: coreMocks.toolNames,
