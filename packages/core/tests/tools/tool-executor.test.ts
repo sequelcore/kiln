@@ -243,7 +243,7 @@ describe("DevToolExecutionBridge", () => {
     const registry = new DevToolRegistry();
     registry.register(makeTool("write", execute, READ_ONLY_EFFECT));
     const authorize = vi.fn(() => ({
-      level: 4,
+      level: 4 as const,
       allowed: false,
       requiresApproval: false,
       reason: "configured policy forbids write",

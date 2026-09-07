@@ -1728,64 +1728,6 @@ describe("ProviderSession.run()", () => {
     expect(perCallConfig?.sandbox).toBe(toolSandbox);
   });
 
-  it("keeps invocation-resolvable tools available under audited authority", async () => {
-    const bashTool = {
-      name: "bash",
-      description: "Run a command",
-      inputSchema: { type: "object", properties: {}, required: ["command"] },
-      tags: new Set<string>(["shell"]),
-    };
-    const bashCapability = {
-      name: "bash",
-      description: bashTool.description,
-      schema: bashTool.inputSchema,
-      tags: ["shell"],
-      effectEnvelope: {
-        operation: "mutate" as const,
-        boundaries: ["process" as const, "workspace" as const],
-        dataEgress: "unknown" as const,
-        identityUse: "unknown" as const,
-        reversibility: "unknown" as const,
-        consequences: ["unknown" as const],
-        idempotency: "unknown" as const,
-      },
-    };
-    runtimeMocks.attachedToolSurfaceOverride = {
-      callBuiltinTools: new Map(),
-      toolDefinitions: [bashTool],
-      capabilities: new Map([["bash", bashCapability]]),
-      materializableTools: new Map(),
-      materializableCapabilities: new Map(),
-      toolAuthority: new Map(),
-      toolCallMetadata: new Map(),
-    };
-    runtimeMocks.processMessage.mockResolvedValueOnce({
-      parts: [], toolExecutions: [], inputTokens: 0, outputTokens: 0,
-      cacheReadTokens: 0, cacheWriteTokens: 0, queued: false,
-      ...runtimeCompletedDisposition(),
-    });
-
-    const session = new ProviderSession(baseConfig({
-      provider: "openai",
-      model: "gpt-5.4",
-      env: { OPENAI_API_KEY: "cfg-key" },
-      executionMode: "kiln-executable",
-      runtimeSessionId: "cli-test-session",
-      requestedAuthority: "audited",
-    }));
-    await collectEvents(session.run({ prompt: "inspect status", requestedAuthority: "audited" }));
-
-    const perCallConfig = runtimeMocks.processMessage.mock.calls[0]?.[4] as {
-      toolAllowlist?: ReadonlySet<string>;
-      toolAuthority?: ReadonlyMap<string, { allowed: boolean; requiresApproval: boolean }>;
-    } | undefined;
-    expect(perCallConfig?.toolAllowlist?.has("bash")).toBe(true);
-    expect(perCallConfig?.toolAuthority?.get("bash")).toMatchObject({
-      allowed: false,
-      requiresApproval: true,
-    });
-  });
-
   it("routes runtime approval requests through the operator surface callback", async () => {
     runtimeMocks.processMessage.mockImplementationOnce(async () => {
       const deps = runtimeMocks.orchestratorConstructor.mock.calls.at(-1)?.[0] as {

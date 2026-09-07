@@ -121,7 +121,7 @@ export class ManagedEconomicLifecycleTimeoutError extends Error {
   }
 }
 
-export interface ManagedEconomicDispatchPrepareInput {
+export interface ManagedEconomicDispatchPrepareInput<PreparedExecution = undefined> {
   readonly jobId: string;
   readonly economicAttemptId: string;
   readonly intentFingerprint: string;
@@ -146,15 +146,28 @@ export interface ManagedEconomicDispatchPrepareInput {
     readonly commitment: ManagedEconomicCommitment;
     readonly dispatchFenceId: string;
   }) => void | Promise<void>;
+  /**
+   * Realizes the exact committed execution after its adapter exists, but before
+   * its durable provider-dispatch fence. It is the sole place for fallible
+   * request construction that requires the materialized adapter.
+   */
+  readonly realizeExecutionBeforeFence?: (input: {
+    readonly commitment: ManagedEconomicCommitment;
+    readonly dispatchFenceId: string;
+    readonly adapter: ManagedAgentRuntimeAdapter;
+    readonly abortSignal: AbortSignal;
+  }) => PreparedExecution | Promise<PreparedExecution>;
+  /** Releases resources acquired by a completed realization when fencing still fails. */
+  readonly releasePreparedExecutionBeforeFence?: (execution: PreparedExecution) => void | Promise<void>;
 }
 
-export type ManagedEconomicDispatchPreparation =
+export type ManagedEconomicDispatchPreparation<PreparedExecution = undefined> =
   | {
       readonly status: "denied";
       readonly result: Exclude<ManagedEconomicCommitmentAcquireResult, { readonly status: "committed" }>;
     }
   | {
-      readonly status: "already-dispatched";
+      readonly status: "not-dispatchable";
       readonly record: ManagedEconomicCommitmentRecord;
     }
   | {
@@ -164,10 +177,12 @@ export type ManagedEconomicDispatchPreparation =
       readonly actionClaim: ManagedEconomicActionClaim;
       readonly adapter: ManagedAgentRuntimeAdapter;
       readonly abortSignal: AbortSignal;
+      /** Immutable request realization completed before provider dispatch was fenced. */
+      readonly realization:
+        | { readonly kind: "none" }
+        | { readonly kind: "realized"; readonly execution: PreparedExecution };
       readonly recordExecutionSettlementPending: (reason: string) => Promise<void>;
-      readonly createExecutionSettlement: (
-        report: ManagedEconomicExecutionReport,
-      ) => ManagedEconomicSettlement;
+      readonly createExecutionSettlement: (report: ManagedEconomicExecutionReport) => ManagedEconomicSettlement;
       readonly registerEconomicSettlement: (settlement: PromiseLike<ManagedEconomicSettlement>) => void;
     };
 
@@ -175,7 +190,9 @@ export type ManagedEconomicDispatchPreparation =
 export class ManagedEconomicDispatchCoordinator {
   constructor(private readonly options: ManagedEconomicDispatchCoordinatorOptions) {}
 
-  async prepare(input: ManagedEconomicDispatchPrepareInput): Promise<ManagedEconomicDispatchPreparation> {
+  async prepare<PreparedExecution = undefined>(
+    input: ManagedEconomicDispatchPrepareInput<PreparedExecution>,
+  ): Promise<ManagedEconomicDispatchPreparation<PreparedExecution>> {
     const admissionBundle = defineEffectiveAuthorityAdmissionBundle(input.admissionBundle);
     const policy = () => input.adoption.snapshot.policy;
     const result = await this.options.authority.acquire({
@@ -193,7 +210,7 @@ export class ManagedEconomicDispatchCoordinator {
       return { status: "denied", result };
     }
     if (result.record.state !== "held") {
-      return { status: "already-dispatched", record: result.record };
+      return { status: "not-dispatchable", record: result.record };
     }
 
     const actionClaim: ManagedEconomicActionClaim = {
@@ -206,7 +223,7 @@ export class ManagedEconomicDispatchCoordinator {
       effectIdentity: input.effectIdentity,
     };
     const dispatchFenceId = createManagedEconomicDispatchFenceId(result.record.commitment, actionClaim);
-    let lifecycle: ReturnType<typeof createManagedEconomicLifecycleDeadline>;
+    let lifecycle: ReturnType<typeof createManagedEconomicLifecycleDeadline> | undefined;
     try {
       input.lifecycleEvents?.record({
         transition: "held",
@@ -215,11 +232,7 @@ export class ManagedEconomicDispatchCoordinator {
       });
       lifecycle = createManagedEconomicLifecycleDeadline(
         Math.min(
-          this.options.resolveLifecycleTimeoutMs(
-            result.record.commitment,
-            input.access,
-            input.authorityProfileId,
-          ),
+          this.options.resolveLifecycleTimeoutMs(result.record.commitment, input.access, input.authorityProfileId),
           input.workLimitDurationMs ?? Number.POSITIVE_INFINITY,
         ),
         input.abortSignal,
@@ -231,11 +244,21 @@ export class ManagedEconomicDispatchCoordinator {
         });
       }
     } catch (error) {
-      await this.options.authority.releasePreFence(input.jobId, input.economicAttemptId);
-      throw error;
+      lifecycle?.dispose();
+      const cleanupErrors: unknown[] = [];
+      try {
+        await this.options.authority.releasePreFence(input.jobId, input.economicAttemptId);
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError);
+      }
+      throw managedEconomicPreparationError(error, cleanupErrors);
     }
+    if (!lifecycle) throw new Error("Managed economic lifecycle was not initialized.");
 
     let adapter: ManagedAgentRuntimeAdapter;
+    let realization:
+      | Extract<ManagedEconomicDispatchPreparation<PreparedExecution>, { readonly status: "prepared" }>["realization"]
+      | undefined;
     let dispatchFenced = false;
     let fenceResponseAmbiguous = false;
     try {
@@ -244,21 +267,49 @@ export class ManagedEconomicDispatchCoordinator {
         commitment: result.record.commitment,
         dispatchFenceId,
       });
-      const adoptedRoute = input.adoption.snapshot.routes.find((candidate) =>
-        candidate.route.routeId === result.record.commitment.reservation.selectedIdentity.route.routeId
+      const adoptedRoute = input.adoption.snapshot.routes.find(
+        (candidate) => candidate.route.routeId === result.record.commitment.reservation.selectedIdentity.route.routeId,
       );
       if (!adoptedRoute) throw new Error("Committed managed economic route is absent from its adopted snapshot.");
-      const materialized = await awaitManagedEconomicMaterializationStep(this.options.createAdapter({
-        commitment: result.record.commitment,
-        dispatchFenceId,
-        abortSignal: lifecycle.signal,
-        authorityProfileId: input.authorityProfileId,
-        access: input.access,
-        profileAuthorityDigest: adoptedRoute.admittedIdentity.profileAuthorityDigest,
-        invocationId: input.invocationId,
-      }), lifecycle.signal);
+      const materialized = await awaitManagedEconomicMaterializationStep(
+        this.options.createAdapter({
+          commitment: result.record.commitment,
+          dispatchFenceId,
+          abortSignal: lifecycle.signal,
+          authorityProfileId: input.authorityProfileId,
+          access: input.access,
+          profileAuthorityDigest: adoptedRoute.admittedIdentity.profileAuthorityDigest,
+          invocationId: input.invocationId,
+        }),
+        lifecycle.signal,
+      );
       if (!materialized) throw new Error("Committed managed route has no executable adapter.");
       adapter = materialized;
+      throwManagedEconomicAbort(lifecycle.signal);
+      if (input.realizeExecutionBeforeFence !== undefined) {
+        const realizationPromise = Promise.resolve(
+          input.realizeExecutionBeforeFence({
+            commitment: result.record.commitment,
+            dispatchFenceId,
+            adapter,
+            abortSignal: lifecycle.signal,
+          }),
+        );
+        try {
+          const execution = await awaitManagedEconomicMaterializationStep(realizationPromise, lifecycle.signal);
+          realization = { kind: "realized", execution };
+        } catch (error) {
+          // A context or approval callback can finish after cancellation. Its
+          // bounded-work allocation is still pre-dispatch and must be released.
+          void realizationPromise
+            .then(
+              async (execution) => input.releasePreparedExecutionBeforeFence?.(execution),
+              () => undefined,
+            )
+            .catch(() => undefined);
+          throw error;
+        }
+      }
       throwManagedEconomicAbort(lifecycle.signal);
       try {
         await this.options.authority.fenceDispatch(input.jobId, input.economicAttemptId, dispatchFenceId, actionClaim);
@@ -294,17 +345,33 @@ export class ManagedEconomicDispatchCoordinator {
       });
     } catch (error) {
       lifecycle.dispose();
+      const cleanupErrors: unknown[] = [];
       if (dispatchFenced) {
-        await this.options.authority.recordExecutionSettlementPending(
-          input.jobId,
-          input.economicAttemptId,
-          dispatchFenceId,
-          "post-fence-lifecycle-evidence-failed",
-        );
+        try {
+          await this.options.authority.recordExecutionSettlementPending(
+            input.jobId,
+            input.economicAttemptId,
+            dispatchFenceId,
+            "post-fence-lifecycle-evidence-failed",
+          );
+        } catch (cleanupError) {
+          cleanupErrors.push(cleanupError);
+        }
       } else if (!fenceResponseAmbiguous) {
-        await this.options.authority.releasePreFence(input.jobId, input.economicAttemptId);
+        try {
+          await this.options.authority.releasePreFence(input.jobId, input.economicAttemptId);
+        } catch (cleanupError) {
+          cleanupErrors.push(cleanupError);
+        }
       }
-      throw error;
+      if (realization?.kind === "realized") {
+        try {
+          await input.releasePreparedExecutionBeforeFence?.(realization.execution);
+        } catch (cleanupError) {
+          cleanupErrors.push(cleanupError);
+        }
+      }
+      throw managedEconomicPreparationError(error, cleanupErrors);
     }
 
     let settlementRegistered = false;
@@ -328,9 +395,9 @@ export class ManagedEconomicDispatchCoordinator {
       return settlementPending;
     };
     const onAbort = () => {
-      void recordSettlementPending(settlementRegistered
-        ? "registered-execution-settlement-timed-out"
-        : "registered-execution-settlement-missing").catch(() => undefined);
+      void recordSettlementPending(
+        settlementRegistered ? "registered-execution-settlement-timed-out" : "registered-execution-settlement-missing",
+      ).catch(() => undefined);
     };
     lifecycle.signal.addEventListener("abort", onAbort, { once: true });
     return {
@@ -340,10 +407,12 @@ export class ManagedEconomicDispatchCoordinator {
       actionClaim,
       adapter,
       abortSignal: lifecycle.signal,
+      realization: realization ?? { kind: "none" },
       recordExecutionSettlementPending: recordSettlementPending,
       createExecutionSettlement: (report) => {
-        const adoptedRoute = input.adoption.snapshot.routes.find((candidate) =>
-          candidate.route.routeId === result.record.commitment.reservation.selectedIdentity.route.routeId
+        const adoptedRoute = input.adoption.snapshot.routes.find(
+          (candidate) =>
+            candidate.route.routeId === result.record.commitment.reservation.selectedIdentity.route.routeId,
         );
         if (adoptedRoute === undefined) {
           throw new Error("Committed managed economic route is absent from its adopted snapshot.");
@@ -360,30 +429,32 @@ export class ManagedEconomicDispatchCoordinator {
           throw new Error("Managed economic execution settlement was registered more than once.");
         }
         settlementRegistered = true;
-        void Promise.resolve(settlement).then(
-          async (resolved) => {
-            await this.options.authority.settleExecution(
-              input.jobId,
-              input.economicAttemptId,
-              dispatchFenceId,
-              resolved,
-            );
-            try {
-              input.lifecycleEvents?.record({
-                transition: managedEconomicSettlementTransition(resolved),
-                policy: policy(),
-                commitment: result.record.commitment,
+        void Promise.resolve(settlement)
+          .then(
+            async (resolved) => {
+              await this.options.authority.settleExecution(
+                input.jobId,
+                input.economicAttemptId,
                 dispatchFenceId,
-                settlement: resolved,
-              });
-            } catch {
-              await recordSettlementPending("lifecycle-evidence-append-failed");
-            }
-          },
-          async () => {
-            await recordSettlementPending("registered-execution-settlement-rejected");
-          },
-        ).catch(() => recordSettlementPending("registered-execution-settlement-invalid"))
+                resolved,
+              );
+              try {
+                input.lifecycleEvents?.record({
+                  transition: managedEconomicSettlementTransition(resolved),
+                  policy: policy(),
+                  commitment: result.record.commitment,
+                  dispatchFenceId,
+                  settlement: resolved,
+                });
+              } catch {
+                await recordSettlementPending("lifecycle-evidence-append-failed");
+              }
+            },
+            async () => {
+              await recordSettlementPending("registered-execution-settlement-rejected");
+            },
+          )
+          .catch(() => recordSettlementPending("registered-execution-settlement-invalid"))
           .finally(() => {
             lifecycle.signal.removeEventListener("abort", onAbort);
             lifecycle.dispose();
@@ -394,7 +465,10 @@ export class ManagedEconomicDispatchCoordinator {
   }
 }
 
-function createManagedEconomicLifecycleDeadline(timeoutMs: number, parentSignal: AbortSignal | undefined): {
+function createManagedEconomicLifecycleDeadline(
+  timeoutMs: number,
+  parentSignal: AbortSignal | undefined,
+): {
   readonly signal: AbortSignal;
   readonly dispose: () => void;
 } {
@@ -449,9 +523,19 @@ function throwManagedEconomicAbort(signal: AbortSignal | undefined): void {
 function managedEconomicAbortError(signal: AbortSignal): Error {
   return signal.reason instanceof Error
     ? signal.reason
-    : new Error(typeof signal.reason === "string" && signal.reason.trim() !== ""
-      ? signal.reason
-      : "Managed economic pre-fence preparation was aborted.");
+    : new Error(
+        typeof signal.reason === "string" && signal.reason.trim() !== ""
+          ? signal.reason
+          : "Managed economic pre-fence preparation was aborted.",
+      );
+}
+
+function managedEconomicPreparationError(primaryError: unknown, cleanupErrors: readonly unknown[]): unknown {
+  if (cleanupErrors.length === 0) return primaryError;
+  const message = primaryError instanceof Error
+    ? primaryError.message
+    : "Managed economic preparation failed before provider dispatch.";
+  return new AggregateError([primaryError, ...cleanupErrors], message);
 }
 
 function managedEconomicSettlementTransition(
@@ -466,6 +550,8 @@ function managedEconomicSettlementTransition(
       return "released";
     case "leaked":
       return "leaked";
+    case "not-dispatched":
+      throw new Error("Not-dispatched settlement is reserved for operator reconciliation and cannot follow a fence.");
     default:
       return "settlement-pending";
   }

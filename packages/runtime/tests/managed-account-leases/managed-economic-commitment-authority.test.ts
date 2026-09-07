@@ -359,6 +359,62 @@ describe("managed economic commitment authority", () => {
     });
   });
 
+  it("reconciles a retained fenced denial without relabelling it as zero-cost execution", () => {
+    const authority = create();
+    const adopted = accountSnapshot();
+    const { route, candidate } = accountCapacity(adopted);
+    const acquired = authority.acquireCommitment({
+      ...input(adopted),
+      routeCapacity: [{ routeId: "route-direct", route, affinityRequest: { continuity: "none" }, candidates: [candidate] }],
+    });
+    if (acquired.status !== "committed") throw new Error("fixture");
+    authority.fenceDispatch("job-a", "economic-attempt-a", "fence-a", actionClaim(acquired.record.ownerGeneration));
+    const pending = authority.recordExecutionSettlementPending("job-a", "economic-attempt-a", "fence-a", "postcommit-request-denied");
+    if (pending.settlement?.kind !== "unknown") throw new Error("fixture");
+    const settlement = {
+      kind: "not-dispatched" as const,
+      reservationId: acquired.record.commitment.reservation.reservationId,
+      dispatchFenceId: "fence-a",
+      expectedPendingSettlementDigest: digestManagedEconomicValue(pending.settlement),
+      sourceEvidenceDigest: `sha256:${"b".repeat(64)}`,
+      denialEvidenceDigest: `sha256:${"c".repeat(64)}`,
+      authorityEvidenceDigest: `sha256:${"d".repeat(64)}`,
+    };
+    expect(() => authority.settleExecution("job-a", "economic-attempt-a", "fence-a", settlement))
+      .toThrow(/operator reconciliation path/u);
+    for (const invalid of [
+      { dispatchFenceId: "wrong-fence", settlement },
+      { dispatchFenceId: "fence-a", settlement: { ...settlement, expectedPendingSettlementDigest: `sha256:${"f".repeat(64)}` } },
+      { dispatchFenceId: "fence-a", settlement: { ...settlement, sourceEvidenceDigest: "unbound-evidence" } },
+    ]) {
+      expect(() => authority.reconcileNotDispatched({ jobId: "job-a", economicAttemptId: "economic-attempt-a", ...invalid })).toThrow();
+    }
+    expect(authority.recoverCommitments()).toMatchObject([{ state: "settlement-pending", lease: { lifecycleState: "held" } }]);
+    const reconciled = authority.reconcileNotDispatched({ jobId: "job-a", economicAttemptId: "economic-attempt-a", dispatchFenceId: "fence-a", settlement });
+    expect(reconciled).toMatchObject({
+      state: "released", settlement, lease: { lifecycleState: "released" },
+      lifecycleEvidence: { kind: "not-dispatched-reconciliation", originalSettlement: pending.settlement },
+    });
+    const path = join(roots.at(-1)!, "authority.sqlite");
+    authority.close();
+    authorities.splice(authorities.indexOf(authority), 1);
+    const restarted = createAt(path, "owner-restarted", () => Date.parse("2026-07-31T12:00:00.000Z"));
+    expect(restarted.reconcileNotDispatched({ jobId: "job-a", economicAttemptId: "economic-attempt-a", dispatchFenceId: "fence-a", settlement }))
+      .toEqual(reconciled);
+    expect(() => restarted.reconcileNotDispatched({
+      jobId: "job-a", economicAttemptId: "economic-attempt-a", dispatchFenceId: "fence-a",
+      settlement: { ...settlement, denialEvidenceDigest: `sha256:${"e".repeat(64)}` },
+    })).toThrow(/terminal settlement/u);
+    expect(restarted.acquireCommitment({
+      ...input(adopted),
+      routeCapacity: [{ routeId: "route-direct", route, affinityRequest: { continuity: "none" }, candidates: [candidate] }],
+    })).toMatchObject({ status: "committed", replay: true, record: { state: "released", dispatchFenceId: "fence-a" } });
+    expect(restarted.acquireCommitment({
+      ...input(adopted), jobId: "job-b", economicAttemptId: "economic-attempt-b",
+      routeCapacity: [{ routeId: "route-direct", route, candidates: [candidate] }],
+    })).toMatchObject({ status: "committed" });
+  });
+
   it("shares physical account capacity with account-only gateway acquisition in both orders", () => {
     const adopted = accountSnapshot(); const { route, candidate } = accountCapacity(adopted);
     const economic = create();

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import type { RuntimeConfigurationRevisionSnapshot } from "@kilnai/runtime";
 import { parse } from "yaml";
 import { resolveGlobalConfigPath } from "../config/global-config.js";
@@ -15,6 +15,7 @@ import {
   type ProjectStateRootOptions,
   resolveProjectStateBinding,
 } from "./project-state-root.js";
+import { captureGlobalAgentCatalogDigest } from "./global-agent-catalog-digest.js";
 
 const MAX_CAPTURE_ATTEMPTS = 3;
 
@@ -47,6 +48,7 @@ export function readRuntimeConfigurationRevision(
 
   for (let attempt = 0; attempt < MAX_CAPTURE_ATTEMPTS; attempt += 1) {
     const firstGlobal = readSource(globalPath);
+    const firstGlobalAgents = captureGlobalAgentCatalogDigest(join(dirname(globalPath), "agents"));
     const firstProject = readSource(projectConfigPath);
     const firstAdoption = readAdoptionRevision(binding);
     const firstProjectState = deriveProjectStateRevision(
@@ -63,6 +65,7 @@ export function readRuntimeConfigurationRevision(
       firstProject.revision,
     );
     const secondGlobal = readSource(globalPath);
+    const secondGlobalAgents = captureGlobalAgentCatalogDigest(join(dirname(globalPath), "agents"));
     const secondProject = readSource(projectConfigPath);
     const secondAdoption = readAdoptionRevision(binding);
     const secondProjectState = deriveProjectStateRevision(
@@ -80,6 +83,7 @@ export function readRuntimeConfigurationRevision(
     );
     if (
       firstGlobal.revision !== secondGlobal.revision ||
+      firstGlobalAgents !== secondGlobalAgents ||
       firstProject.revision !== secondProject.revision ||
       firstAdoption !== secondAdoption ||
       firstProjectState !== secondProjectState ||
@@ -89,6 +93,7 @@ export function readRuntimeConfigurationRevision(
 
     const revisions = {
       global: firstGlobal.revision,
+      "global-agents": firstGlobalAgents,
       project: firstProject.revision,
       "project-state": firstProjectState,
       adoption: firstAdoption,

@@ -332,6 +332,7 @@ function billingClassOf(
   settlement: ManagedEconomicSettlement | undefined,
 ): SessionManagedEconomicBillingClass | undefined {
   if (!settlement) return route?.priceClass;
+  if (settlement.kind === "not-dispatched") return undefined;
   if (settlement.kind === "pending" || settlement.kind === "leaked") return route?.priceClass ?? "unknown";
   return settlement.kind === "charged" ? "metered" : settlement.kind;
 }

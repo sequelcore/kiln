@@ -698,6 +698,7 @@ kiln_config.read({
 
 kiln_config.propose_change({
   operation: "skill.upsert" | "agent.upsert" | "agent.attach_skills" |
+    "agent.update_authority_profile" |
     "context_governance.adapt" | "setting.set" | "setting.reset" |
     "mutation.rollback",
   payload: { ... }
@@ -725,6 +726,20 @@ reuses an identical existing policy; it cannot edit a policy shared by other
 targets. The global revision fence, explicit approval, restore point,
 `execution-targets` reconciliation, and next-session activation belong to the
 existing configuration mutation authority. The CLI does not write YAML itself.
+
+`kiln config agent-authority-profile <global-agent> <authority-profile>` uses
+`agent.update_authority_profile` to replace the authority-profile field in one
+existing global agent. It preserves all other source bytes and requires explicit
+approval. The mutation fences both the agent source and its global configuration
+dependency, preserves the target, validates the selected profile, and records an
+exact restore point. Global agent sources also participate in the canonical
+Runtime configuration revision, so a frozen execution identity detects changes
+to the agent catalog. Global config, agent and skill mutations share an
+operator-wide commit lock and path-specific settlement lineage across projects.
+An agent update holds the canonical config document lock through its source
+revision check and atomic write; rejected pre-commit checks leave no progress
+marker. Private-state path guards reject directory links and are checked again
+before replacement.
 
 `kiln_config.read` is read-only. It exposes the same bounded views as
 `kiln config read` and the setup/status surfaces. The `effective` view returns

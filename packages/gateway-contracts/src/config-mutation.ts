@@ -11,6 +11,7 @@ export const KILN_CONFIG_MUTATION_OPERATIONS = [
   "skill.upsert",
   "agent.upsert",
   "agent.attach_skills",
+  "agent.update_authority_profile",
   "context_governance.adapt",
   "setting.set",
   "setting.reset",

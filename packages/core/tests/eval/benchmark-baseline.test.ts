@@ -59,6 +59,7 @@ describe("benchmark baseline readiness", () => {
       "kiln-managed-child-agent",
       "kiln-managed-frontend-team",
       "kiln-managed-coding-agent",
+      "kiln-bounded-implementation",
       "kiln-safety-agent",
       "kiln-model-roster",
       "kiln-model-roster-backend-write",

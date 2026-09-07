@@ -152,6 +152,25 @@ export async function configCommand(
       break;
     }
 
+    case "agent-authority-profile": {
+      const positionals = readPositionalArgs(args);
+      const name = positionals[0];
+      const authorityProfileId = positionals[1];
+      if (!name || !authorityProfileId || positionals.length !== 2) {
+        console.error("Usage: kiln config agent-authority-profile <global-agent> <authority-profile> [--approve]");
+        process.exitCode = 1;
+        return;
+      }
+      await runGovernedConfigMutation({
+        projectPath: root,
+        operation: "agent.update_authority_profile",
+        payload: { name, authorityProfileId },
+        approve: hasApproveFlag(args),
+        describe: `Update global agent ${name} authority profile`,
+      });
+      break;
+    }
+
     case "rollback": {
       const positionals = readPositionalArgs(args);
       const token = positionals[0];
@@ -195,6 +214,7 @@ export async function configCommand(
 function printConfigHelp(): void {
   console.log(`\nUsage: kiln config <subcommand>\n`);
   console.log("Subcommands:");
+  console.log("  agent-authority-profile <global-agent> <authority-profile> [--approve] Update an existing global agent's authority profile");
   console.log("  rollback <token> [--approve] Restore a committed mutation's recorded configuration");
   console.log("  show              Print current config");
   console.log("  read [view]       Print canonical config/status view as JSON");

@@ -2284,7 +2284,7 @@ function readManagedEconomicSettlement(
   if (!hasAuthority) return { kind };
 
   const authority = readManagedEconomicEvidenceAuthority(payload.settlementAuthority);
-  if (!authority || kind === "pending" || kind === "leaked") {
+  if (!authority || kind === "pending" || kind === "leaked" || kind === "not-dispatched") {
     return evidenceRejection("contract-violation", "settlementAuthority");
   }
   return { kind, authority };
@@ -2293,7 +2293,7 @@ function readManagedEconomicSettlement(
 function readManagedEconomicSettlementKind(value: unknown): OperatorManagedEconomicSettlementKind | undefined {
   return value === "charged" || value === "estimated" || value === "subscription"
     || value === "included" || value === "free" || value === "unknown"
-    || value === "pending" || value === "leaked"
+    || value === "pending" || value === "leaked" || value === "not-dispatched"
     ? value
     : undefined;
 }

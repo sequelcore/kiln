@@ -8,11 +8,17 @@ import {
 } from "../../src/config/builtin-tool-surface-config.js";
 import { MODEL_FACING_DEFAULT_PERMISSION_POLICY } from "../../src/config/model-facing-permission-policy.js";
 import type { KilnAppConfig } from "../../src/config.js";
+import { TranscriptStore } from "../../src/wrapper/session-store.js";
+import { TranscriptAuthorityAdmissionEvidenceStore } from "../../src/application/authority-admission-evidence-store.js";
 import { ProviderSession } from "../../src/wrapper/provider-session.js";
 import { compileNormalizedCapabilityJsonSchema } from "@kilnai/core/capabilities";
+import { defineExecutionTargetCatalog } from "@kilnai/core/agents";
 import { deriveAuthorityFromEffect } from "@kilnai/core/engine";
 import { getBuiltinEffectEnvelope } from "@kilnai/core/tools";
 import {
+  defineEffectiveAuthorityAdmissionBundle,
+  defineOperatorAuthorityAdmissionFacets,
+  projectToolPermissionAdmissionFromPerCallConfig,
   RuntimeManagedAgentInvocationService,
   RuntimeSession,
   type AgentTaskVisionAnalysisCapabilityBinding,
@@ -27,6 +33,45 @@ afterEach(() => {
 });
 
 describe("ProviderSession capability generation", () => {
+  it("persists audited edit and patch admission while excluding higher-authority write and shell tools", async () => {
+    const projectPath = mkdtempSync(join(tmpdir(), "kiln-capability-approval-"));
+    roots.push(projectPath);
+    const session = new ProviderSession({ provider: "openai", model: "gpt-5", task: "edit a bounded fixture",
+      cwd: projectPath, executionMode: "kiln-executable", requestedAuthority: "audited",
+      permissionPolicy: { ...MODEL_FACING_DEFAULT_PERMISSION_POLICY, sandbox: "workspace-write" } });
+    try {
+      const config = session.buildAuthorityPerCallConfig({ requestedAuthority: "audited", workingDirectory: projectPath });
+      const admission = projectToolPermissionAdmissionFromPerCallConfig({
+        candidateToolNames: [...new Set([...session.authorityBuiltinToolSurface.materializableTools.keys(), ...(config.additionalTools ?? []).map((tool) => tool.name)])], config,
+      });
+      expect(admission.allowedToolPermissions.map((entry) => entry.toolName)).toEqual(expect.arrayContaining(["edit", "patch"]));
+      expect(config.toolAllowlist?.has("write")).toBe(false);
+      expect(config.toolAllowlist?.has("bash")).toBe(false);
+      const authority = config.effectiveTurnAuthority;
+      if (!authority) throw new Error("Missing audited turn authority");
+      const revision = { revisionSetId: "test-r1", revisions: { global: "g1" } };
+      const facets = defineOperatorAuthorityAdmissionFacets({
+        executionId: "audited-turn", turnId: "audited-turn",
+        session: new RuntimeSession({ sessionId: "audited-session", appName: "test", tenantId: "test", userId: "operator", systemPrompt: "test" }),
+        snapshot: { catalog: defineExecutionTargetCatalog({ accounts: [], accountPolicies: [], targets: [] }), configurationRevision: revision },
+        perCallConfig: config, candidateToolNames: [...new Set([...session.authorityBuiltinToolSurface.materializableTools.keys(), ...(config.additionalTools ?? []).map((tool) => tool.name)])],
+        skillCatalog: { catalogId: "test", revision: "s1", skillIds: [] },
+        authorityCeiling: { maximumAuthority: "audited", reason: "test policy" },
+        operatorAdoption: { status: "not-required" }, capabilityParticipation: { status: "not-requested" },
+      });
+      const bundle = defineEffectiveAuthorityAdmissionBundle({
+        sessionId: facets.sessionId, turnId: facets.turnId, admittedAt: "2026-09-05T00:00:00.000Z",
+        configuration: { sessionRevision: revision, turnRevision: revision }, session: facets.session,
+        turn: { ...facets.turn, budget: { status: "not-configured" }, execution: { status: "not-routed" } },
+      });
+      const transcripts = new TranscriptStore({ sessionsPath: join(projectPath, "sessions") });
+      await new TranscriptAuthorityAdmissionEvidenceStore(transcripts).persist(bundle);
+      expect(await transcripts.readAuthorityAdmissions("audited-session")).toHaveLength(1);
+      const readOnly = session.buildAuthorityPerCallConfig({ requestedAuthority: "read_only", workingDirectory: projectPath });
+      expect(readOnly.toolAllowlist?.has("write")).toBe(false);
+    } finally { await session.dispose(); }
+  });
+
   it("prepares verification capabilities only for an explicitly owned composition surface", async () => {
     const projectPath = mkdtempSync(join(tmpdir(), "kiln-capability-generation-"));
     roots.push(projectPath);

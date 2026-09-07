@@ -16,6 +16,7 @@ export type {
 } from "../global-config-schema.js";
 export {
   commitGlobalConfigBytes,
+  withGlobalConfigRevision,
   GlobalConfigMutationError,
   readGlobalConfig,
   readGlobalConfigSnapshot,

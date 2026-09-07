@@ -503,6 +503,19 @@ export type ManagedEconomicSettlement =
       readonly reservationId: string;
       readonly dispatchFenceId: string;
       readonly reason: string;
+    }
+  /**
+   * An authenticated operator attested that the fenced provider request was denied
+   * before dispatch. This is deliberately distinct from zero-cost execution.
+   */
+  | {
+      readonly kind: "not-dispatched";
+      readonly reservationId: string;
+      readonly dispatchFenceId: string;
+      readonly expectedPendingSettlementDigest: string;
+      readonly sourceEvidenceDigest: string;
+      readonly denialEvidenceDigest: string;
+      readonly authorityEvidenceDigest: string;
     };
 
 export interface ManagedEconomicSettlementExpectation {
@@ -657,7 +670,7 @@ export function validateManagedEconomicSettlement(
 ): ManagedEconomicSettlement {
   requireAllowed(
     settlement.kind,
-    ["charged", "estimated", "subscription", "included", "free", "unknown", "pending", "leaked"],
+    ["charged", "estimated", "subscription", "included", "free", "unknown", "pending", "leaked", "not-dispatched"],
     "settlement kind",
   );
   requireIdentity(settlement.reservationId, "settlement reservation id");
@@ -671,6 +684,13 @@ export function validateManagedEconomicSettlement(
   if (settlement.kind === "pending") return settlement;
   if (settlement.kind === "leaked") {
     requireIdentity(settlement.reason, "leaked settlement reason");
+    return settlement;
+  }
+  if (settlement.kind === "not-dispatched") {
+    requireDigest(settlement.expectedPendingSettlementDigest, "not-dispatched expected pending settlement digest");
+    requireDigest(settlement.sourceEvidenceDigest, "not-dispatched source evidence digest");
+    requireDigest(settlement.denialEvidenceDigest, "not-dispatched denial evidence digest");
+    requireDigest(settlement.authorityEvidenceDigest, "not-dispatched authority evidence digest");
     return settlement;
   }
   if (settlement.kind === "unknown") {

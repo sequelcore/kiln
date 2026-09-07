@@ -101,7 +101,21 @@ describe("managed_agent.orchestrate", () => {
   it("dispatches adapterless economic children through the attached executor with stable caller-bound commitments", async () => {
     const invoked = vi.fn<(invocationId: string) => void>();
     const adapter = economicAdapter(invoked);
-    const prepare = vi.fn<NonNullable<ManagedInvocationToolOptions["economicDispatch"]>["prepare"]>(async (input) => ({
+    type EconomicPrepare = NonNullable<ManagedInvocationToolOptions["economicDispatch"]>["prepare"];
+    type EconomicPrepareInput = Parameters<EconomicPrepare>[0];
+    const prepareCalls: Array<Pick<EconomicPrepareInput,
+      "adoptedDecisionAt" | "authorityProfileId" | "candidateSet" | "economicAttemptId" | "invocationId" | "jobId"
+    >> = [];
+    const prepare: EconomicPrepare = async (input) => {
+      prepareCalls.push({
+        adoptedDecisionAt: input.adoptedDecisionAt,
+        authorityProfileId: input.authorityProfileId,
+        candidateSet: input.candidateSet,
+        economicAttemptId: input.economicAttemptId,
+        invocationId: input.invocationId,
+        jobId: input.jobId,
+      });
+      return {
       ...(() => {
         const admissionBundle = managedEconomicAdmissionContract({
           sessionId: "session-test",
@@ -139,7 +153,9 @@ describe("managed_agent.orchestrate", () => {
       recordExecutionSettlementPending: vi.fn(),
       createExecutionSettlement: () => ({} as never),
       registerEconomicSettlement: (settlement: PromiseLike<ManagedEconomicSettlement>) => void Promise.resolve(settlement),
-    }));
+      realization: { kind: "none" },
+    };
+    };
     const input = {
       access: "read-only",
       taskRisk: "low",
@@ -181,31 +197,31 @@ describe("managed_agent.orchestrate", () => {
     }));
 
     expect(result.isError, result.output).toBe(false);
-    expect(prepare).toHaveBeenCalledTimes(2);
+    expect(prepareCalls).toHaveLength(2);
     expect(invoked).toHaveBeenCalledTimes(2);
-    expect(prepare.mock.calls.map(([call]) => call.adoptedDecisionAt)).toEqual([
+    expect(prepareCalls.map((call) => call.adoptedDecisionAt)).toEqual([
       "2026-08-01T00:00:00.000Z",
       "2026-08-01T00:00:00.000Z",
     ]);
-    expect(prepare.mock.calls.map(([call]) => call.candidateSet)).toEqual([
+    expect(prepareCalls.map((call) => call.candidateSet)).toEqual([
       expect.objectContaining({ candidates: [expect.objectContaining({ routeId: "economic-route" })], rejections: [] }),
       expect.objectContaining({ candidates: [expect.objectContaining({ routeId: "economic-route" })], rejections: [] }),
     ]);
-    expect(prepare.mock.calls.map(([call]) => call.authorityProfileId)).toEqual([
+    expect(prepareCalls.map((call) => call.authorityProfileId)).toEqual([
       "authority:economic",
       "authority:economic",
     ]);
-    expect(prepare.mock.calls.map(([call]) => call.invocationId)).toEqual([
+    expect(prepareCalls.map((call) => call.invocationId)).toEqual([
       "managed-orchestration:session-test:tool-call-test:child:1",
       "managed-orchestration:session-test:tool-call-test:child:2",
     ]);
     const expectedProfileAuthorityDigest = digestManagedEconomicCandidateProfileAuthority(economicRoute().profiles[0]!);
-    expect(prepare.mock.calls.map(([call]) => call.candidateSet.candidates[0]?.profileAuthorityDigest)).toEqual([
+    expect(prepareCalls.map((call) => call.candidateSet.candidates[0]?.profileAuthorityDigest)).toEqual([
       expectedProfileAuthorityDigest,
       expectedProfileAuthorityDigest,
     ]);
-    expect(new Set(prepare.mock.calls.map(([call]) => call.jobId)).size).toBe(2);
-    expect(new Set(prepare.mock.calls.map(([call]) => call.economicAttemptId)).size).toBe(2);
+    expect(new Set(prepareCalls.map((call) => call.jobId)).size).toBe(2);
+    expect(new Set(prepareCalls.map((call) => call.economicAttemptId)).size).toBe(2);
   });
 });
 

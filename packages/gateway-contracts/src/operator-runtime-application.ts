@@ -35,6 +35,20 @@ const managedEconomicActionClaim = z.object({
 }).strict();
 
 /** Authenticated application commands for operator surfaces; never an MCP surface. */
+/** Operator-attested, evidence-bound reconciliation; never a provider settlement. */
+export const ManagedEconomicNotDispatchedReconciliationInputSchema = z.object({
+  attestation: z.literal("confirmed-not-dispatched"),
+  jobId: identifier,
+  economicAttemptId: identifier,
+  dispatchFenceId: identifier,
+  reservationId: identifier,
+  expectedPendingSettlementDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  sourceEvidenceDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  denialEvidenceDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+}).strict();
+
+export type ManagedEconomicNotDispatchedReconciliationInput = z.infer<typeof ManagedEconomicNotDispatchedReconciliationInputSchema>;
+
 export const OperatorRuntimeApplicationRequestSchema = z.discriminatedUnion("operation", [
   z.object({
     schemaVersion: z.literal(1),
@@ -84,6 +98,11 @@ export const OperatorRuntimeApplicationRequestSchema = z.discriminatedUnion("ope
     economicAttemptId: identifier,
     dispatchFenceId: identifier,
     actionClaim: managedEconomicActionClaim,
+  }).strict(),
+  z.object({
+    schemaVersion: z.literal(1),
+    operation: z.literal("managed-economic.reconcile-not-dispatched"),
+    input: ManagedEconomicNotDispatchedReconciliationInputSchema,
   }).strict(),
   z.object({
     schemaVersion: z.literal(1),

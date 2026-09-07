@@ -153,15 +153,16 @@ Output:
   }),
   defineBuiltinSkill({
     name: "codebase-scouting",
-    description: "Map ownership, dependency paths, affected verification, and uncertainty before multi-file or architecture-sensitive changes.",
+    description: "Investigate unclear repository ownership, dependencies, or affected tests before a consequential change.",
     tools: ["read", "grep", "glob", "bash"],
     tags: ["engineering", "scouting", "codebase"],
     instructions: `
 # Codebase Scouting
 
-Use this skill before changes that touch multiple files, unclear ownership, or
-architecture-sensitive behavior, or when asked to identify affected code or
-tests. Scouting establishes a defensible change boundary; it does not design the
+Use this skill for unclear ownership, uncertain dependencies, architecture-sensitive
+behavior, or an explicit impact investigation. Multiple edited files alone do not
+require scouting. Reuse established evidence. Scouting establishes a defensible
+change boundary; it does not design the
 implementation. It investigates repository evidence, not external source research.
 Route current external claims, official documentation, standards, papers, and
 market evidence to the research workflow; use both only when the decision
@@ -225,22 +226,23 @@ Output:
     instructions: `
 # Implementation Planning
 
-Use this skill after scouting and before implementation when work crosses files,
-contracts, boundaries, or surfaces, or carries meaningful uncertainty or risk.
-Skip a full plan for one obvious low-risk edit; state the change and focused
-verification instead.
+Use this skill when sequencing dependencies, consequential decisions, or recovery
+needs make a plan useful. Reuse current repository evidence; a separate scouting
+pass is needed only for unresolved questions. Skip a full plan for one obvious
+low-risk edit; state the change and focused verification instead.
 
 Workflow:
 1. State the intended outcome, acceptance evidence, and non-goals. Preserve the
    user's actual contract rather than expanding it into adjacent cleanup.
 2. List material assumptions, unknowns, and decisions. Do not hide unresolved
    product, architecture, authority, security, or data-safety decisions inside an
-   implementation step. Stop for operator or specialist direction when a choice
-   materially changes behavior, risk, or scope.
+   implementation step. Resolve choices within the authorized outcome using
+   evidence; ask for direction when a consequential ambiguity or scope expansion
+   cannot be resolved from the request and repository contract.
    For material architecture, name the simplest materially different design and
    the required invariant it cannot preserve. Future flexibility alone is not a
    sufficient reason to add permanent concepts.
-3. Ground the affected surface in the scout map and current repository state.
+3. Ground the affected surface in current repository evidence.
    Treat files and symbols as exact only when confirmed by repository evidence;
    label other surfaces as candidates to verify during execution.
 4. Split work by coherent behavior or invariant. Each slice must leave a safe,
@@ -277,8 +279,10 @@ Output:
 
 Prefer the smallest plan that fully satisfies the requested behavior. Every step
 must change or verify something real. Do not invent paths, line numbers, time
-estimates, approvals, or rollback guarantees. Do not implement, adjudicate a
-specialist decision, or mark work complete while planning. A prose plan does not
+estimates, approvals, or rollback guarantees. A plan-only request ends with the
+plan. For an implementation request, proceed into authorized execution after
+planning and continue through verification and necessary repairs. Planning alone
+is not completion. A prose plan does not
 grant write authority, approval, or completion evidence; use the repository's
 structured plan, work-item, or approval system when one exists.
 `,

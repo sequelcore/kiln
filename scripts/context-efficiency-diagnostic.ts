@@ -214,7 +214,7 @@ export function buildInternalBenchmarkCommand(input: {
   if (!isRecord(oracle)) throw new Error("Internal benchmark task oracle is missing.");
   const dataset = requireString(oracle.dataset, "internal benchmark dataset");
   const profile = input.trial.executionStrategy === "internal_benchmark_isolated_fixture"
-    ? "kiln-managed-coding-agent"
+    ? "kiln-bounded-implementation"
     : input.trial.executionStrategy === "internal_benchmark_managed_child"
       ? "kiln-managed-child-agent"
       : undefined;
@@ -1860,6 +1860,11 @@ async function main(args: readonly string[]): Promise<void> {
     const compilation = await runner.run({ command: ["bun", "run", "compile", "--force"],
       cwd: repositoryRoot, timeoutMs: 120_000 });
     if (compilation.exitCode !== 0) throw new Error("Source compilation failed; cannot freeze executable artifacts.");
+    if (isRecord(template) && Array.isArray(template.tasks)
+      && template.tasks.some((task) => isRecord(task) && task.executionStrategy === "internal_benchmark_isolated_fixture")) {
+      const { assertBoundedImplementationVerifierAvailable } = await import("../packages/cli/src/application/context-efficiency-bounded-implementation-verifier.js");
+      await assertBoundedImplementationVerifierAvailable();
+    }
     const head = await runner.run({ command: ["git", "rev-parse", "HEAD"], cwd: repositoryRoot, timeoutMs: 10_000 });
     const tracked = await runner.run({ command: ["git", "ls-files", "-z"], cwd: repositoryRoot, timeoutMs: 10_000 });
     if (head.exitCode !== 0 || tracked.exitCode !== 0) throw new Error("Unable to freeze committed source identity.");

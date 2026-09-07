@@ -17,6 +17,7 @@ import type {
 } from "@kilnai/gateway-contracts";
 import {
   commitGlobalConfigBytes,
+  withGlobalConfigRevision,
   GlobalConfigMutationError,
   resolveGlobalConfigPath,
 } from "../config/global-config.js";
@@ -353,15 +354,28 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
             "Config proposal is stale; the canonical revision changed after the proposal was created.",
           )], proposal);
         } else {
-          store.writeProgressMarker({
+          const markCommitStarted = () => store.writeProgressMarker({
             proposalId: proposal.proposalId,
             path: write.path,
             intendedRevision: intendedRevision(write),
             startedAt: attemptedAt,
           });
+          const isGlobalAgent = proposal.scope === "global"
+            && dirname(resolve(write.path)) === resolve(dirname(globalConfigPath), "agents");
+          if (!isGlobalAgent) markCommitStarted();
           commitOutcome = proposal.scope === "global" && resolve(write.path) === resolve(globalConfigPath)
             ? commitGlobalWrite(record.writes, proposal.baseRevision)
-            : commitProjectWrites(record.writes, projectStateBinding.projectStateRoot);
+            : proposal.scope === "global" && dirname(resolve(write.path)) === resolve(dirname(globalConfigPath), "agents")
+              ? withGlobalConfigRevision(
+                  proposal.operation === "agent.update_authority_profile"
+                    ? "sha256:" + String(proposal.normalizedPayload.globalConfigRevision)
+                    : undefined,
+                  () => {
+                    markCommitStarted();
+                    return commitProjectWrites(record.writes, dirname(globalConfigPath));
+                  },
+                )
+              : commitProjectWrites(record.writes, projectStateBinding.projectStateRoot);
         }
       } catch (error) {
         return rejected(input, attemptedAt, proposal.scope, [diagnostic("write", commitErrorMessage(error))], proposal);
@@ -668,6 +682,10 @@ function commitProjectWrites(
         assertPrivateStateFileTargetSync(projectStateRoot, temporaryPath);
       }
       writeFileSync(temporaryPath, write.nextContent, "utf-8");
+      if (isPrivateStateWrite) {
+        assertPrivateStateFileTargetSync(projectStateRoot, write.path);
+        assertPrivateStateFileTargetSync(projectStateRoot, temporaryPath);
+      }
       renameSync(temporaryPath, write.path);
     } finally {
       rmSync(temporaryPath, { force: true });
@@ -885,6 +903,21 @@ function validateWritePath(input: {
   if (input.scope === "global") {
     if (resolvedPath === resolve(input.globalConfigPath)) return [];
     const globalRoot = resolve(dirname(input.globalConfigPath));
+    const globalAgentsRoot = resolve(join(globalRoot, "agents"));
+    if (
+      (input.operation === "agent.update_authority_profile" || input.operation === "mutation.rollback") &&
+      dirname(resolvedPath) === globalAgentsRoot &&
+      /^[a-z0-9][a-z0-9-]*\.md$/u.test(resolvedPath.slice(globalAgentsRoot.length + 1))
+    ) {
+      return isPhysicallyInsideRoot(globalRoot, resolvedPath)
+        ? []
+        : [
+            diagnostic(
+              input.path,
+              "Refused a global agent path whose physical target escapes the global agents directory.",
+            ),
+          ];
+    }
     const userSkillsRoot = resolve(join(globalRoot, "skills"));
     if ((input.operation === "skill.upsert" || input.operation === "mutation.rollback")
       && isInside(userSkillsRoot, resolvedPath)) {
@@ -893,7 +926,7 @@ function validateWritePath(input: {
       }
       return [];
     }
-    return [diagnostic(input.path, "Global mutations may only write the canonical global configuration file or user-owned skills.")];
+    return [diagnostic(input.path, "Global mutations may only write canonical global configuration, admitted agent profile fields, or user-owned skills.")];
   }
 
   const projectRoot = resolve(input.projectStateRoot);

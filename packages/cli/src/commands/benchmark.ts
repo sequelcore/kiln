@@ -1,3 +1,4 @@
+import { NODE_VERIFIER_IMAGE } from "../application/benchmarks/container-verifier-runner.js";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
@@ -49,7 +50,7 @@ import {
 import {
   BACKEND_VERIFIER_ALLOWED_CHANGED_PATHS,
   BACKEND_VERIFIER_ID,
-  BACKEND_VERIFIER_IMAGE,
+
   BACKEND_VERIFIER_VERSION,
 } from "../application/benchmarks/formal-screening/backend-verifier.js";
 import { BACKEND_BENCHMARK_CASES } from "../application/benchmark-backend-cases.js";
@@ -474,7 +475,7 @@ async function runInternalBenchmark(
             verifier: {
               id: BACKEND_VERIFIER_ID,
               version: BACKEND_VERIFIER_VERSION,
-              image: BACKEND_VERIFIER_IMAGE,
+              image: NODE_VERIFIER_IMAGE,
               cases: Object.values(BACKEND_BENCHMARK_CASES).map((entry) => ({
                 id: entry.id,
                 hiddenTestDigest: entry.testDigest,
@@ -932,7 +933,7 @@ function prepareBenchmarkVerifiers(): void {
       version,
     },
     backend: {
-      image: BACKEND_VERIFIER_IMAGE,
+      image: NODE_VERIFIER_IMAGE,
       verifierId: BACKEND_VERIFIER_ID,
       verifierVersion: BACKEND_VERIFIER_VERSION,
     },
@@ -1285,6 +1286,9 @@ function defaultDatasetPath(profileId: string): string {
   const currentDir = dirname(fileURLToPath(import.meta.url));
   const profile = KILN_BENCHMARK_PROFILES.find((entry) => entry.id === profileId);
   if (!profile) throw new Error(`Unknown benchmark profile '${profileId}'.`);
+  if (profile.id === "kiln-bounded-implementation") {
+    return join(currentDir, "..", "..", "..", "core", "evals", "benchmark", "kiln-context-efficiency-bounded-implementation-post-fix-v1.jsonl");
+  }
   const datasetVersion = profile.surface === "model-roster-backend-write"
     || profile.surface === "model-roster-frontend-render"
     ? profile.version

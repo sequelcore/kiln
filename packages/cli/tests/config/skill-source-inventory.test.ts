@@ -17,6 +17,62 @@ function skill(root: string, dir: string, name: string, description: string, ass
 }
 
 describe("skill source inventory", () => {
+  it("keeps native plugin portability warnings separate from canonical admission and broken resources", () => {
+    const root = mkdtempSync(join(tmpdir(), "plugin-portability-"));
+    const path = skill(root, "slides", "Presentations", "Native display name");
+    const read = (sourceKind: "plugin" | "kiln-user") => collectSkillSourceInventory({
+      roots: [{ sourceKind, root, relationship: sourceKind === "plugin" ? "external" : "canonical" }],
+      pluginProvider: () => ({ roots: [], diagnostics: [] }),
+    });
+    expect(read("plugin").candidates[0]?.health.status).toBe("warning");
+    expect(read("plugin").candidates[0]?.health.diagnostics[0]?.code).toBe("portable-spec-invalid");
+    expect(read("kiln-user").candidates[0]?.health.status).toBe("blocked");
+    writeFileSync(join(path, "SKILL.md"), "---\nname: Presentations\ndescription: Native display name\n---\n[Missing](missing.md)\n");
+    expect(read("plugin").candidates[0]?.health.status).toBe("blocked");
+  });
+
+  it("inventories the exact remote plugin cache version and projects its loaded path", () => {
+    const home = mkdtempSync(join(tmpdir(), "plugin-cache-"));
+    const root = join(home, "plugins", "cache", "market", "viewer", "1.2.3");
+    const path = skill(join(root, "skills"), "view", "view", "cached viewer");
+    mkdirSync(join(root, ".codex-plugin"), { recursive: true });
+    writeFileSync(join(root, ".codex-plugin", "plugin.json"), JSON.stringify({ name: "viewer", version: "1.2.3", skills: "./skills/" }));
+    const run = vi.fn(() => ({ status: 0, stderr: "", stdout: JSON.stringify({ installed: [
+      { pluginId: "viewer@market", name: "viewer", marketplaceName: "market", version: "1.2.3", enabled: true, source: { source: "remote", id: "remote-viewer" } },
+    ] }) }));
+    const paths = new Map<string, string>();
+    const inventory = collectSkillSourceInventory({ roots: [], pluginProvider: () => defaultCodexPluginProvider(run, undefined, home), onCandidateResolved: (id, file) => paths.set(id, file) });
+    expect(inventory.complete).toBe(true);
+    expect(inventory.candidates).toHaveLength(1);
+    expect(paths.get("plugin:viewer@market:view:view")).toBe(join(path, "SKILL.md"));
+  });
+
+  it("rejects a cached manifest whose version differs from installed metadata", () => {
+    const home = mkdtempSync(join(tmpdir(), "plugin-cache-"));
+    const root = join(home, "plugins", "cache", "market", "viewer", "1.2.3");
+    mkdirSync(join(root, ".codex-plugin"), { recursive: true });
+    writeFileSync(join(root, ".codex-plugin", "plugin.json"), JSON.stringify({ name: "viewer", version: "9.0.0" }));
+    const run = vi.fn(() => ({ status: 0, stderr: "", stdout: JSON.stringify({ installed: [
+      { pluginId: "viewer@market", name: "viewer", marketplaceName: "market", version: "1.2.3", enabled: true, source: { source: "remote" } },
+    ] }) }));
+    const inventory = collectSkillSourceInventory({ roots: [], pluginProvider: () => defaultCodexPluginProvider(run, undefined, home) });
+    expect(inventory.complete).toBe(false);
+    expect(inventory.candidates).toEqual([]);
+    expect(inventory.diagnostics).toContainEqual(expect.objectContaining({ code: "plugin-inventory-cache-invalid" }));
+  });
+
+  it("keeps missing and path-traversing remote plugin identities incomplete", () => {
+    const home = mkdtempSync(join(tmpdir(), "plugin-cache-"));
+    const run = vi.fn(() => ({ status: 0, stderr: "", stdout: JSON.stringify({ installed: [
+      { pluginId: "viewer@market", name: "viewer", marketplaceName: "market", version: "1.2.3", enabled: true, source: { source: "remote" } },
+      { pluginId: "viewer@market", name: "viewer", marketplaceName: "market", version: "../../escape", enabled: true, source: { source: "remote" } },
+    ] }) }));
+    const inventory = collectSkillSourceInventory({ roots: [], pluginProvider: () => defaultCodexPluginProvider(run, undefined, home) });
+    expect(inventory.complete).toBe(false);
+    expect(inventory.candidates).toEqual([]);
+    expect(inventory.diagnostics.filter((entry) => entry.code === "plugin-inventory-source-unsupported")).toHaveLength(2);
+  });
+
   it("folds managed path case only on Windows", () => {
     expect(normalizeSkillInventoryPath("/Repo/Skills/Plan/SKILL.md", "linux")).toBe("/Repo/Skills/Plan/SKILL.md");
     expect(normalizeSkillInventoryPath("C:\\Repo\\Skills\\Plan\\SKILL.md", "win32"))

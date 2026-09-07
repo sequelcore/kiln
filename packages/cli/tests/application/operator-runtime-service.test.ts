@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -14,6 +14,7 @@ import {
   type OperatorRuntimeMcpRequest,
   type OperatorRuntimeSessionOpenInput,
   type OperatorRuntimeService,
+  type OperatorEconomicReconciliationPort,
 } from "../../src/application/operator-runtime-service.js";
 import type {
   OperatorProjectManagedAgentSummary,
@@ -24,6 +25,8 @@ import {
 } from "../../src/application/project-adoption-manifest.js";
 import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 import { resolveTrustedWorkspace } from "../../src/application/trusted-workspace-resolution.js";
+
+import { createManagedAccountLeaseAuthority } from "../../src/config/managed-agent-routes.js";
 
 const SECRET = new TextEncoder().encode("operator-runtime-service-test-secret-32-bytes");
 const roots: string[] = [];
@@ -148,6 +151,97 @@ describe("createOperatorRuntimeService", () => {
     })).resolves.toMatchObject({ status: "error", error: { code: "principal_denied" } });
     await service.close();
   });
+  it("binds no-dispatch reconciliation to operator authority and rejects a native caller", async () => {
+    const project = adoptedProject("economic-reconciliation");
+    const reconcileNotDispatched = vi.fn((input: Parameters<OperatorEconomicReconciliationPort["reconcileNotDispatched"]>[0]) => ({ state: "released" as const, settlement: input.settlement }));
+    const service = createOperatorRuntimeService({
+      sessionSecret: SECRET, nowEpochSeconds: () => 100,
+      economicReconciliation: { reconcileNotDispatched },
+      createComposition: async () => { throw new Error("Child execution composition is unavailable."); },
+    });
+    const principal = { kind: "operator-surface", surface: "cli" } as const;
+    const sessionId = "reconciliation-session";
+    const opened = await service.onSessionOpen({ schemaVersion: 3, canonicalRoot: project.canonicalRoot,
+      binding: project.binding, principal, sessionId });
+    const claims = verifyOperatorSessionCredential(opened.credential, SECRET, {
+      ...project.binding, principal, sessionId,
+    }, { nowEpochSeconds: 100 });
+    const request = { schemaVersion: 1, operation: "managed-economic.reconcile-not-dispatched", input: {
+      attestation: "confirmed-not-dispatched",
+      jobId: "job-1", economicAttemptId: "attempt-1", dispatchFenceId: "fence-1", reservationId: "reservation-1",
+      expectedPendingSettlementDigest: `sha256:${"1".repeat(64)}`,
+      sourceEvidenceDigest: `sha256:${"2".repeat(64)}`,
+      denialEvidenceDigest: `sha256:${"3".repeat(64)}`,
+    } } as const;
+    await expect(service.onApplicationRequest({ claims, request })).resolves.toMatchObject({
+      status: "ok", result: { state: "released", settlement: { kind: "not-dispatched" } },
+    });
+    expect(reconcileNotDispatched).toHaveBeenCalledWith({
+      jobId: "job-1", economicAttemptId: "attempt-1", dispatchFenceId: "fence-1",
+      settlement: { kind: "not-dispatched", reservationId: "reservation-1", dispatchFenceId: "fence-1",
+        expectedPendingSettlementDigest: request.input.expectedPendingSettlementDigest,
+        sourceEvidenceDigest: request.input.sourceEvidenceDigest, denialEvidenceDigest: request.input.denialEvidenceDigest,
+        authorityEvidenceDigest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+      },
+    });
+    const nativeClaims = await openClaims(service, project, "codex", "native-reconciliation-session");
+    await expect(service.onApplicationRequest({ claims: nativeClaims, request })).resolves.toMatchObject({
+      status: "error", error: { code: "principal_denied" },
+    });
+    const forgedRequest = { ...request, input: {
+      ...request.input, authorityEvidenceDigest: `sha256:${"4".repeat(64)}`,
+    } };
+    await expect(service.onApplicationRequest({ claims, request: forgedRequest })).resolves.toMatchObject({
+      status: "error", error: { code: "invalid_request" },
+    });
+    expect(reconcileNotDispatched).toHaveBeenCalledTimes(1);
+    await service.close();
+  });
+
+  it("opens and closes the real global recovery ledger without configured routes or child composition", async () => {
+    const project = adoptedProject("recovery-without-routes");
+    const kilnHome = join(project.canonicalRoot, "private-home");
+    const createComposition = vi.fn(async (): Promise<OperatorProjectAgentTaskApplicationComposition> => {
+      throw new Error("Child routes are unavailable.");
+    });
+    const errors: unknown[] = [];
+    const service = createOperatorRuntimeService({
+      sessionSecret: SECRET, nowEpochSeconds: () => 100, kilnHome, createComposition,
+      onApplicationError: (error) => errors.push(error),
+    });
+    const principal = { kind: "operator-surface", surface: "cli" } as const;
+    const sessionId = "recovery-without-routes-session";
+    const opened = await service.onSessionOpen({ schemaVersion: 3, canonicalRoot: project.canonicalRoot,
+      binding: project.binding, principal, sessionId });
+    const claims = verifyOperatorSessionCredential(opened.credential, SECRET, {
+      ...project.binding, principal, sessionId,
+    }, { nowEpochSeconds: 100 });
+    try {
+      await expect(service.onApplicationRequest({ claims, request: {
+        schemaVersion: 1, operation: "managed-economic.reconcile-not-dispatched", input: {
+          attestation: "confirmed-not-dispatched", jobId: "missing-job", economicAttemptId: "economic-attempt:missing",
+          dispatchFenceId: "missing-fence", reservationId: "missing-reservation",
+          expectedPendingSettlementDigest: `sha256:${"1".repeat(64)}`,
+          sourceEvidenceDigest: `sha256:${"2".repeat(64)}`, denialEvidenceDigest: `sha256:${"3".repeat(64)}`,
+        },
+      } })).resolves.toMatchObject({ status: "error", error: { code: "authority_rejected" } });
+      expect(createComposition).not.toHaveBeenCalled();
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toBeInstanceOf(Error);
+      const error = errors[0];
+      if (!(error instanceof Error)) throw new Error("Expected ledger lookup failure.");
+      expect(error.message).toContain("commitment");
+      expect(existsSync(join(kilnHome, "config.yaml"))).toBe(false);
+    } finally {
+      await service.close();
+    }
+    const databasePath = join(kilnHome, "runtime", "economic-authority", "managed-account-leases.sqlite");
+    expect(existsSync(databasePath)).toBe(true);
+    const nextOwner = createManagedAccountLeaseAuthority(databasePath);
+    expect(nextOwner.recoverCommitments()).toEqual([]);
+    nextOwner.close();
+  });
+
   it("opens an exact signed session without eagerly creating project composition", async () => {
     const project = adoptedProject("session");
     const createComposition = vi.fn(async () => composition());

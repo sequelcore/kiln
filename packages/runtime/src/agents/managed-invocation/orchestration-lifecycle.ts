@@ -369,8 +369,8 @@ async function prepareOrchestrationEconomicDispatch(
     invocationId: sanitizeInvocationId(entry.child.childId),
     ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
   });
-  if (preparation.status === "already-dispatched") {
-    throw new Error(`Managed orchestration economic child '${entry.child.childId}' is already dispatch-fenced; replay will not dispatch it again.`);
+  if (preparation.status === "not-dispatchable") {
+    throw new Error(`Managed orchestration economic child '${entry.child.childId}' is not dispatchable from retained state '${preparation.record.state}'.`);
   }
   if (preparation.status === "denied") {
     throw new ManagedEconomicCommitmentUnavailableError(entry.economicCandidateSet);

@@ -1616,8 +1616,8 @@ describe("AgentTaskApplicationService V16 AgentTask/AgentRun record", () => {
   it("closes a queued projection when the economic authority races past the recovery read", async () => {
     const store = new InMemoryAgentTaskStore();
     const prepare = vi.fn(async () => ({
-      status: "already-dispatched" as const,
-      record: {} as never,
+      status: "not-dispatchable" as const,
+      record: { state: "dispatch-fenced" } as never,
     }));
     const execute = vi.fn();
     const service = new AgentTaskApplicationService({

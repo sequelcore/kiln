@@ -157,7 +157,12 @@ describe("evaluateContextEfficiencyTaskOracle", () => {
   it.each([
     [
       "reference success",
-      { status: "passed", tests: { exitCode: 0, failed: 0, timedOut: false } },
+      {
+        verifierId: "kiln.context-efficiency.bounded-implementation.v1", verifierVersion: "2",
+        status: "passed", infrastructureFailure: false, violations: [],
+        changes: { changed: [{ path: "src/normalize.ts", beforeHash: `sha256:${"a".repeat(64)}`, afterHash: `sha256:${"b".repeat(64)}` }], added: [], deleted: [] },
+        tests: { status: "completed", exitCode: 0, passed: 8, failed: 0, timedOut: false },
+      },
       { changed: [{ path: "src/normalize.ts" }], added: [], deleted: [] },
       true,
     ],
@@ -169,7 +174,12 @@ describe("evaluateContextEfficiencyTaskOracle", () => {
     ],
     [
       "passing tests with an out-of-scope change",
-      { status: "passed", tests: { exitCode: 0, failed: 0, timedOut: false } },
+      {
+        verifierId: "kiln.context-efficiency.bounded-implementation.v1", verifierVersion: "2",
+        status: "passed", infrastructureFailure: false, violations: [],
+        changes: { changed: [{ path: "src/normalize.ts", beforeHash: `sha256:${"a".repeat(64)}`, afterHash: `sha256:${"b".repeat(64)}` }], added: [], deleted: [] },
+        tests: { status: "completed", exitCode: 0, passed: 8, failed: 0, timedOut: false },
+      },
       { changed: [{ path: "src/normalize.ts" }, { path: "verification/normalize.fixture.ts" }], added: [], deleted: [] },
       false,
     ],
@@ -186,7 +196,12 @@ describe("evaluateContextEfficiencyTaskOracle", () => {
       answer: "implemented",
       oracle: { kind: "fixture_test_and_allowed_diff", allowedPaths: ["src/normalize.ts"] },
       evidence: {
-        observedVerification: { status: "passed", tests: { exitCode: 0, failed: 0, timedOut: false } },
+        observedVerification: {
+        verifierId: "kiln.context-efficiency.bounded-implementation.v1", verifierVersion: "2",
+        status: "passed", infrastructureFailure: false, violations: [],
+        changes: { changed: [{ path: "src/normalize.ts", beforeHash: `sha256:${"a".repeat(64)}`, afterHash: `sha256:${"b".repeat(64)}` }], added: [], deleted: [] },
+        tests: { status: "completed", exitCode: 0, passed: 8, failed: 0, timedOut: false },
+      },
         workspaceChanges: { changed: [{ path: "src/normalize.ts" }], added: "unknown", deleted: [] },
       },
     }).passed).toBe(false);

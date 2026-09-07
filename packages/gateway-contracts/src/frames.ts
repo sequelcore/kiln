@@ -822,7 +822,8 @@ export interface OperatorManagedEconomicChildConsumption {
 }
 
 export type OperatorManagedEconomicSettlementKind =
-  | "charged" | "estimated" | "subscription" | "included" | "free" | "unknown" | "pending" | "leaked";
+  | "charged" | "estimated" | "subscription" | "included" | "free" | "unknown" | "pending" | "leaked"
+  | "not-dispatched";
 
 export type OperatorManagedEconomicEvidenceAuthority =
   | "provider-reported"

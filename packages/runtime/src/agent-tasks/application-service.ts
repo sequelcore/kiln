@@ -801,7 +801,7 @@ export class AgentTaskApplicationService {
       if (preparation.status === "denied") {
         return this.transition(job.id, "failed", "economic_commitment_unavailable");
       }
-      if (preparation.status === "already-dispatched") {
+      if (preparation.status === "not-dispatchable") {
         // The authority may have crossed its economic action fence after the
         // initial recovery read but before this owner acquired the task
         // projection. Close any still-active queued/running view explicitly;

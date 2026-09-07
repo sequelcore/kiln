@@ -8,5 +8,5 @@
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["*.ts", "release/**/*.ts"]
+  "include": ["*.ts", "release/**/*.ts", "repository-analysis/**/*.ts"]
 }

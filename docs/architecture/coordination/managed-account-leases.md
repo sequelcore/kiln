@@ -117,11 +117,45 @@ same row implements the full action-claim contract. Capacity acquisition replay
 alone is not proof that an action was fenced, and Agent Task JSON must not add a
 second economic fence transaction.
 
+Economic runtime-tool preparation carries the exact commitment into one request
+realization path. It validates route/profile/adapter identity, evidence, context,
+requested authority, and bounded-work admission after materialization but before
+the canonical fence. It never re-enters fixed-route admission by rewriting the
+agent catalog. Fixed-route requests still cannot claim policy-bound capacity
+without economic admission. A failed realization releases its held commitment;
+only a fully prepared request proceeds to fencing.
+
 Any interim failure that is proven pre-fence releases the commitment and its
 optional account lease before the job is projected terminal. Release is
 idempotent and owner-generation fenced. Once dispatch is fenced, unknown
 external work continues consuming capacity until authoritative settlement or
 explicit reconciliation proves release safe.
+
+A fenced attempt proven never dispatched can be terminally reconciled through
+`kiln managed-economic reconcile-not-dispatched --evidence <file.json> --json`.
+This is an explicit operator attestation, not an automatic source-code proof.
+The evidence file must include `attestation: "confirmed-not-dispatched"`.
+Reconciliation reaches the existing global ledger owner directly; it does not
+initialize AgentTask routes, MCP, or child execution services. The operator service
+owns the global ledger independently of the current route catalog; route
+compositions borrow that same owner. Global configuration refresh drains active
+requests and project compositions before closing and replacing the ledger owner.
+The authenticated operator application owns this action; model/native-harness
+principals and ordinary provider settlement cannot invoke it. The evidence file
+binds `jobId`, `economicAttemptId`, `dispatchFenceId`, `reservationId`, the canonical
+`expectedPendingSettlementDigest`, `sourceEvidenceDigest`, and `denialEvidenceDigest`.
+Runtime derives `authorityEvidenceDigest` from the authenticated operator and exact
+request. Digests bind reviewed evidence; they do not themselves prove no dispatch.
+Missing output, elapsed time, or an empty invocation list is insufficient.
+
+The ledger checks the exact owner generation, pending unknown observation and
+fence, then atomically releases capacity and retains a `not-dispatched` terminal
+receipt with the original unknown observation. It preserves the action claim:
+exact reconciliation replay is idempotent, conflicting evidence fails, and the
+original attempt cannot dispatch again. No billing class or consumed usage is
+invented. Historical source evidence must prove the denied path could not reach
+the named dispatch effect; adapter materialization may still have performed
+credential resolution or capability discovery.
 
 Execution settlement is a typed union. Provider-reported charge requires
 provider authority and the committed unit/scheme. A local rate-card calculation

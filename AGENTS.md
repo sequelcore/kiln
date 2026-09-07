@@ -10,6 +10,9 @@ Codex, Claude Code, and OpenCode.
 - Current roadmap: `docs/roadmap/README.md`
 - Research rationale: `docs/research/README.md` (informative, not authoritative)
 
+Read these sources when the task depends on their contracts or leaves an ownership
+question unresolved; the list is not a required reading sequence.
+
 ## Project invariants
 
 - Kiln has no external consumers. Replace changed contracts outright and remove
@@ -33,15 +36,10 @@ Codex, Claude Code, and OpenCode.
 - Use Bun 1.4 and the workspace scripts in the root `package.json`.
 - Start with the owning package's focused test or typecheck. Use `bun run
   typecheck` and `bun run test` only when the affected boundary warrants the
-  broader gates.
+  broader gates. Widen for shared contracts, runtime authority, or generated
+  projections; report any gate that could not run.
 - Run `bun run docs:check` when canonical documentation or cross-references
   change.
-
-## Verification
-
-Prove changed behavior with the smallest relevant automated checks, then widen
-verification for shared contracts, runtime authority, generated projections,
-or cross-surface changes. Report any gate that could not run.
 
 ## Specialized procedures
 

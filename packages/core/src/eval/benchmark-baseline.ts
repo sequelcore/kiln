@@ -1,3 +1,4 @@
+import { BOUNDED_IMPLEMENTATION_PROFILE_ID } from "./bounded-implementation.js";
 import type { ManagedAgentAccess } from "../agents/managed-invocation/index.js";
 
 export type BenchmarkSurface =
@@ -5,6 +6,7 @@ export type BenchmarkSurface =
   | "managed-child"
   | "managed-team"
   | "managed-coding"
+  | "bounded-implementation"
   | "model-roster"
   | "model-roster-backend-write"
   | "model-roster-frontend-render"
@@ -212,6 +214,30 @@ export const KILN_BENCHMARK_PROFILES: readonly BenchmarkProfile[] = [
       "diff or artifact evidence URI",
     ],
     externalTrackCandidates: ["terminal-bench", "swe-bench"],
+  },
+  {
+    id: BOUNDED_IMPLEMENTATION_PROFILE_ID,
+    version: "1",
+    displayName: "Kiln Bounded Implementation",
+    surface: "bounded-implementation",
+    purpose: "Measures direct source editing against host-evaluated fixture tests and an exact allowed diff.",
+    access: "approved-write",
+    requiredScorers: ["bounded-implementation", "execution-integrity", "latency", "cost"],
+    admissionScorers: ["bounded-implementation", "execution-integrity"],
+    minimumDatasetItems: 1,
+    minimumPassRate: 1,
+    minimumPassAtK: 1,
+    minimumK: 1,
+    maximumInvalidTrialRate: 0,
+    maxInvalidAttempts: 0,
+    reproducibilityRequirements: [
+      "isolated fixture workspace",
+      "host verification",
+      "source diff",
+      "config hash",
+      "versioned dataset",
+    ],
+    externalTrackCandidates: [],
   },
   {
     id: "kiln-safety-agent",

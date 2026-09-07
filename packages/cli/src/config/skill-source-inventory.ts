@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { lstatSync, realpathSync, readdirSync, readFileSync, statSync, type Dirent } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { parse } from "yaml";
+import { resolveNativeHarnessDir } from "./native-harness-home.js";
 import { canonicalSkillIdentity, digestSkillPackage } from "@kilnai/core";
 import { inspectSkillPackage, readSkillMdIndex } from "@kilnai/runtime";
 import type {
@@ -65,7 +66,9 @@ export function collectSkillSourceInventory(
     maxEntries: options.limits?.maxEntries ?? 10_000,
     maxFiles: options.limits?.maxFiles ?? 5_000,
     maxTotalBytes: options.limits?.maxTotalBytes ?? 64 * 1024 * 1024,
-    maxFileBytes: options.limits?.maxFileBytes ?? 4 * 1024 * 1024,
+    // Bundled artifact skills include presentation references larger than 4 MiB.
+    // Keep every byte in the digest and retain the shared 64 MiB traversal cap.
+    maxFileBytes: options.limits?.maxFileBytes ?? 8 * 1024 * 1024,
   };
   const packageCache = new Map<string, ReturnType<typeof collectPackage>>();
   const trustedRealRoots = resolveTrustedRealRoots(options.trustedRealRoots ?? []);
@@ -236,7 +239,7 @@ function collectRoot(
         ? "managed-projection" as const
         : root.relationship;
       const sourceId = `${root.id ?? root.sourceKind}:${canonicalName}:${relative(root.root, candidate.logicalPath).replaceAll("\\", "/") || "."}`;
-      const health = projectHealth(inspectSkillPackage(candidate.physicalPath));
+      const health = projectHealth(inspectSkillPackage(candidate.physicalPath), root.sourceKind === "plugin" && relationship === "external");
       candidates.push({
         name: index.name,
         canonicalName,
@@ -268,9 +271,14 @@ function collectRoot(
   return candidates;
 }
 
-function projectHealth(health: ReturnType<typeof inspectSkillPackage>): KilnSkillSourceCandidateSnapshot["health"] {
+function projectHealth(health: ReturnType<typeof inspectSkillPackage>, nativePlugin = false): KilnSkillSourceCandidateSnapshot["health"] {
+  // Native plugin exposure is not admission into Kiln's portable registry.
+  // Preserve portability diagnostics as warnings; retain every structural block.
+  const portabilityOnly = nativePlugin && health.brokenResources.length === 0
+    && health.diagnostics.length > 0
+    && health.diagnostics.every((diagnostic) => diagnostic.code === "portable-spec-invalid");
   return {
-    status: health.status, fileCount: health.fileCount, packageBytes: health.packageBytes,
+    status: portabilityOnly ? "warning" : health.status, fileCount: health.fileCount, packageBytes: health.packageBytes,
     brokenResourceCount: health.brokenResources.length,
     riskSignals: health.riskSignals,
     diagnostics: health.diagnostics,
@@ -420,6 +428,7 @@ function readCandidateVisibility(root: SkillInventoryRoot, packageRoot: string, 
 export function defaultCodexPluginProvider(
   runner: SkillInventoryCommandRunner = runCommand,
   filesystem: Pick<typeof import("node:fs"), "lstatSync" | "readdirSync"> = { lstatSync, readdirSync },
+  codexHome: string = resolveNativeHarnessDir("codex"),
 ): SkillPluginInventoryResult {
   let result: ReturnType<SkillInventoryCommandRunner>;
   try {
@@ -435,8 +444,20 @@ export function defaultCodexPluginProvider(
     const diagnostics: KilnSkillInventoryDiagnosticSnapshot[] = [];
     for (const item of parsed.installed) {
       if (!item || typeof item !== "object") continue;
-      const plugin = item as { enabled?: unknown; pluginId?: unknown; source?: { source?: unknown; path?: unknown } };
+      const plugin = item as { enabled?: unknown; pluginId?: unknown; name?: unknown; marketplaceName?: unknown; version?: unknown; source?: { source?: unknown; path?: unknown } };
       if (plugin.enabled !== true) continue;
+      let cachedPath: string | undefined;
+      try {
+        cachedPath = installedPluginCachePath(plugin, codexHome);
+      } catch {
+        diagnostics.push({
+          code: "plugin-inventory-cache-invalid",
+          message: "An enabled Codex plugin cache could not be verified against its installed identity and version.",
+          ...(typeof plugin.pluginId === "string" ? { sourceId: `plugin:${plugin.pluginId}` } : {}),
+        });
+        continue;
+      }
+      if (cachedPath) plugin.source = { source: "local", path: cachedPath };
       if (plugin.source?.source !== "local" || typeof plugin.source.path !== "string") {
         diagnostics.push({
           code: "plugin-inventory-source-unsupported",
@@ -485,6 +506,41 @@ export function defaultCodexPluginProvider(
   } catch {
     return { roots: [], diagnostics: [{ code: "plugin-inventory-invalid", message: "Codex plugin inventory returned invalid structured output." }] };
   }
+}
+
+/** Inspect the exact installed version, never choose the newest cache directory. */
+function installedPluginCachePath(
+  plugin: { pluginId?: unknown; name?: unknown; marketplaceName?: unknown; version?: unknown },
+  codexHome: string,
+): string | undefined {
+  const { name, marketplaceName, version } = plugin;
+  const safeComponent = (value: unknown): value is string =>
+    typeof value === "string" && /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(value);
+  if (!safeComponent(name) || !safeComponent(marketplaceName) || !safeComponent(version)
+    || plugin.pluginId !== `${name}@${marketplaceName}`) return undefined;
+  const cache = join(codexHome, "plugins", "cache");
+  const root = join(cache, marketplaceName, name, version);
+  try { lstatSync(root); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+  const physicalCache = realpathSync(cache);
+  const physicalRoot = realpathSync(root);
+  const inside = relative(physicalCache, physicalRoot);
+  if (inside.startsWith("..") || inside.startsWith("/") || /^[A-Za-z]:/.test(inside)) {
+    throw new Error("Plugin cache escaped its owner");
+  }
+  const manifestPath = join(root, ".codex-plugin", "plugin.json");
+  const manifestInside = relative(physicalRoot, realpathSync(manifestPath));
+  if (manifestInside.startsWith("..") || manifestInside.startsWith("/") || /^[A-Za-z]:/.test(manifestInside)
+    || statSync(manifestPath).size > 1_048_576) throw new Error("Invalid plugin manifest boundary");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { name?: unknown; version?: unknown; skills?: unknown };
+  if (manifest.name !== name || manifest.version !== version) throw new Error("Plugin cache identity mismatch");
+  if (manifest.skills !== undefined && manifest.skills !== "./skills/" && manifest.skills !== "./skills" && manifest.skills !== "skills") {
+    throw new Error("Unsupported plugin skills layout");
+  }
+  return root;
 }
 
 function runCommand(command: string, args: readonly string[], timeoutMs: number) {

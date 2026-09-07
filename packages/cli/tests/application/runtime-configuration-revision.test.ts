@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -71,6 +71,7 @@ describe("runtime configuration revision", () => {
     });
 
     expect(snapshot.revisions.global).toBe(`sha256:${createHash("sha256").update(globalBytes).digest("hex")}`);
+    expect(snapshot.revisions["global-agents"]).toBe("absent");
     expect(snapshot.revisions.project).toBe(`sha256:${createHash("sha256").update(projectBytes).digest("hex")}`);
     expect(snapshot.revisions["execution-target-evidence"]).toBe(evidenceRevision);
     expect(snapshot.revisions["project-state"]).toMatch(/^sha256:[a-f0-9]{64}$/u);
@@ -78,6 +79,54 @@ describe("runtime configuration revision", () => {
     expect(snapshot.revisionSetId).toMatch(/^sha256:[a-f0-9]{64}$/u);
     expect(JSON.stringify(snapshot)).not.toContain(root);
     expect(JSON.stringify(snapshot)).not.toContain(home);
+  });
+
+  it("binds raw global Markdown agent sources by deterministic filename and content", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-runtime-global-agents-"));
+    const home = mkdtempSync(join(tmpdir(), "kiln-runtime-global-agents-home-"));
+    roots.push(root, home);
+    const kilnHome = join(home, "kiln");
+    const globalPath = join(kilnHome, "config.yaml");
+    const agentsPath = join(kilnHome, "agents");
+    mkdirSync(agentsPath, { recursive: true });
+    writeFileSync(globalPath, 'version: "7"\n', "utf8");
+    const binding = setupPrivateProject(root, join(home, "project-state"), 'version: "1"\n');
+    const snapshot = () => readRuntimeConfigurationRevision(root, { projectStateBinding: binding, globalConfigPath: globalPath });
+
+    const empty = snapshot().revisions["global-agents"];
+    writeFileSync(join(agentsPath, "zeta.md"), "first raw bytes\n", "utf8");
+    const added = snapshot().revisions["global-agents"];
+    writeFileSync(join(agentsPath, "zeta.md"), "changed raw bytes\n", "utf8");
+    const edited = snapshot().revisions["global-agents"];
+    writeFileSync(join(agentsPath, "alpha.md"), "another definition\n", "utf8");
+    const reordered = snapshot().revisions["global-agents"];
+    rmSync(join(agentsPath, "alpha.md"));
+    const removed = snapshot().revisions["global-agents"];
+
+    expect(empty).not.toBe(added);
+    expect(added).not.toBe(edited);
+    expect(edited).not.toBe(reordered);
+    expect(reordered).not.toBe(removed);
+    expect(snapshot().revisions["global-agents"]).toBe(removed);
+  });
+
+  it("represents skipped unreadable Markdown and rejects global agent links", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-runtime-global-agent-safety-"));
+    const home = mkdtempSync(join(tmpdir(), "kiln-runtime-global-agent-safety-home-"));
+    roots.push(root, home);
+    const kilnHome = join(home, "kiln");
+    const globalPath = join(kilnHome, "config.yaml");
+    const agentsPath = join(kilnHome, "agents");
+    mkdirSync(join(agentsPath, "unreadable.md"), { recursive: true });
+    writeFileSync(globalPath, 'version: "7"\n', "utf8");
+    const binding = setupPrivateProject(root, join(home, "project-state"), 'version: "1"\n');
+    const read = () => readRuntimeConfigurationRevision(root, { projectStateBinding: binding, globalConfigPath: globalPath });
+
+    expect(read().revisions["global-agents"]).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    rmSync(join(agentsPath, "unreadable.md"), { recursive: true });
+    writeFileSync(join(agentsPath, "target.md"), "safe\n", "utf8");
+    symlinkSync(join(agentsPath, "target.md"), join(agentsPath, "linked.md"));
+    expect(read).toThrow(/Unsafe global agent catalog entry/u);
   });
 
   it("captures the latest path-scoped settlement lineage when a revision reappears after rollback", () => {

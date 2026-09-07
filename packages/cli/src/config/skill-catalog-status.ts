@@ -101,7 +101,7 @@ export function readGlobalExternalSkillInventory(options: Pick<ReadSkillCatalogS
       { id: "shared-agents:user", sourceKind: "shared-agents", root: join(userHome, ".agents", "skills"), relationship: "external", exposureScope: "user", applicableHarnesses: ["codex", "opencode"] },
       { id: "system:codex", sourceKind: "system", root: join(userHome, ".codex", "skills", ".system"), relationship: "external", exposureScope: "harness" },
     ],
-    ...(options.pluginProvider ? { pluginProvider: options.pluginProvider } : {}),
+    pluginProvider: options.pluginProvider ?? (() => defaultCodexPluginProvider(options.commandRunner, undefined, join(userHome, ".codex"))),
     ...(options.commandRunner ? { commandRunner: options.commandRunner } : {}),
     trustedRealRoots: [join(userHome, ".agents", "skills")],
     onCandidateResolved: (sourceId, absolutePath) => {
@@ -172,7 +172,7 @@ export function readSkillCatalogStatus(
   let pluginInventory: ReturnType<SkillPluginProvider> | undefined;
   const pluginProvider: SkillPluginProvider = () => pluginInventory ??= options.pluginProvider
     ? options.pluginProvider()
-    : defaultCodexPluginProvider(options.commandRunner);
+    : defaultCodexPluginProvider(options.commandRunner, undefined, join(userHome, ".codex"));
   const absolutePathBySourceId = new Map<string, string>();
   const collectedInventory = collectSkillSourceInventory({
     roots: [

@@ -1859,14 +1859,11 @@ describe("RuntimeManagedAgentInvocationService leases", () => {
       jobId: "managed-economic-job:test",
       economicAttemptId: "economic-attempt:test",
     });
-    // A checkpoint persisted before the reservation field existed must still validate: the
-    // field is optional precisely so an in-flight recovery record from before this change
-    // survives a restart instead of being quarantined as corrupt.
-    const { reservation: _legacyReservation, ...economicDispatchWithoutReservation } = checkpoint.economicDispatch!;
-    expect(validateManagedAgentRuntimeRecoveryCheckpoint({
+    const { reservation: _missingReservation, ...economicDispatchWithoutReservation } = checkpoint.economicDispatch!;
+    expect(() => validateManagedAgentRuntimeRecoveryCheckpoint({
       ...checkpoint,
       economicDispatch: economicDispatchWithoutReservation,
-    }).economicDispatch?.reservation).toBeUndefined();
+    })).toThrow("economic reservation must be an object");
     expect(() => validateManagedAgentRuntimeRecoveryCheckpoint({
       ...checkpoint,
       economicDispatch: {

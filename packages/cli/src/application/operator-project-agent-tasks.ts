@@ -41,6 +41,7 @@ import {
   type ManagedEconomicCommitmentAcquireResult,
   type ManagedEconomicCommitmentRecord,
   type ManagedEconomicDispatchAuthorityPort,
+  type SqliteManagedAccountLeaseAuthority,
   type ManagedWriteApprovalBinding,
   type SanitizedExecutionTargetDataPolicyDecision,
   type EffectiveAuthorityAdmissionBundle,
@@ -242,6 +243,8 @@ export function createOperatorGlobalManagedAccountComposition(input: {
   readonly compositionKey: string;
   readonly databasePath: string;
   readonly projectStateBinding?: ProjectStateBinding;
+  /** Existing process-owned ledger retained when no route catalog is currently configured. */
+  readonly authority?: SqliteManagedAccountLeaseAuthority;
 }): ReturnType<typeof createManagedAccountRuntimeComposition> {
   const binding = input.projectStateBinding ?? resolveOperatorProjectStateBinding(input.projectPath);
   if (!binding) return undefined;
@@ -250,6 +253,7 @@ export function createOperatorGlobalManagedAccountComposition(input: {
     ? createManagedAccountRuntimeComposition(config, binding.canonicalRoot, {
         compositionKey: input.compositionKey,
         databasePath: input.databasePath,
+        ...(input.authority ? { authority: input.authority } : {}),
       })
     : undefined;
 }

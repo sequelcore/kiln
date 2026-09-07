@@ -30,8 +30,10 @@ import { TranscriptAuthorityAdmissionEvidenceStore } from "../../src/application
 import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 import { validateGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
 import {
+  createManagedEconomicDispatchComposition,
   projectManagedEconomicJobAdoption,
   resolveManagedInvocationToolOptions as resolveManagedInvocationToolOptionsProduction,
+  type ManagedAccountRuntimeComposition,
   type ManagedAgentRouteConfigSource,
   type ResolveManagedInvocationToolOptionsContext,
 } from "../../src/config/managed-agent-routes.js";
@@ -39,6 +41,9 @@ import { deriveManagedAgentEconomicPolicies } from "../../src/config/managed-age
 import { createStagedManagedInvocationRouteCatalog } from "../../src/config/managed-agent-route-catalog.js";
 import type { ManagedAgentProviderModelCatalogDiagnostics } from "../../src/config/managed-agent-provider-models.js";
 import {
+  ConfiguredExecutionAccountRuntime,
+  SqliteManagedAccountLeaseAuthority,
+  digestManagedEconomicCandidateProfileAuthority,
   normalizeRuntimeProviderDiscoveryCatalog,
   RuntimeManagedAgentInvocationService,
   defineEffectiveAuthorityAdmissionBundle,
@@ -3256,5 +3261,186 @@ describe("resolveManagedInvocationToolOptions", () => {
         profiles: ["read-only"],
       }],
     })))).toThrow(/targetId must reference a direct target/u);
+  });
+
+  it("forwards bounded realization and release callbacks through the production economic port", async () => {
+    const targetId = "codex-oauth-port-forwarding";
+    const config = baseConfig({
+      intents: managedAgentIntentCovering([targetId]),
+      targetFixtures: [{ id: targetId, kind: "direct", profiles: ["read-only"] }],
+    });
+    const executionCatalog = config.executionCatalog;
+    if (!executionCatalog) throw new Error("Fixture execution catalog is missing.");
+    const routing = new ConfiguredExecutionAccountRuntime({
+      catalog: executionCatalog,
+      now: () => new Date("2026-08-15T00:00:00.000Z"),
+      codexPool: {
+        listExecutionAccounts: async () => [{
+          credentialId: `credential:${targetId}`,
+          fileIdentity: "a".repeat(64),
+          revision: "b".repeat(64),
+        }],
+        prepareExecutionAccounts: async () => [{
+          credentialId: `credential:${targetId}`,
+          fileIdentity: "a".repeat(64),
+          revision: "b".repeat(64),
+        }],
+        listUsage: async () => [],
+        refreshUsageForCredentials: async () => [],
+        resolveExecutionCredential: async () => ({
+          credentialId: `credential:${targetId}`,
+          accessToken: "synthetic-access-token",
+          chatgptAccountId: "synthetic-account",
+        }),
+        recordProviderOutcome: async () => undefined,
+      },
+    });
+    const authority = new SqliteManagedAccountLeaseAuthority({
+      path: ":memory:",
+      ownerId: "cli-port-forwarding-test",
+    });
+    const composition: ManagedAccountRuntimeComposition = {
+      routing,
+      authority,
+      updateCatalog: (catalog) => routing.updateCatalog(catalog),
+      close: () => authority.close(),
+    };
+    const resolved = await resolveManagedInvocationToolOptions(config, {
+      cwd: TEST_PROJECT_ROOT,
+      registry: createRegistry("codex-oauth"),
+      surface: "gui",
+      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+      directAdapterFactory: () => makeDirectAdapter("codex-oauth"),
+      managedAccountComposition: composition,
+    });
+    const routes = resolved.managedInvocation?.routes;
+    if (!routes) throw new Error("Expected the managed route fixture to resolve.");
+    const route = routes.find((candidate) => candidate.routeId === targetId);
+    const profile = profileByAccess(route, "read-only");
+    if (!profile) throw new Error("Expected the managed route profile fixture to resolve.");
+    const policy = deriveManagedAgentEconomicPolicies({
+      managedAgents: config.managedAgents,
+      executionCatalog: config.executionCatalog,
+      targetEvidenceRevision: config.targetCatalog?.evidenceRevision,
+    })[0];
+    if (!policy) throw new Error("Expected the economic policy fixture to resolve.");
+
+    const dispatch = createManagedEconomicDispatchComposition(config, TEST_PROJECT_ROOT, routes, composition).port;
+    const candidateSet = {
+      economicPolicyId: policy.id,
+      economicPolicyRevision: policy.revision,
+      access: "read-only" as const,
+      constraints: {},
+      candidates: [{
+        routeId: targetId,
+        routeSource: "explicit-managed-route" as const,
+        providerId: "codex-oauth",
+        model: "gpt-5.4-mini",
+        accountPolicyId: `policy:${targetId}`,
+        adapterCapabilityId: "test-direct-adapter",
+        adapterCapabilityVersion: "1",
+        profileAuthorityDigest: digestManagedEconomicCandidateProfileAuthority(profile, "managed-invocation:port-forwarding"),
+      }],
+      rejections: [],
+    };
+    const prepare = (suffix: string, callbacks: {
+      readonly realizeExecutionBeforeFence: (input: {
+        readonly adapter: ManagedAgentRuntimeAdapter;
+      }) => Promise<{ readonly allocationId: string }>;
+      readonly releasePreparedExecutionBeforeFence: (execution: { readonly allocationId: string }) => Promise<void>;
+    }) => dispatch.prepare({
+      candidateSet,
+      jobId: `managed-economic-job:port-forwarding:${suffix}`,
+      economicAttemptId: `economic-attempt:port-forwarding:${suffix}`,
+      intentFingerprint: `sha256:${suffix === "success" ? "a".repeat(64) : "b".repeat(64)}`,
+      admissionBundle: defineHarnessChildAuthorityAdmission("cli-port-forwarding", "cli-port-forwarding:turn:1").bundle,
+      effectIdentity: `managed-economic-dispatch:port-forwarding:${suffix}`,
+      adoptedDecisionAt: "2026-08-15T00:00:00.000Z",
+      parentSessionId: "cli-port-forwarding",
+      parentTurnId: "cli-port-forwarding:turn:1",
+      authorityProfileId: "authority:read-only",
+      invocationId: "managed-invocation:port-forwarding",
+      ...callbacks,
+    });
+
+    const events: string[] = [];
+    const realizationReceipt = { allocationId: "bounded-request:success" };
+    const realization = vi.fn(async ({ adapter }: { readonly adapter: ManagedAgentRuntimeAdapter }) => {
+      events.push(`realize:${adapter.descriptor.providerId}`);
+      return realizationReceipt;
+    });
+    const release = vi.fn(async (execution: { readonly allocationId: string }) => {
+      events.push(`release:${execution.allocationId}`);
+    });
+    const originalFenceDispatch = authority.fenceDispatch.bind(authority);
+    const fence = vi.spyOn(authority, "fenceDispatch").mockImplementation((...input) => {
+      events.push("fence");
+      return originalFenceDispatch(...input);
+    });
+
+    try {
+      const prepared = await prepare("success", {
+        realizeExecutionBeforeFence: realization,
+        releasePreparedExecutionBeforeFence: release,
+      });
+      expect(prepared).toMatchObject({
+        status: "prepared",
+        realization: { kind: "realized", execution: realizationReceipt },
+      });
+      expect(events).toEqual(["realize:codex-oauth", "fence"]);
+      expect(release).not.toHaveBeenCalled();
+      if (prepared.status !== "prepared") throw new Error("Expected a prepared economic dispatch.");
+      authority.settleExecution(
+        "managed-economic-job:port-forwarding:success",
+        "economic-attempt:port-forwarding:success",
+        prepared.dispatchFenceId,
+        prepared.createExecutionSettlement({
+          actualIdentity: prepared.commitment.reservation.selectedIdentity,
+          usage: { kind: "complete", units: [] },
+          evidence: {
+            sourceIdentity: "cli-port-forwarding-test",
+            sourceRevision: "1",
+            sourceDigest: `sha256:${"c".repeat(64)}`,
+            observedAt: "2026-08-15T00:00:00.000Z",
+            validUntil: "2026-08-15T00:05:00.000Z",
+            confidence: "high",
+            authority: "configured",
+          },
+        }),
+      );
+
+      const realizedThenDenied = vi.fn(async () => {
+        throw new Error("synthetic realization denial");
+      });
+      await expect(prepare("realization-denied", {
+        realizeExecutionBeforeFence: realizedThenDenied,
+        releasePreparedExecutionBeforeFence: async () => undefined,
+      })).rejects.toThrow("synthetic realization denial");
+      expect(fence).toHaveBeenCalledTimes(1);
+      await expect(prepare("realization-denied", {
+        realizeExecutionBeforeFence: async () => ({ allocationId: "unreachable" }),
+        releasePreparedExecutionBeforeFence: async () => undefined,
+      })).resolves.toMatchObject({ status: "not-dispatchable", record: { state: "released" } });
+
+      fence.mockImplementation(() => {
+        throw new Error("synthetic fence rejection");
+      });
+      const releasedReceipt = { allocationId: "bounded-request:fence-rejected" };
+      const releaseAfterFenceFailure = vi.fn(async (execution: { readonly allocationId: string }) => {
+        expect(execution).toEqual(releasedReceipt);
+      });
+      await expect(prepare("fence-rejected", {
+        realizeExecutionBeforeFence: async () => releasedReceipt,
+        releasePreparedExecutionBeforeFence: releaseAfterFenceFailure,
+      })).rejects.toThrow("synthetic fence rejection");
+      expect(releaseAfterFenceFailure).toHaveBeenCalledOnce();
+      await expect(prepare("fence-rejected", {
+        realizeExecutionBeforeFence: async () => ({ allocationId: "unreachable" }),
+        releasePreparedExecutionBeforeFence: async () => undefined,
+      })).resolves.toMatchObject({ status: "not-dispatchable", record: { state: "released" } });
+    } finally {
+      fence.mockRestore();
+      composition.close();
+    }
   });
 });

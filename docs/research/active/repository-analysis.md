@@ -3,7 +3,8 @@
 Status: active investigation
 Decision owner: operator
 Evidence cutoff: 2026-09-04
-Implementation authority: none
+Implementation authority: opt-in TypeScript reference prototype and local
+fixtures authorized; production integration is not admitted
 Promotion target: a dedicated roadmap track only after a reviewed promotion
 decision
 Exit condition: retain a dated promote, defer, or reject evaluation; then move
@@ -62,6 +63,32 @@ only explicit invocation.
   analyzer must reuse them rather than introduce a private result store.
 
 ## Experimental Contract
+
+The first bounded experiment is
+[TypeScript Reference Discovery v1](repository-analysis-reference-protocol.md).
+It begins in Kiln's own repository. Java analysis and predecessor migration are
+later work if the prototype demonstrates value; they do not block this slice.
+The local development corpus does not close the broader evaluation below.
+The [first reference results](repository-analysis-reference-results.md) record
+the fixture-complete prototype, diagnostic measurements, and remaining gates.
+The [configured-project results](repository-analysis-project-results.md) extend
+that evidence to real operator-appearance source under its owning configuration.
+That phase remains diagnostic and does not establish agent-task efficiency.
+The [production/test results](repository-analysis-test-project-results.md)
+extend exact reference coverage to the owning test configuration. Direct test
+references remain distinct from behaviorally affected tests.
+The [projection results](repository-analysis-projection-results.md) now record
+compact initial context and exact in-process retrieval through Core's existing
+owners. Full retrieval exceeds original response bytes; task-level efficiency remains open.
+The [durable retrieval results](repository-analysis-durable-results.md) verify
+file-store reopen and paginated Core resource reads in fresh processes.
+The [local workflow results](repository-analysis-local-results.md) now connect
+save/read/check with restart-time reanalysis and explicit historical/current
+status. The broader task-efficiency and production-admission decisions remain open.
+The [task-comparison preparation](repository-analysis-task-comparison-readiness.md)
+now supplies five real-package tasks, source-bound outcome oracles and verified
+reference edits. Live arm execution still requires a valid control, solver
+isolation and an admitted execution manifest; no provider comparison has run.
 
 The first experiment uses the repository-resolved TypeScript compiler API and
 the existing `CodeIntelligenceAdapter` seam where it preserves the required

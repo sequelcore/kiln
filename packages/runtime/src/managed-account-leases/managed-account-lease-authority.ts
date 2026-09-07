@@ -26,6 +26,7 @@ import {
   type ManagedEconomicSettlement,
   type ManagedEconomicEvidenceIdentity,
   type SessionManagedEconomicRejection,
+  digestManagedEconomicValue,
   validateManagedEconomicSettlement,
   selectManagedEconomicExecutionAlternative,
   validateManagedEconomicAdoptedSnapshot,
@@ -1213,6 +1214,9 @@ export class SqliteManagedAccountLeaseAuthority {
     return this.#transaction(() => {
       this.#heartbeat();
       requireCanonicalText(dispatchFenceId, "Managed economic dispatch fence id is required.");
+      if (settlement.kind === "not-dispatched") {
+        throw new Error("Not-dispatched reconciliation requires the operator reconciliation path.");
+      }
       const row = this.#requiredCommitmentRow(jobId, economicAttemptId);
       if (row.dispatch_fence_id !== dispatchFenceId) {
         throw new Error("Managed economic settlement does not own the durable dispatch fence.");
@@ -1256,6 +1260,77 @@ export class SqliteManagedAccountLeaseAuthority {
       if (changed.changes !== 1) throw new Error("Managed economic settlement lost its dispatch fence.");
       const settled = this.#requiredCommitmentRow(jobId, economicAttemptId);
       return recordFromCommitmentRow(settled, this.#rowForOptionalLease(settled.lease_id));
+    });
+  }
+
+  /**
+   * Terminalizes an already-fenced unknown outcome when an authenticated operator
+   * attests that provider dispatch never began. Provider settlement cannot use this path.
+   */
+  reconcileNotDispatched(input: ManagedEconomicNotDispatchedReconciliationInput): ManagedEconomicCommitmentRecord {
+    return this.#transaction(() => {
+      this.#heartbeat();
+      requireCanonicalText(input.jobId, "Managed economic reconciliation job id is required.");
+      requireEconomicAttemptId(input.economicAttemptId);
+      requireCanonicalText(input.dispatchFenceId, "Managed economic reconciliation dispatch fence id is required.");
+      if (input.settlement.kind !== "not-dispatched") {
+        throw new TypeError("Not-dispatched reconciliation requires a not-dispatched settlement.");
+      }
+      const row = this.#requiredCommitmentRow(input.jobId, input.economicAttemptId);
+      if (row.dispatch_fence_id !== input.dispatchFenceId) {
+        throw new Error("Not-dispatched reconciliation does not own the durable dispatch fence.");
+      }
+      const commitment = JSON.parse(row.commitment_json!) as ManagedEconomicCommitment;
+      const expectation = {
+        reservationId: row.reservation_id,
+        dispatchFenceId: input.dispatchFenceId,
+        selectedIdentity: commitment.reservation.selectedIdentity,
+      } as const;
+      validateManagedEconomicSettlement(input.settlement, expectation);
+      if (row.state === "released") {
+        if (row.settlement_json === null || row.reconciliation_json === null) {
+          throw new Error("Not-dispatched reconciliation conflicts with the durable terminal settlement.");
+        }
+        const retained = JSON.parse(row.reconciliation_json) as { readonly kind?: unknown; readonly originalSettlement?: unknown };
+        if (retained.kind !== "not-dispatched-reconciliation" || typeof retained.originalSettlement !== "object" || retained.originalSettlement === null || (retained.originalSettlement as { readonly kind?: unknown }).kind !== "unknown") {
+          throw new Error("Not-dispatched reconciliation conflicts with the durable terminal settlement.");
+        }
+        const originalSettlement = retained.originalSettlement as Extract<ManagedEconomicSettlement, { readonly kind: "unknown" }>;
+        validateManagedEconomicSettlement(originalSettlement, expectation);
+        const reconciliation = notDispatchedReconciliationEvidence(originalSettlement, input.settlement);
+        if (digestManagedEconomicValue(JSON.parse(row.settlement_json)) !== digestManagedEconomicValue(input.settlement) || digestManagedEconomicValue(JSON.parse(row.reconciliation_json)) !== digestManagedEconomicValue(reconciliation)) {
+          throw new Error("Not-dispatched reconciliation conflicts with the durable terminal settlement.");
+        }
+        return recordFromCommitmentRow(row, this.#rowForOptionalLease(row.lease_id));
+      }
+      if (row.state !== "settlement-pending") {
+        throw new Error("Not-dispatched reconciliation requires an already pending settlement.");
+      }
+      if (row.owner_id !== this.#ownerId || row.owner_generation !== this.#ownerGeneration) {
+        throw new Error("Not-dispatched reconciliation is not owned by this authority.");
+      }
+      if (row.settlement_json === null) {
+        throw new Error("Not-dispatched reconciliation requires retained unknown settlement evidence.");
+      }
+      const originalSettlement = JSON.parse(row.settlement_json) as ManagedEconomicSettlement;
+      if (originalSettlement.kind !== "unknown") {
+        throw new Error("Not-dispatched reconciliation requires a retained unknown settlement.");
+      }
+      validateManagedEconomicSettlement(originalSettlement, expectation);
+      const reconciliation = notDispatchedReconciliationEvidence(originalSettlement, input.settlement);
+      if (row.lease_id !== null) {
+        const lease = this.#requiredRow(row.lease_id);
+        if (lease.lifecycle_state !== "held" || lease.owner_id !== this.#ownerId || lease.owner_generation !== this.#ownerGeneration) {
+          throw new Error("Not-dispatched reconciliation does not own a releasable account lease.");
+        }
+        this.#rollbackWinningAffinity(lease);
+        const released = this.#db.query(`UPDATE account_leases SET lifecycle_state='released',released_at=?,dispatch_fence_id=?,settlement_json=? WHERE lease_id=? AND lifecycle_state='held' AND owner_id=? AND owner_generation=?`).run(new Date(this.#now()).toISOString(), input.dispatchFenceId, JSON.stringify(input.settlement), row.lease_id, this.#ownerId, this.#ownerGeneration);
+        if (released.changes !== 1) throw new Error("Not-dispatched reconciliation lost its account lease owner fence.");
+      }
+      const changed = this.#db.query(`UPDATE economic_commitments SET state='released',settlement_json=?,reconciliation_json=? WHERE commitment_id=? AND state='settlement-pending' AND dispatch_fence_id=? AND owner_id=? AND owner_generation=?`).run(JSON.stringify(input.settlement), JSON.stringify(reconciliation), row.commitment_id, input.dispatchFenceId, this.#ownerId, this.#ownerGeneration);
+      if (changed.changes !== 1) throw new Error("Not-dispatched reconciliation lost its owner or dispatch fence.");
+      const reconciled = this.#requiredCommitmentRow(input.jobId, input.economicAttemptId);
+      return recordFromCommitmentRow(reconciled, this.#rowForOptionalLease(reconciled.lease_id));
     });
   }
 
@@ -1794,6 +1869,23 @@ export interface ManagedEconomicCommitmentAcquireInput {
   readonly routeCapacity: readonly ManagedEconomicRouteCapacity[];
 }
 
+/** Operator-only evidence bound to one already fenced, unknown settlement. */
+export interface ManagedEconomicNotDispatchedReconciliationInput {
+  readonly jobId: string;
+  readonly economicAttemptId: string;
+  readonly dispatchFenceId: string;
+  readonly settlement: Extract<ManagedEconomicSettlement, { readonly kind: "not-dispatched" }>;
+}
+
+interface ManagedEconomicNotDispatchedReconciliationEvidence {
+  readonly kind: "not-dispatched-reconciliation";
+  readonly originalSettlement: Extract<ManagedEconomicSettlement, { readonly kind: "unknown" }>;
+  readonly expectedPendingSettlementDigest: string;
+  readonly sourceEvidenceDigest: string;
+  readonly denialEvidenceDigest: string;
+  readonly authorityEvidenceDigest: string;
+}
+
 export type ManagedEconomicCommitmentState =
   | "held"
   | "dispatch-fenced"
@@ -2270,7 +2362,25 @@ const MANAGED_ECONOMIC_SETTLEMENT_KINDS = new Set<string>([
   "unknown",
   "pending",
   "leaked",
+  "not-dispatched",
 ]);
+
+function notDispatchedReconciliationEvidence(
+  originalSettlement: Extract<ManagedEconomicSettlement, { readonly kind: "unknown" }>,
+  settlement: Extract<ManagedEconomicSettlement, { readonly kind: "not-dispatched" }>,
+): ManagedEconomicNotDispatchedReconciliationEvidence {
+  if (digestManagedEconomicValue(originalSettlement) !== settlement.expectedPendingSettlementDigest) {
+    throw new Error("Not-dispatched reconciliation does not match the retained unknown settlement.");
+  }
+  return {
+    kind: "not-dispatched-reconciliation",
+    originalSettlement,
+    expectedPendingSettlementDigest: settlement.expectedPendingSettlementDigest,
+    sourceEvidenceDigest: settlement.sourceEvidenceDigest,
+    denialEvidenceDigest: settlement.denialEvidenceDigest,
+    authorityEvidenceDigest: settlement.authorityEvidenceDigest,
+  };
+}
 
 function isManagedEconomicSettlementKind(value: unknown): value is ManagedEconomicSettlement["kind"] {
   return typeof value === "string" && MANAGED_ECONOMIC_SETTLEMENT_KINDS.has(value);

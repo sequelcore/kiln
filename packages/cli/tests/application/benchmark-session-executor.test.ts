@@ -1,3 +1,4 @@
+import { BOUNDED_IMPLEMENTATION_FIXTURE, BOUNDED_IMPLEMENTATION_PROFILE_ID } from "@kilnai/core/eval";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -80,6 +81,7 @@ const benchmarkExecutorMocks = vi.hoisted(() => ({
   runCleanup: vi.fn(),
   runSession: vi.fn(),
   verifyBackendBenchmarkLease: vi.fn(),
+  assertBoundedImplementationVerifierAvailable: vi.fn(),
   createCanonicalRunSessionDispatcher: vi.fn(),
   withGlobalIdentityContext: vi.fn(),
   withWorkGovernanceContext: vi.fn(),
@@ -212,6 +214,11 @@ vi.mock("../../src/application/verification/formal/lemma-check-tool.js", async (
 vi.mock("../../src/application/benchmarks/formal-screening/backend-verifier.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/application/benchmarks/formal-screening/backend-verifier.js")>()),
   verifyBackendBenchmarkLease: benchmarkExecutorMocks.verifyBackendBenchmarkLease,
+}));
+
+vi.mock("../../src/application/context-efficiency-bounded-implementation-verifier.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/application/context-efficiency-bounded-implementation-verifier.js")>()),
+  assertBoundedImplementationVerifierAvailable: benchmarkExecutorMocks.assertBoundedImplementationVerifierAvailable,
 }));
 
 vi.mock("../../src/engines/engine-registry.js", () => ({
@@ -372,6 +379,24 @@ function makeBenchmarkContext(item: {
 }
 
 describe("createBenchmarkSessionExecutor", () => {
+  it("rejects unavailable bounded verification before provider dispatch", async () => {
+    benchmarkExecutorMocks.assertBoundedImplementationVerifierAvailable.mockRejectedValueOnce(new Error("Verifier unavailable"));
+    const executor = createBenchmarkSessionExecutor({ appConfig: MOCK_APP_CONFIG });
+    await expect(executor("Implement", makeBenchmarkContext({
+      id: "bounded", input: "Implement", metadata: { workspaceFixture: BOUNDED_IMPLEMENTATION_FIXTURE },
+    }, { id: BOUNDED_IMPLEMENTATION_PROFILE_ID, access: "approved-write" }))).rejects.toThrow("Verifier unavailable");
+    expect(benchmarkExecutorMocks.runSession).not.toHaveBeenCalled();
+    expect(benchmarkExecutorMocks.prepare).not.toHaveBeenCalled();
+  });
+
+  it("rejects the managed coding profile for the direct bounded fixture", async () => {
+    const executor = createBenchmarkSessionExecutor({ appConfig: MOCK_APP_CONFIG });
+    await expect(executor("Implement", makeBenchmarkContext({
+      id: "bounded", input: "Implement", metadata: { workspaceFixture: BOUNDED_IMPLEMENTATION_FIXTURE },
+    }, { id: "kiln-managed-coding-agent", access: "approved-write" }))).rejects.toThrow("matching profile and fixture");
+    expect(benchmarkExecutorMocks.runSession).not.toHaveBeenCalled();
+  });
+
   it("treats the canonical managed coding profile as approved-write", () => {
     expect(isWriteBenchmarkProfile("kiln-managed-coding-agent")).toBe(true);
     expect(isWriteBenchmarkProfile("kiln-managed-child-agent")).toBe(false);

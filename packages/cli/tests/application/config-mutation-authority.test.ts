@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, renameSync, symlinkSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
@@ -158,6 +158,146 @@ describe("config mutation authority", () => {
     writeFileSync(settlementPath, JSON.stringify(historical), "utf-8");
     expect(store.readSettlement("historical-proposal")).toBeNull();
     expect(store.readLatestSettlement("project.adopt")).toBeNull();
+  });
+
+  function seedGlobalAgent() {
+    seedGlobalConfig();
+    writeFileSync(
+      globalConfigPath(),
+      stringify({ ...defaultGlobalConfig(), authorityProfiles: [{ id: "read-only", access: "read-only" }] }),
+    );
+    const path = join(globalHome, "kiln", "agents", "luna-scout.md");
+    mkdirSync(join(globalHome, "kiln", "agents"), { recursive: true });
+    const original =
+      "---\r\nname: luna-scout\r\nrole: Scout\r\ngoal: Inspect code\r\ntier: fast\r\ntargetId: codex-luna\r\nauthorityProfileId: foundation-readonly-plan # preserve comment\r\n---\r\nKeep these instructions exactly.\r\n";
+    writeFileSync(path, original);
+    return { path, original };
+  }
+
+  it("shares global agent commit locks and lineage across projects", async () => {
+    const { path } = seedGlobalAgent();
+    const record = propose("agent.update_authority_profile", { name: "luna-scout", authorityProfileId: "read-only" });
+    const approval = approveConfigMutation({ projectPath: tempDir, proposalId: record.proposal.proposalId });
+    const otherProject = join(tempDir, "other-project");
+    mkdirSync(join(otherProject, ".git"), { recursive: true });
+    const otherBinding = resolveProjectStateBinding(otherProject);
+    const otherStore = new ConfigMutationStore(otherProject, { root: otherBinding.mutationsPath, globalConfigPath: globalConfigPath() });
+    expect(otherStore.lockPathFor(path)).toBe(mutationStore().lockPathFor(path));
+    expect(otherStore.lockPathFor(path)).toBe(otherStore.lockPathFor(globalConfigPath()));
+    const competing = proposeConfigMutation({ projectPath: otherProject, projectStateBinding: otherBinding,
+      operation: "agent.update_authority_profile", payload: { name: "luna-scout", authorityProfileId: "read-only" } });
+    otherStore.saveProposal(competing);
+    const competingApproval = approveConfigMutation({ projectPath: otherProject, proposalId: competing.proposal.proposalId });
+    let competingOutcome = "";
+    const applied = await applyConfigMutation({ projectPath: tempDir, proposalId: record.proposal.proposalId,
+      approvalId: approval.approvalId, requester: "operator", readEffectiveState: async () => undefined,
+      reconcile: async () => {
+        competingOutcome = (await applyConfigMutation({ projectPath: otherProject,
+          proposalId: competing.proposal.proposalId, approvalId: competingApproval.approvalId,
+          requester: "operator", reconcile: reconcileOk, readEffectiveState: async () => undefined })).settlement.outcome;
+        return [];
+      } });
+    expect(applied.settlement.outcome).toBe("committed");
+    expect(competingOutcome).toBe("rejected");
+    expect(otherStore.readLatestSettlementForPath(path)?.proposalId).toBe(record.proposal.proposalId);
+  });
+
+  it("rejects a global agents directory redirected after approval", async () => {
+    const { path, original } = seedGlobalAgent();
+    const record = propose("agent.update_authority_profile", { name: "luna-scout", authorityProfileId: "read-only" });
+    const approval = approveConfigMutation({ projectPath: tempDir, proposalId: record.proposal.proposalId });
+    const agents = join(globalHome, "kiln", "agents");
+    const outside = join(tempDir, "redirected-agents");
+    renameSync(agents, outside);
+    symlinkSync(outside, agents, process.platform === "win32" ? "junction" : "dir");
+    const applied = await applyConfigMutation({ projectPath: tempDir, proposalId: record.proposal.proposalId,
+      approvalId: approval.approvalId, requester: "operator", reconcile: reconcileOk });
+    expect(applied.settlement.outcome).toBe("rejected");
+    expect(readFileSync(path, "utf8")).toBe(original);
+    expect(reconcileOk).not.toHaveBeenCalled();
+  });
+
+  it("cannot change an agent while the canonical profile source is locked", async () => {
+    const { path, original } = seedGlobalAgent();
+    const record = propose("agent.update_authority_profile", { name: "luna-scout", authorityProfileId: "read-only" });
+    const approval = approveConfigMutation({ projectPath: tempDir, proposalId: record.proposal.proposalId });
+    writeFileSync(globalConfigPath() + ".lock", JSON.stringify({ pid: process.pid, acquiredAt: new Date().toISOString(), acquisitionId: "test" }));
+    const applied = await applyConfigMutation({ projectPath: tempDir, proposalId: record.proposal.proposalId,
+      approvalId: approval.approvalId, requester: "operator", reconcile: reconcileOk });
+    expect(applied.settlement.outcome).toBe("rejected");
+    expect(readFileSync(path, "utf8")).toBe(original);
+    expect(reconcileOk).not.toHaveBeenCalled();
+    expect(mutationStore().readProgressMarker(record.proposal.proposalId)).toBeNull();
+    rmSync(globalConfigPath() + ".lock");
+    writeFileSync(globalConfigPath(), readFileSync(globalConfigPath(), "utf8") + "\n# changed profile source\n");
+    const fresh = propose("agent.update_authority_profile", { name: "luna-scout", authorityProfileId: "read-only" });
+    const freshApproval = approveConfigMutation({ projectPath: tempDir, proposalId: fresh.proposal.proposalId });
+    expect((await applyConfigMutation({ projectPath: tempDir, proposalId: fresh.proposal.proposalId,
+      approvalId: freshApproval.approvalId, requester: "operator", reconcile: reconcileOk,
+      readEffectiveState: async () => undefined })).settlement.outcome).toBe("committed");
+  });
+
+  it("updates only an approved global agent profile field and restores exact bytes", async () => {
+    const { path, original } = seedGlobalAgent();
+    const record = propose("agent.update_authority_profile", { name: "luna-scout", authorityProfileId: "read-only" });
+    expect(record.proposal.status, JSON.stringify(record.proposal.diagnostics)).toBe("valid");
+    expect(record.proposal.approvalRequired).toBe(true);
+    const input = {
+      projectPath: tempDir,
+      proposalId: record.proposal.proposalId,
+      requester: "operator" as const,
+      reconcile: reconcileOk,
+      readEffectiveState: async () => undefined,
+    };
+    expect((await applyConfigMutation(input)).settlement.outcome).toBe("rejected");
+    expect(readFileSync(path, "utf8")).toBe(original);
+    const approval = approveConfigMutation({ projectPath: tempDir, proposalId: record.proposal.proposalId });
+    const applied = await applyConfigMutation({ ...input, approvalId: approval.approvalId });
+    expect(applied.settlement.outcome).toBe("committed");
+    expect(readFileSync(path, "utf8")).toBe(original.replace("foundation-readonly-plan", "read-only"));
+    const rollback = propose("mutation.rollback", { token: applied.settlement.rollbackToken });
+    const rollbackApproval = approveConfigMutation({ projectPath: tempDir, proposalId: rollback.proposal.proposalId });
+    expect(
+      (
+        await applyConfigMutation({
+          ...input,
+          proposalId: rollback.proposal.proposalId,
+          approvalId: rollbackApproval.approvalId,
+        })
+      ).settlement.outcome,
+    ).toBe("committed");
+    expect(readFileSync(path, "utf8")).toBe(original);
+  });
+
+  it.each(["source", "global-config"])("rejects global agent mutation after %s drift", async (change) => {
+    const { path, original } = seedGlobalAgent();
+    const record = propose("agent.update_authority_profile", { name: "luna-scout", authorityProfileId: "read-only" });
+    const approval = approveConfigMutation({ projectPath: tempDir, proposalId: record.proposal.proposalId });
+    if (change === "source") writeFileSync(path, original + "Changed.\r\n");
+    else writeFileSync(globalConfigPath(), readFileSync(globalConfigPath(), "utf8") + "\n# changed authority source\n");
+    const before = readFileSync(path, "utf8");
+    const result = await applyConfigMutation({
+      projectPath: tempDir,
+      proposalId: record.proposal.proposalId,
+      approvalId: approval.approvalId,
+      requester: "operator",
+      reconcile: reconcileOk,
+      readEffectiveState: async () => undefined,
+    });
+    expect(result.settlement.outcome).toBe("rejected");
+    expect(readFileSync(path, "utf8")).toBe(before);
+    expect(mutationStore().readProgressMarker(record.proposal.proposalId)).toBeNull();
+  });
+
+  it("rejects unknown profiles, escaping names and extra agent changes", () => {
+    seedGlobalAgent();
+    for (const payload of [
+      { name: "luna-scout", authorityProfileId: "missing" },
+      { name: "../luna-scout", authorityProfileId: "read-only" },
+      { name: "luna-scout", authorityProfileId: "read-only", targetId: "other" },
+    ]) {
+      expect(propose("agent.update_authority_profile", payload).proposal.status).toBe("invalid");
+    }
   });
 
   it("uses the narrow effective-config view for default mutation readback", async () => {

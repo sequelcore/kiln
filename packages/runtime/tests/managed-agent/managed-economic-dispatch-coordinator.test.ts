@@ -20,7 +20,10 @@ import { ManagedDirectProviderRuntimeAdapter } from "../../src/agents/managed-in
 import { appendManagedEconomicLifecycleSessionEvent } from "../../src/agents/managed-invocation/session-events.js";
 import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
-import { defineEffectiveAuthorityAdmissionBundle, type EffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
+import {
+  defineEffectiveAuthorityAdmissionBundle,
+  type EffectiveAuthorityAdmissionBundle,
+} from "../../src/session/effective-authority-admission-bundle.js";
 import { createEconomicRouteProofAdoption } from "./economic-route-proof-fixture.js";
 import { createFixtureModelRoundStore, createFixtureToolActionStore } from "../session/runtime-claim-fixture.js";
 
@@ -93,10 +96,17 @@ function dispatchAdoption(): ManagedEconomicDispatchAdoption {
   });
 }
 
-function recordingLifecycleEvents(): { readonly port: ManagedEconomicLifecycleEventPort; readonly transitions: string[] } {
+function recordingLifecycleEvents(): {
+  readonly port: ManagedEconomicLifecycleEventPort;
+  readonly transitions: string[];
+} {
   const transitions: string[] = [];
   return {
-    port: { record: (input) => { transitions.push(input.transition); } },
+    port: {
+      record: (input) => {
+        transitions.push(input.transition);
+      },
+    },
     transitions,
   };
 }
@@ -174,12 +184,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
     const coordinator = new ManagedEconomicDispatchCoordinator({
       authority: economicAuthority,
       resolveLifecycleTimeoutMs,
-      createAdapter: async ({
-        commitment: selected,
-        authorityProfileId,
-        profileAuthorityDigest,
-        invocationId,
-      }) => {
+      createAdapter: async ({ commitment: selected, authorityProfileId, profileAuthorityDigest, invocationId }) => {
         events.push(`adapter:${selected.reservation.selectedIdentity.account.kind}`);
         expect(authorityProfileId).toBe(AUTHORITY_PROFILE_ID);
         expect(profileAuthorityDigest).toBe(PROFILE_AUTHORITY_DIGEST);
@@ -201,29 +206,22 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       lifecycleEvents: lifecycleEvents.port,
     });
     if (prepared.status !== "prepared") throw new Error("fixture");
-    expect(resolveLifecycleTimeoutMs).toHaveBeenCalledWith(
-      expect.any(Object),
-      "read-only",
-      AUTHORITY_PROFILE_ID,
-    );
+    expect(resolveLifecycleTimeoutMs).toHaveBeenCalledWith(expect.any(Object), "read-only", AUTHORITY_PROFILE_ID);
     expect(events).toEqual(["commit:economic-attempt-a", "adapter:account-bound", "fence"]);
     expect(lifecycleEvents.transitions).toEqual(["held", "dispatch-fenced"]);
     events.push("provider-effect");
-    expect(events).toEqual([
-      "commit:economic-attempt-a",
-      "adapter:account-bound",
-      "fence",
-      "provider-effect",
-    ]);
+    expect(events).toEqual(["commit:economic-attempt-a", "adapter:account-bound", "fence", "provider-effect"]);
 
     const economicSettlement = settlement(prepared.dispatchFenceId);
     prepared.registerEconomicSettlement(Promise.resolve(economicSettlement));
-    await vi.waitFor(() => expect(economicAuthority.settleExecution).toHaveBeenCalledWith(
-      "job-a",
-      "economic-attempt-a",
-      prepared.dispatchFenceId,
-      economicSettlement,
-    ));
+    await vi.waitFor(() =>
+      expect(economicAuthority.settleExecution).toHaveBeenCalledWith(
+        "job-a",
+        "economic-attempt-a",
+        prepared.dispatchFenceId,
+        economicSettlement,
+      ),
+    );
     await vi.waitFor(() => expect(lifecycleEvents.transitions).toEqual(["held", "dispatch-fenced", "released"]));
   });
 
@@ -258,23 +256,20 @@ describe("ManagedEconomicDispatchCoordinator", () => {
     });
 
     expect(prepared).toMatchObject({ status: "prepared" });
-    expect(economicAuthority.fenceDispatch).toHaveBeenCalledWith(
-      "job-a",
-      "economic-attempt-a",
-      expect.any(String),
-      {
-        ...claim,
-        intentFingerprint: `sha256:${"9".repeat(64)}`,
-      },
-    );
+    expect(economicAuthority.fenceDispatch).toHaveBeenCalledWith("job-a", "economic-attempt-a", expect.any(String), {
+      ...claim,
+      intentFingerprint: `sha256:${"9".repeat(64)}`,
+    });
   });
 
   it("validates and consumes approval before fencing or materializing an adapter", async () => {
     const order: string[] = [];
     const economicAuthority = authority();
-    const validateAndConsumeApprovalBeforeFence = vi.fn(async ({ commitment: selected }: { readonly commitment: ManagedEconomicCommitment }) => {
-      order.push(`approval:${selected.commitmentId}`);
-    });
+    const validateAndConsumeApprovalBeforeFence = vi.fn(
+      async ({ commitment: selected }: { readonly commitment: ManagedEconomicCommitment }) => {
+        order.push(`approval:${selected.commitmentId}`);
+      },
+    );
     vi.mocked(economicAuthority.fenceDispatch).mockImplementation(() => {
       order.push("fence");
       return undefined as never;
@@ -314,6 +309,9 @@ describe("ManagedEconomicDispatchCoordinator", () => {
   it("releases the held commitment when pre-fence approval validation or consumption fails", async () => {
     const economicAuthority = authority();
     const createAdapter = vi.fn();
+    vi.mocked(economicAuthority.releasePreFence).mockImplementation(() => {
+      throw new Error("synthetic pre-fence release failure");
+    });
     const validateAndConsumeApprovalBeforeFence = vi.fn(async () => {
       throw new Error("approval-rejected");
     });
@@ -323,18 +321,20 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       createAdapter,
     });
 
-    await expect(coordinator.prepare({
-      jobId: "job-a",
-      economicAttemptId: "economic-attempt-a",
-      intentFingerprint: `sha256:${"9".repeat(64)}`,
-      admissionBundle: admissionBundle(),
-      effectIdentity: "managed-economic-dispatch:test",
-      adoption: dispatchAdoption(),
-      access: "approved-write",
-      authorityProfileId: AUTHORITY_PROFILE_ID,
-      invocationId: INVOCATION_ID,
-      validateAndConsumeApprovalBeforeFence,
-    })).rejects.toThrow("approval-rejected");
+    await expect(
+      coordinator.prepare({
+        jobId: "job-a",
+        economicAttemptId: "economic-attempt-a",
+        intentFingerprint: `sha256:${"9".repeat(64)}`,
+        admissionBundle: admissionBundle(),
+        effectIdentity: "managed-economic-dispatch:test",
+        adoption: dispatchAdoption(),
+        access: "approved-write",
+        authorityProfileId: AUTHORITY_PROFILE_ID,
+        invocationId: INVOCATION_ID,
+        validateAndConsumeApprovalBeforeFence,
+      }),
+    ).rejects.toThrow("approval-rejected");
 
     expect(validateAndConsumeApprovalBeforeFence).toHaveBeenCalledOnce();
     expect(economicAuthority.releasePreFence).toHaveBeenCalledOnce();
@@ -352,17 +352,19 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       createAdapter,
     });
 
-    await expect(coordinator.prepare({
-      jobId: "job-a",
-      economicAttemptId: "economic-attempt-a",
-      intentFingerprint: `sha256:${"9".repeat(64)}`,
-      admissionBundle: admissionBundle(),
-      effectIdentity: "managed-economic-dispatch:test",
-      adoption: dispatchAdoption(),
-      access: "read-only",
-      authorityProfileId: AUTHORITY_PROFILE_ID,
-      invocationId: INVOCATION_ID,
-    })).resolves.toMatchObject({ status: "already-dispatched" });
+    await expect(
+      coordinator.prepare({
+        jobId: "job-a",
+        economicAttemptId: "economic-attempt-a",
+        intentFingerprint: `sha256:${"9".repeat(64)}`,
+        admissionBundle: admissionBundle(),
+        effectIdentity: "managed-economic-dispatch:test",
+        adoption: dispatchAdoption(),
+        access: "read-only",
+        authorityProfileId: AUTHORITY_PROFILE_ID,
+        invocationId: INVOCATION_ID,
+      }),
+    ).resolves.toMatchObject({ status: "not-dispatchable" });
     expect(createAdapter).not.toHaveBeenCalled();
   });
 
@@ -371,23 +373,243 @@ describe("ManagedEconomicDispatchCoordinator", () => {
     const coordinator = new ManagedEconomicDispatchCoordinator({
       authority: economicAuthority,
       resolveLifecycleTimeoutMs: () => 1_000,
-      createAdapter: async () => { throw new Error("synthetic adapter failure"); },
+      createAdapter: async () => {
+        throw new Error("synthetic adapter failure");
+      },
     });
 
-    await expect(coordinator.prepare({
-      jobId: "job-a",
-      economicAttemptId: "economic-attempt-a",
-      intentFingerprint: `sha256:${"9".repeat(64)}`,
-      admissionBundle: admissionBundle(),
-      effectIdentity: "managed-economic-dispatch:test",
-      adoption: dispatchAdoption(),
-      access: "read-only",
-      authorityProfileId: AUTHORITY_PROFILE_ID,
-      invocationId: INVOCATION_ID,
-    })).rejects.toThrow("synthetic adapter failure");
+    await expect(
+      coordinator.prepare({
+        jobId: "job-a",
+        economicAttemptId: "economic-attempt-a",
+        intentFingerprint: `sha256:${"9".repeat(64)}`,
+        admissionBundle: admissionBundle(),
+        effectIdentity: "managed-economic-dispatch:test",
+        adoption: dispatchAdoption(),
+        access: "read-only",
+        authorityProfileId: AUTHORITY_PROFILE_ID,
+        invocationId: INVOCATION_ID,
+      }),
+    ).rejects.toThrow("synthetic adapter failure");
     expect(economicAuthority.fenceDispatch).not.toHaveBeenCalled();
     expect(economicAuthority.recordExecutionSettlementPending).not.toHaveBeenCalled();
     expect(economicAuthority.releasePreFence).toHaveBeenCalledOnce();
+  });
+
+  it("releases a real held SQLite commitment when request realization fails before the dispatch fence", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-economic-request-realization-"));
+    const authority = new SqliteManagedAccountLeaseAuthority({
+      path: join(root, "authority.sqlite"),
+      ownerId: "request-realization-owner",
+      now: () => Date.parse("2026-08-02T12:00:00.000Z"),
+    });
+    const jobId = "managed-economic-job:request-realization";
+    const economicAttemptId = "economic-attempt:request-realization";
+    const releasePreFence = vi.fn((releasedJobId: string, releasedAttemptId: string) =>
+      authority.releaseCommitmentPreFence(releasedJobId, releasedAttemptId),
+    );
+    const fenceDispatch = vi.fn();
+    try {
+      const coordinator = new ManagedEconomicDispatchCoordinator({
+        authority: {
+          acquire: (input) => authority.acquireCommitment(input),
+          releasePreFence,
+          fenceDispatch,
+          readDispatch: (readJobId, readAttemptId, dispatchFenceId, actionClaim) =>
+            authority.readDispatch(readJobId, readAttemptId, dispatchFenceId, actionClaim),
+          settleExecution: (settleJobId, settleAttemptId, dispatchFenceId, settlement) =>
+            authority.settleExecution(settleJobId, settleAttemptId, dispatchFenceId, settlement),
+          recordExecutionSettlementPending: (pendingJobId, pendingAttemptId, dispatchFenceId, reason) =>
+            authority.recordExecutionSettlementPending(pendingJobId, pendingAttemptId, dispatchFenceId, reason),
+        },
+        resolveLifecycleTimeoutMs: () => 1_000,
+        createAdapter: async () => ({ descriptor: {} }) as never,
+      });
+
+      await expect(
+        coordinator.prepare({
+          jobId,
+          economicAttemptId,
+          intentFingerprint: digestManagedEconomicValue({ jobId, economicAttemptId }),
+          admissionBundle: admissionBundle(),
+          effectIdentity: "managed-economic-dispatch:test",
+          adoption: createEconomicRouteProofAdoption({
+            providerId: "codex-oauth",
+            routeId: "route-a",
+            modelId: "gpt-test",
+            priceKind: "metered",
+            quotaEvidence: unknownQuotaEvidence("codex-oauth-capacity"),
+            quotaRequirement: "optional",
+          }),
+          access: "read-only",
+          authorityProfileId: AUTHORITY_PROFILE_ID,
+          invocationId: INVOCATION_ID,
+          realizeExecutionBeforeFence: async () => {
+            throw new Error("synthetic pre-fence request denial");
+          },
+        }),
+      ).rejects.toThrow("synthetic pre-fence request denial");
+
+      expect(releasePreFence).toHaveBeenCalledOnce();
+      expect(releasePreFence).toHaveBeenCalledWith(jobId, economicAttemptId);
+      expect(fenceDispatch).not.toHaveBeenCalled();
+      expect(authority.createAgentTaskReplayInspectionPort().inspect({ jobId, economicAttemptId })).toMatchObject({
+        status: "released",
+        selectedRoute: { routeId: "route-a" },
+      });
+    } finally {
+      authority.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("releases realized bounded work when dispatch fencing is ambiguous", async () => {
+    const economicAuthority = authority();
+    const releasePreparedExecutionBeforeFence = vi.fn();
+    vi.mocked(economicAuthority.fenceDispatch).mockImplementation(() => {
+      throw new Error("synthetic ambiguous fence response");
+    });
+    vi.mocked(economicAuthority.readDispatch).mockImplementation(() => {
+      throw new Error("synthetic read-back unavailable");
+    });
+    const coordinator = new ManagedEconomicDispatchCoordinator({
+      authority: economicAuthority,
+      resolveLifecycleTimeoutMs: () => 1_000,
+      createAdapter: async () => ({ descriptor: {} }) as never,
+    });
+
+    await expect(
+      coordinator.prepare({
+        jobId: "job-a",
+        economicAttemptId: "economic-attempt-a",
+        intentFingerprint: `sha256:${"9".repeat(64)}`,
+        admissionBundle: admissionBundle(),
+        effectIdentity: "managed-economic-dispatch:test",
+        adoption: dispatchAdoption(),
+        access: "read-only",
+        authorityProfileId: AUTHORITY_PROFILE_ID,
+        invocationId: INVOCATION_ID,
+        realizeExecutionBeforeFence: async () => ({ allocationId: "bounded-work-ambiguous" }),
+        releasePreparedExecutionBeforeFence,
+      }),
+    ).rejects.toThrow("synthetic ambiguous fence response");
+
+    expect(economicAuthority.releasePreFence).not.toHaveBeenCalled();
+    expect(releasePreparedExecutionBeforeFence).toHaveBeenCalledWith({ allocationId: "bounded-work-ambiguous" });
+  });
+
+  it("releases realized bounded work when the pre-fence lease release itself fails", async () => {
+    const economicAuthority = authority();
+    const releasePreparedExecutionBeforeFence = vi.fn();
+    vi.mocked(economicAuthority.fenceDispatch).mockImplementation(() => {
+      throw new Error("synthetic fence rejection");
+    });
+    vi.mocked(economicAuthority.releasePreFence).mockImplementation(() => {
+      throw new Error("synthetic lease release failure");
+    });
+    const coordinator = new ManagedEconomicDispatchCoordinator({
+      authority: economicAuthority,
+      resolveLifecycleTimeoutMs: () => 1_000,
+      createAdapter: async () => ({ descriptor: {} }) as never,
+    });
+
+    await expect(
+      coordinator.prepare({
+        jobId: "job-a",
+        economicAttemptId: "economic-attempt-a",
+        intentFingerprint: `sha256:${"9".repeat(64)}`,
+        admissionBundle: admissionBundle(),
+        effectIdentity: "managed-economic-dispatch:test",
+        adoption: dispatchAdoption(),
+        access: "read-only",
+        authorityProfileId: AUTHORITY_PROFILE_ID,
+        invocationId: INVOCATION_ID,
+        realizeExecutionBeforeFence: async () => ({ allocationId: "bounded-work-release-failure" }),
+        releasePreparedExecutionBeforeFence,
+      }),
+    ).rejects.toThrow("synthetic fence rejection");
+
+    expect(economicAuthority.releasePreFence).toHaveBeenCalledOnce();
+    expect(releasePreparedExecutionBeforeFence).toHaveBeenCalledWith({ allocationId: "bounded-work-release-failure" });
+  });
+
+  it("surfaces a realized bounded-work release failure alongside the pre-fence error", async () => {
+    const economicAuthority = authority();
+    const releasePreparedExecutionBeforeFence = vi.fn(() => {
+      throw new Error("synthetic bounded-work release failure");
+    });
+    vi.mocked(economicAuthority.fenceDispatch).mockImplementation(() => {
+      throw new Error("synthetic fence rejection");
+    });
+    const coordinator = new ManagedEconomicDispatchCoordinator({
+      authority: economicAuthority,
+      resolveLifecycleTimeoutMs: () => 1_000,
+      createAdapter: async () => ({ descriptor: {} }) as never,
+    });
+
+    let thrown: unknown;
+    try {
+      await coordinator.prepare({
+        jobId: "job-a",
+        economicAttemptId: "economic-attempt-a",
+        intentFingerprint: `sha256:${"8".repeat(64)}`,
+        admissionBundle: admissionBundle(),
+        effectIdentity: "managed-economic-dispatch:test",
+        adoption: dispatchAdoption(),
+        access: "read-only",
+        authorityProfileId: AUTHORITY_PROFILE_ID,
+        invocationId: INVOCATION_ID,
+        realizeExecutionBeforeFence: async () => ({ allocationId: "bounded-work-release-observable" }),
+        releasePreparedExecutionBeforeFence,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    if (!(thrown instanceof AggregateError)) throw new Error("Expected bounded-work cleanup failure to remain observable.");
+    expect(thrown.message).toContain("synthetic fence rejection");
+    expect(thrown.errors).toEqual([
+      expect.objectContaining({ message: "synthetic fence rejection" }),
+      expect.objectContaining({ message: "synthetic bounded-work release failure" }),
+    ]);
+    expect(releasePreparedExecutionBeforeFence).toHaveBeenCalledWith({
+      allocationId: "bounded-work-release-observable",
+    });
+  });
+  it("releases realized bounded work when dispatch-fence lifecycle evidence fails", async () => {
+    const economicAuthority = authority();
+    const releasePreparedExecutionBeforeFence = vi.fn();
+    const coordinator = new ManagedEconomicDispatchCoordinator({
+      authority: economicAuthority,
+      resolveLifecycleTimeoutMs: () => 1_000,
+      createAdapter: async () => ({ descriptor: {} }) as never,
+    });
+
+    await expect(
+      coordinator.prepare({
+        jobId: "job-a",
+        economicAttemptId: "economic-attempt-a",
+        intentFingerprint: `sha256:${"9".repeat(64)}`,
+        admissionBundle: admissionBundle(),
+        effectIdentity: "managed-economic-dispatch:test",
+        adoption: dispatchAdoption(),
+        access: "read-only",
+        authorityProfileId: AUTHORITY_PROFILE_ID,
+        invocationId: INVOCATION_ID,
+        realizeExecutionBeforeFence: async () => ({ allocationId: "bounded-work-lifecycle-failure" }),
+        releasePreparedExecutionBeforeFence,
+        lifecycleEvents: {
+          record: ({ transition }) => {
+            if (transition === "dispatch-fenced") throw new Error("synthetic dispatch evidence failure");
+          },
+        },
+      }),
+    ).rejects.toThrow("synthetic dispatch evidence failure");
+
+    expect(economicAuthority.recordExecutionSettlementPending).toHaveBeenCalledOnce();
+    expect(releasePreparedExecutionBeforeFence).toHaveBeenCalledWith({
+      allocationId: "bounded-work-lifecycle-failure",
+    });
   });
 
   it("fails closed on an authority digest mismatch before adapter materialization or fencing", async () => {
@@ -399,20 +621,22 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       createAdapter,
     });
 
-    await expect(coordinator.prepare({
-      jobId: "job-a",
-      economicAttemptId: "economic-attempt-a",
-      intentFingerprint: `sha256:${"9".repeat(64)}`,
-      admissionBundle: admissionBundle(),
-      effectIdentity: "managed-economic-dispatch:test",
-      adoption: dispatchAdoption(),
-      access: "read-only",
-      authorityProfileId: AUTHORITY_PROFILE_ID,
-      invocationId: INVOCATION_ID,
-      validateExecutionProfile: async () => {
-        throw new Error("identity-revision-conflict: managed profile authority changed");
-      },
-    })).rejects.toThrow("identity-revision-conflict");
+    await expect(
+      coordinator.prepare({
+        jobId: "job-a",
+        economicAttemptId: "economic-attempt-a",
+        intentFingerprint: `sha256:${"9".repeat(64)}`,
+        admissionBundle: admissionBundle(),
+        effectIdentity: "managed-economic-dispatch:test",
+        adoption: dispatchAdoption(),
+        access: "read-only",
+        authorityProfileId: AUTHORITY_PROFILE_ID,
+        invocationId: INVOCATION_ID,
+        validateExecutionProfile: async () => {
+          throw new Error("identity-revision-conflict: managed profile authority changed");
+        },
+      }),
+    ).rejects.toThrow("identity-revision-conflict");
     expect(economicAuthority.fenceDispatch).not.toHaveBeenCalled();
     expect(economicAuthority.recordExecutionSettlementPending).not.toHaveBeenCalled();
     expect(economicAuthority.releasePreFence).toHaveBeenCalledOnce();
@@ -427,17 +651,19 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       createAdapter: async () => ({ descriptor: {} }) as never,
     });
 
-    await expect(coordinator.prepare({
-      jobId: "job-a",
-      economicAttemptId: "economic-attempt-a",
-      intentFingerprint: `sha256:${"9".repeat(64)}`,
-      admissionBundle: admissionBundle(),
-      effectIdentity: "managed-economic-dispatch:test",
-      adoption: dispatchAdoption(),
-      access: "read-only",
-      authorityProfileId: AUTHORITY_PROFILE_ID,
-      invocationId: INVOCATION_ID,
-    })).rejects.toThrow("timeout must be a positive finite number");
+    await expect(
+      coordinator.prepare({
+        jobId: "job-a",
+        economicAttemptId: "economic-attempt-a",
+        intentFingerprint: `sha256:${"9".repeat(64)}`,
+        admissionBundle: admissionBundle(),
+        effectIdentity: "managed-economic-dispatch:test",
+        adoption: dispatchAdoption(),
+        access: "read-only",
+        authorityProfileId: AUTHORITY_PROFILE_ID,
+        invocationId: INVOCATION_ID,
+      }),
+    ).rejects.toThrow("timeout must be a positive finite number");
     expect(economicAuthority.releasePreFence).toHaveBeenCalledOnce();
   });
 
@@ -453,7 +679,45 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       createAdapter: async () => ({ descriptor: {} }) as never,
     });
 
-    await expect(coordinator.prepare({
+    await expect(
+      coordinator.prepare({
+        jobId: "job-a",
+        economicAttemptId: "economic-attempt-a",
+        intentFingerprint: `sha256:${"9".repeat(64)}`,
+        admissionBundle: admissionBundle(),
+        effectIdentity: "managed-economic-dispatch:test",
+        adoption: dispatchAdoption(),
+        access: "read-only",
+        authorityProfileId: AUTHORITY_PROFILE_ID,
+        invocationId: INVOCATION_ID,
+        abortSignal: controller.signal,
+        lifecycleEvents: lifecycleEvents.port,
+        validateAndConsumeApprovalBeforeFence,
+      }),
+    ).rejects.toThrow("synthetic pre-fence abort");
+
+    expect(validateAndConsumeApprovalBeforeFence).not.toHaveBeenCalled();
+    expect(economicAuthority.fenceDispatch).not.toHaveBeenCalled();
+    expect(economicAuthority.releasePreFence).toHaveBeenCalledWith("job-a", "economic-attempt-a");
+    expect(lifecycleEvents.transitions).toEqual(["held"]);
+  });
+
+  it("compensates a request realization that resolves after pre-fence cancellation", async () => {
+    const economicAuthority = authority();
+    const controller = new AbortController();
+    const releasePreparedExecutionBeforeFence = vi.fn();
+    let resolveExecution: ((value: { readonly allocationId: string }) => void) | undefined;
+    const realization = new Promise<{ readonly allocationId: string }>((resolve) => {
+      resolveExecution = resolve;
+    });
+    const realizeExecutionBeforeFence = vi.fn(async () => realization);
+    const coordinator = new ManagedEconomicDispatchCoordinator({
+      authority: economicAuthority,
+      resolveLifecycleTimeoutMs: () => 1_000,
+      createAdapter: async () => ({ descriptor: {} }) as never,
+    });
+
+    const preparation = coordinator.prepare({
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
@@ -464,14 +728,21 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       authorityProfileId: AUTHORITY_PROFILE_ID,
       invocationId: INVOCATION_ID,
       abortSignal: controller.signal,
-      lifecycleEvents: lifecycleEvents.port,
-      validateAndConsumeApprovalBeforeFence,
-    })).rejects.toThrow("synthetic pre-fence abort");
+      realizeExecutionBeforeFence,
+      releasePreparedExecutionBeforeFence,
+    });
 
-    expect(validateAndConsumeApprovalBeforeFence).not.toHaveBeenCalled();
-    expect(economicAuthority.fenceDispatch).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(realizeExecutionBeforeFence).toHaveBeenCalledOnce());
+    controller.abort(new Error("synthetic realization cancellation"));
+    await expect(preparation).rejects.toThrow("synthetic realization cancellation");
+    if (!resolveExecution) throw new Error("Expected realization resolver.");
+    resolveExecution({ allocationId: "bounded-work-allocation" });
+
+    await vi.waitFor(() =>
+      expect(releasePreparedExecutionBeforeFence).toHaveBeenCalledWith({ allocationId: "bounded-work-allocation" }),
+    );
     expect(economicAuthority.releasePreFence).toHaveBeenCalledWith("job-a", "economic-attempt-a");
-    expect(lifecycleEvents.transitions).toEqual(["held"]);
+    expect(economicAuthority.fenceDispatch).not.toHaveBeenCalled();
   });
 
   it("emits denied and dispatches nothing further when acquire denies the commitment", async () => {
@@ -529,60 +800,67 @@ describe("ManagedEconomicDispatchCoordinator", () => {
     const records: Array<Record<string, unknown>> = [];
     const createAdapter = vi.fn();
     const economicAuthority: ManagedEconomicDispatchAuthorityPort = {
-      acquire: vi.fn(() => ({
-        status: "denied",
-        replay: false,
-        decision: {
-          kind: "denied",
-          rejected: [{
-            stage: "economic-selection",
-            reason: "ceiling-exceeded",
-            alternativeIdentity: {
-              route: { routeId: "route-codex" },
-              account: {
-                kind: "account-bound",
-                capacityIdentity: "secret-capacity",
-                accountRef: "secret-account-ref",
-                credentialRevision: "secret-credential-revision",
-              },
-            },
-          }],
-        },
-        evidence: {
-          decision: {
-            kind: "denied",
-            rejected: [{
-              stage: "economic-selection",
-              reason: "ceiling-exceeded",
-              alternativeIdentity: {
-                route: { routeId: "route-codex" },
-                account: {
-                  kind: "account-bound",
-                  capacityIdentity: "secret-capacity",
-                  accountRef: "secret-account-ref",
-                  credentialRevision: "secret-credential-revision",
+      acquire: vi.fn(
+        () =>
+          ({
+            status: "denied",
+            replay: false,
+            decision: {
+              kind: "denied",
+              rejected: [
+                {
+                  stage: "economic-selection",
+                  reason: "ceiling-exceeded",
+                  alternativeIdentity: {
+                    route: { routeId: "route-codex" },
+                    account: {
+                      kind: "account-bound",
+                      capacityIdentity: "secret-capacity",
+                      accountRef: "secret-account-ref",
+                      credentialRevision: "secret-credential-revision",
+                    },
+                  },
                 },
-              },
-            }],
-          },
-          authorityRejections: [
-            {
-              stage: "account-selection",
-              routeId: "route-opencode",
-              rejections: [
-                { account: "secret-account-a", reason: "lease-conflict" },
-                { account: "secret-account-b", reason: "lease-conflict" },
-                { account: "secret-account-c", reason: "unhealthy" },
               ],
             },
-            {
-              stage: "local-capacity",
-              routeId: "route-opencode",
-              reason: "route-capacity-exhausted",
+            evidence: {
+              decision: {
+                kind: "denied",
+                rejected: [
+                  {
+                    stage: "economic-selection",
+                    reason: "ceiling-exceeded",
+                    alternativeIdentity: {
+                      route: { routeId: "route-codex" },
+                      account: {
+                        kind: "account-bound",
+                        capacityIdentity: "secret-capacity",
+                        accountRef: "secret-account-ref",
+                        credentialRevision: "secret-credential-revision",
+                      },
+                    },
+                  },
+                ],
+              },
+              authorityRejections: [
+                {
+                  stage: "account-selection",
+                  routeId: "route-opencode",
+                  rejections: [
+                    { account: "secret-account-a", reason: "lease-conflict" },
+                    { account: "secret-account-b", reason: "lease-conflict" },
+                    { account: "secret-account-c", reason: "unhealthy" },
+                  ],
+                },
+                {
+                  stage: "local-capacity",
+                  routeId: "route-opencode",
+                  reason: "route-capacity-exhausted",
+                },
+              ],
             },
-          ],
-        },
-      } as never)),
+          }) as never,
+      ),
       releasePreFence: vi.fn(),
       fenceDispatch: vi.fn(),
       readDispatch: vi.fn(() => undefined),
@@ -678,12 +956,14 @@ describe("ManagedEconomicDispatchCoordinator", () => {
     });
     if (preparation.status !== "prepared") throw new Error("fixture");
 
-    await vi.waitFor(() => expect(economicAuthority.recordExecutionSettlementPending).toHaveBeenCalledWith(
-      "job-a",
-      "economic-attempt-a",
-      preparation.dispatchFenceId,
-      "registered-execution-settlement-missing",
-    ));
+    await vi.waitFor(() =>
+      expect(economicAuthority.recordExecutionSettlementPending).toHaveBeenCalledWith(
+        "job-a",
+        "economic-attempt-a",
+        preparation.dispatchFenceId,
+        "registered-execution-settlement-missing",
+      ),
+    );
     expect(economicAuthority.releasePreFence).not.toHaveBeenCalled();
     expect(economicAuthority.fenceDispatch).toHaveBeenCalledOnce();
   });
@@ -745,12 +1025,14 @@ describe("ManagedEconomicDispatchCoordinator", () => {
     if (preparation.status !== "prepared") throw new Error("fixture");
     preparation.registerEconomicSettlement(new Promise<ManagedEconomicSettlement>(() => undefined));
 
-    await vi.waitFor(() => expect(economicAuthority.recordExecutionSettlementPending).toHaveBeenCalledWith(
-      "job-a",
-      "economic-attempt-a",
-      preparation.dispatchFenceId,
-      "registered-execution-settlement-timed-out",
-    ));
+    await vi.waitFor(() =>
+      expect(economicAuthority.recordExecutionSettlementPending).toHaveBeenCalledWith(
+        "job-a",
+        "economic-attempt-a",
+        preparation.dispatchFenceId,
+        "registered-execution-settlement-timed-out",
+      ),
+    );
     expect(economicAuthority.settleExecution).not.toHaveBeenCalled();
     expect(economicAuthority.releasePreFence).not.toHaveBeenCalled();
   });
@@ -784,12 +1066,14 @@ describe("ManagedEconomicDispatchCoordinator", () => {
     };
     prepared.registerEconomicSettlement(Promise.resolve(unknown));
 
-    await vi.waitFor(() => expect(economicAuthority.settleExecution).toHaveBeenCalledWith(
-      "job-a",
-      "economic-attempt-a",
-      prepared.dispatchFenceId,
-      unknown,
-    ));
+    await vi.waitFor(() =>
+      expect(economicAuthority.settleExecution).toHaveBeenCalledWith(
+        "job-a",
+        "economic-attempt-a",
+        prepared.dispatchFenceId,
+        unknown,
+      ),
+    );
     expect(economicAuthority.releasePreFence).not.toHaveBeenCalled();
   });
 
@@ -900,10 +1184,12 @@ describe("ManagedEconomicDispatchCoordinator", () => {
           runtimeModelRoundActionClaims: createFixtureModelRoundStore(),
         });
       });
-      const fenceDispatch = vi.fn((fenceJobId: string, fenceAttemptId: string, fenceId: string, actionClaim: ManagedEconomicActionClaim) => {
-        order.push("fence");
-        return authority.fenceDispatch(fenceJobId, fenceAttemptId, fenceId, actionClaim);
-      });
+      const fenceDispatch = vi.fn(
+        (fenceJobId: string, fenceAttemptId: string, fenceId: string, actionClaim: ManagedEconomicActionClaim) => {
+          order.push("fence");
+          return authority.fenceDispatch(fenceJobId, fenceAttemptId, fenceId, actionClaim);
+        },
+      );
       const createAdapter = vi.fn(async ({ commitment }: { readonly commitment: ManagedEconomicCommitment }) => {
         order.push(`adapter:${commitment.reservation.selectedIdentity.route.providerId}`);
         if (commitment.reservation.selectedIdentity.route.providerId === "codex-oauth") {
@@ -914,7 +1200,8 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       const coordinator = new ManagedEconomicDispatchCoordinator({
         authority: {
           acquire: (request) => authority.acquireCommitment(request),
-          releasePreFence: (releaseJobId, releaseAttemptId) => authority.releaseCommitmentPreFence(releaseJobId, releaseAttemptId),
+          releasePreFence: (releaseJobId, releaseAttemptId) =>
+            authority.releaseCommitmentPreFence(releaseJobId, releaseAttemptId),
           fenceDispatch,
           readDispatch: (readJobId, readAttemptId, readFenceId, actionClaim) =>
             authority.readDispatch(readJobId, readAttemptId, readFenceId, actionClaim),
@@ -937,26 +1224,37 @@ describe("ManagedEconomicDispatchCoordinator", () => {
         access: "read-only",
         authorityProfileId: AUTHORITY_PROFILE_ID,
         invocationId: `managed-invocation:${jobId}`,
+        realizeExecutionBeforeFence: async ({ adapter }) => {
+          order.push("request");
+          expect(adapter.descriptor.providerId).toBe("opencode-go");
+          return { requestId: "prepared-before-fence" };
+        },
         lifecycleEvents: {
-          record: (input) => appendManagedEconomicLifecycleSessionEvent({
-            session,
-            workspaceRoot: root,
-            jobId,
-            economicAttemptId,
-            ...input,
-          }),
+          record: (input) =>
+            appendManagedEconomicLifecycleSessionEvent({
+              session,
+              workspaceRoot: root,
+              jobId,
+              economicAttemptId,
+              ...input,
+            }),
         },
       });
 
       if (prepared.status !== "prepared") throw new Error("Expected the eligible OpenCode route to be prepared.");
       expect(prepared.commitment.reservation.selectedIdentity.route).toMatchObject({
-        routeId: "route-opencode", providerId: "opencode-go",
+        routeId: "route-opencode",
+        providerId: "opencode-go",
       });
-      expect(prepared.commitment.rejected).toContainEqual(expect.objectContaining({
-        stage: "economic-selection", reason: "ceiling-exceeded",
-        alternativeIdentity: expect.objectContaining({ route: expect.objectContaining({ routeId: "route-codex" }) }),
-      }));
-      expect(order).toEqual(["adapter:opencode-go", "fence"]);
+      expect(prepared.commitment.rejected).toContainEqual(
+        expect.objectContaining({
+          stage: "economic-selection",
+          reason: "ceiling-exceeded",
+          alternativeIdentity: expect.objectContaining({ route: expect.objectContaining({ routeId: "route-codex" }) }),
+        }),
+      );
+      expect(prepared.realization).toEqual({ kind: "realized", execution: { requestId: "prepared-before-fence" } });
+      expect(order).toEqual(["adapter:opencode-go", "request", "fence"]);
       expect(fenceDispatch).toHaveBeenCalledOnce();
       expect(createAdapter).toHaveBeenCalledOnce();
       expect(constructOpenCodeAdapter).toHaveBeenCalledOnce();
@@ -983,10 +1281,17 @@ describe("ManagedEconomicDispatchCoordinator", () => {
         },
       });
       prepared.registerEconomicSettlement(Promise.resolve(settlement));
-      await vi.waitFor(() => expect(authority.createAgentTaskReplayInspectionPort().inspect({ jobId, economicAttemptId }))
-        .toMatchObject({ evidenceVersion: 1, status: "released", selectedRoute: { routeId: "route-opencode" } }));
+      await vi.waitFor(() =>
+        expect(authority.createAgentTaskReplayInspectionPort().inspect({ jobId, economicAttemptId })).toMatchObject({
+          evidenceVersion: 1,
+          status: "released",
+          selectedRoute: { routeId: "route-opencode" },
+        }),
+      );
       expect(session.sessionEvents.map((event) => event.kind)).toEqual([
-        "managed_economic_lifecycle", "managed_economic_lifecycle", "managed_economic_lifecycle",
+        "managed_economic_lifecycle",
+        "managed_economic_lifecycle",
+        "managed_economic_lifecycle",
       ]);
       for (const event of session.sessionEvents) {
         expect(event).toMatchObject({ evidenceVersion: 1 });
@@ -1013,21 +1318,28 @@ describe("ManagedEconomicDispatchCoordinator", () => {
         intentFingerprint: digestManagedEconomicValue({ proof: "capacity" }),
         ...adoption,
       };
-      expect(authority.acquireCommitment({
-        ...request,
-        jobId: "job-capacity-first",
-        economicAttemptId: "economic-attempt-capacity-first",
-      })).toMatchObject({ status: "committed", record: { state: "held" } });
+      expect(
+        authority.acquireCommitment({
+          ...request,
+          jobId: "job-capacity-first",
+          economicAttemptId: "economic-attempt-capacity-first",
+        }),
+      ).toMatchObject({ status: "committed", record: { state: "held" } });
       const denied = authority.acquireCommitment({
         ...request,
         jobId: "job-capacity-second",
         economicAttemptId: "economic-attempt-capacity-second",
       });
-      if (denied.status !== "denied") throw new Error("Expected the consumed route capacity to deny a second commitment.");
+      if (denied.status !== "denied")
+        throw new Error("Expected the consumed route capacity to deny a second commitment.");
       expect(denied.decision.rejected).toEqual([]);
-      expect(denied.evidence.authorityRejections).toEqual([{
-        stage: "local-capacity", routeId: "route-codex", reason: "route-capacity-exhausted",
-      }]);
+      expect(denied.evidence.authorityRejections).toEqual([
+        {
+          stage: "local-capacity",
+          routeId: "route-codex",
+          reason: "route-capacity-exhausted",
+        },
+      ]);
     } finally {
       authority.close();
       rmSync(root, { recursive: true, force: true });
@@ -1072,7 +1384,7 @@ function accountlessCompetingRoutes(codexCeilingAtoms = "0"): ManagedEconomicDis
     quotaRequirement: "optional",
   });
   const comparisonDomain = codex.snapshot.routes[0]!.comparisonDomain;
-  const accountless = (candidate: typeof codex.snapshot.routes[number]) => ({
+  const accountless = (candidate: (typeof codex.snapshot.routes)[number]) => ({
     ...candidate,
     admittedIdentity: { ...candidate.admittedIdentity, accountPolicy: { kind: "accountless" as const } },
     route: { ...candidate.route, accountPolicyId: null },
@@ -1083,7 +1395,12 @@ function accountlessCompetingRoutes(codexCeilingAtoms = "0"): ManagedEconomicDis
       ...accountless(codex.snapshot.routes[0]!),
       ceiling: {
         kind: "finite" as const,
-        amount: { atoms: codexCeilingAtoms, scale: 2, unit: "currency", scheme: { kind: "currency" as const, currency: "USD" } },
+        amount: {
+          atoms: codexCeilingAtoms,
+          scale: 2,
+          unit: "currency",
+          scheme: { kind: "currency" as const, currency: "USD" },
+        },
       },
     },
     accountless(openCode.snapshot.routes[0]!),

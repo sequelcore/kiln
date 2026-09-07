@@ -1,10 +1,12 @@
+import { NODE_VERIFIER_IMAGE } from "../../src/application/benchmarks/container-verifier-runner.js";
+import type { ContainerVerifierRunner } from "../../src/application/benchmarks/container-verifier-runner.js";
 import { writeFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  BACKEND_VERIFIER_IMAGE,
+
   verifyBackendBenchmarkLease,
-  type BackendVerifierRunner,
+
 } from "../../src/application/benchmarks/formal-screening/backend-verifier.js";
 import { BACKEND_BENCHMARK_CASES } from "../../src/application/benchmark-backend-cases.js";
 import { createBenchmarkWriteWorkspaceLease } from "../../src/application/benchmark-write-workspace.js";
@@ -41,7 +43,7 @@ describe("verifyBackendBenchmarkLease", () => {
         testDigest: BACKEND_BENCHMARK_CASES[CASE_ID].testDigest,
         runner: {
           kind: "docker",
-          image: BACKEND_VERIFIER_IMAGE,
+          image: NODE_VERIFIER_IMAGE,
           network: "none",
           rootFilesystem: "read-only",
         },
@@ -57,7 +59,7 @@ describe("verifyBackendBenchmarkLease", () => {
       expect(args).toContain("none");
       expect(args).toContain("--read-only");
       expect(args).toContain("no-new-privileges");
-      expect(args).toContain(BACKEND_VERIFIER_IMAGE);
+      expect(args).toContain(NODE_VERIFIER_IMAGE);
       expect(args.some((arg) => arg.endsWith(":/workspace:ro"))).toBe(true);
       expect(args).not.toContain("--allow-child-process");
       expect(args).not.toContain("--allow-net");
@@ -90,7 +92,7 @@ describe("verifyBackendBenchmarkLease", () => {
   it("fails closed on timeout or incomplete TAP evidence", async () => {
     const lease = createBenchmarkWriteWorkspaceLease(resolveProjectRoot().rootPath, FIXTURE);
     writeFileSync(`${lease.rootPath}/src/solution.mjs`, "export const fixed = true;\n", "utf8");
-    const runner: BackendVerifierRunner = {
+    const runner: ContainerVerifierRunner = {
       run: vi.fn(async () => ({
         exitCode: 1,
         stdout: "TAP version 13\n# pass 3\n# fail 1\n",
@@ -119,7 +121,7 @@ describe("verifyBackendBenchmarkLease", () => {
   it("reports an unavailable container runtime as infrastructure failure", async () => {
     const lease = createBenchmarkWriteWorkspaceLease(resolveProjectRoot().rootPath, FIXTURE);
     writeFileSync(`${lease.rootPath}/src/solution.mjs`, "export const fixed = true;\n", "utf8");
-    const runner: BackendVerifierRunner = {
+    const runner: ContainerVerifierRunner = {
       run: vi.fn(async () => ({
         exitCode: 1,
         stdout: "",
@@ -174,7 +176,7 @@ describe("verifyBackendBenchmarkLease", () => {
   });
 });
 
-function passingRunner(): BackendVerifierRunner {
+function passingRunner(): ContainerVerifierRunner {
   return {
     run: vi.fn(async () => ({
       exitCode: 0,

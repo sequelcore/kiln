@@ -1,3 +1,4 @@
+import { BOUNDED_IMPLEMENTATION_PROFILE_ID, type BoundedImplementationVerification } from "@kilnai/core/eval";
 import { createHash, randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 import type {
@@ -110,7 +111,7 @@ import {
 import {
   isContextEfficiencyBoundedImplementationFixture,
   verifyContextEfficiencyBoundedImplementationLease,
-  type ContextEfficiencyBoundedImplementationVerification,
+  assertBoundedImplementationVerifierAvailable,
 } from "./context-efficiency-bounded-implementation-verifier.js";
 import {
   createLemmaCheckTool,
@@ -176,6 +177,7 @@ const FORMAL_SCREENING_PROTOCOL_HASH = digestCanonicalValue({
   },
 });
 const WRITE_BENCHMARK_PROFILE_IDS = new Set([
+  BOUNDED_IMPLEMENTATION_PROFILE_ID,
   "kiln-managed-coding-agent",
   "kiln-model-roster-backend-write",
   "kiln-model-roster-frontend-render",
@@ -282,6 +284,11 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
           repositoryRoot,
           context.item.metadata?.workspaceFixture,
         );
+    const boundedFixture = isContextEfficiencyBoundedImplementationFixture(context.item.metadata?.workspaceFixture);
+    if ((context.profile.id === BOUNDED_IMPLEMENTATION_PROFILE_ID) !== boundedFixture) {
+      throw new Error("Bounded implementation requires its matching profile and fixture.");
+    }
+    if (boundedFixture) await assertBoundedImplementationVerifierAvailable();
     const writeMode = isWriteBenchmarkProfile(context.profile.id);
     configurationAdmissionPromise ??= captureBenchmarkConfigurationAdmission({
       repositoryRoot,
@@ -324,7 +331,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     let observedVerification:
       | BackendBenchmarkVerification
       | FrontendBenchmarkVerification
-      | ContextEfficiencyBoundedImplementationVerification
+      | BoundedImplementationVerification
       | undefined;
     let expectedRouteId: string | undefined;
     const sessionId = randomUUID();
@@ -894,7 +901,9 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       costUsd: result.finalCostUsd,
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
-      trial: formalWallClockTimedOut
+      trial: boundedFixture && observedVerification && "infrastructureFailure" in observedVerification && observedVerification.infrastructureFailure
+        ? { status: "invalid", reason: "verifier-infrastructure" }
+        : formalWallClockTimedOut
         ? { status: "invalid", reason: "timeout" }
         : budgetExceeded
           ? { status: "invalid", reason: "budget" }

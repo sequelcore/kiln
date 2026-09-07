@@ -1,3 +1,4 @@
+import { hasPassedBoundedImplementationVerification } from "../packages/core/src/eval/bounded-implementation.js";
 export type ContextEfficiencyTaskOracleReasonCode =
   | "unsupported_oracle"
   | "answer_mismatch"
@@ -152,7 +153,7 @@ function evaluateFixtureChecksum(input: ContextEfficiencyTaskOracleInput): Conte
 
 function evaluateBoundedImplementation(input: ContextEfficiencyTaskOracleInput): ContextEfficiencyTaskOracleResult {
   const reasons: ContextEfficiencyTaskOracleReasonCode[] = [];
-  if (!hasPassedFixtureVerification(input.evidence.observedVerification)) {
+  if (!hasPassedBoundedImplementationVerification(input.evidence.observedVerification)) {
     reasons.push("fixture_verification_failed");
   }
   const allowedPaths = requiredStringArray(input.oracle.allowedPaths);
@@ -208,12 +209,6 @@ function appendReadCoverageReasons(
   if (requiredTargets.some((target) => !observedTargets.has(readTargetKey(target.authorizedRootIndex, target.relativePath)))) {
     reasons.push("required_read_target_missing");
   }
-}
-
-function hasPassedFixtureVerification(value: unknown): boolean {
-  if (!isRecord(value) || value.status !== "passed") return false;
-  const tests = isRecord(value.tests) ? value.tests : undefined;
-  return tests?.exitCode === 0 && tests.failed === 0 && tests.timedOut === false;
 }
 
 function hasOnlyAllowedChangedPaths(value: unknown, allowedPaths: readonly string[]): boolean {

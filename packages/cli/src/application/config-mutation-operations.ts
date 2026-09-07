@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import {
   assertPolicyAdaptationPromotionEvidence,
@@ -21,7 +21,7 @@ import { isOperatorAppearancePreference } from "@kilnai/operator-appearance";
 import { parse, parseDocument, stringify, type Document } from "yaml";
 import { validateGlobalConfig } from "../config/global-config.js";
 import { deriveEffectiveKilnYaml } from "../config/config-merger.js";
-import { isAlias, isCollection } from "yaml";
+import { isAlias, isCollection, isScalar } from "yaml";
 import {
   assertExecutionTargetEvidenceRenewal,
   projectExecutionTargetCatalogFromIntent,
@@ -93,6 +93,8 @@ export function normalizeConfigMutation(
   switch (operation) {
     case "skill.upsert":
       return normalizeSkillUpsert(context, payload);
+    case "agent.update_authority_profile":
+      return normalizeGlobalAgentAuthorityProfile(context, payload);
     case "agent.upsert":
       return normalizeAgentUpsert(projectBinding(context), payload);
     case "agent.attach_skills":
@@ -1235,6 +1237,79 @@ export function permissionAuthorityImpact(
     return scalarOnly ? "none" : "unknown";
   }
   return "unknown";
+}
+
+function normalizeGlobalAgentAuthorityProfile(
+  context: ConfigMutationContext,
+  rawPayload: unknown,
+): NormalizedConfigMutation {
+  const payload = asRecord(rawPayload);
+  const diagnostics: KilnConfigValidationDiagnostic[] = [];
+  const name = requireId(payload.name, "name", diagnostics);
+  const authorityProfileId = requireId(payload.authorityProfileId, "authorityProfileId", diagnostics);
+  for (const key of Object.keys(payload))
+    if (key !== "name" && key !== "authorityProfileId") {
+      diagnostics.push({
+        severity: "error",
+        field: key,
+        message: "Only the agent name and authority profile may be supplied.",
+      });
+    }
+  const safeName = /^[a-z][a-z0-9-]*$/u.test(name) ? name : "invalid-agent";
+  const path = join(dirname(context.globalConfigPath), "agents", `${safeName}.md`);
+  let existing = "";
+  if (existsSync(path)) {
+    if (realpathSync(path) !== join(realpathSync(dirname(context.globalConfigPath)), "agents", `${safeName}.md`)) {
+      diagnostics.push({
+        severity: "error",
+        field: "name",
+        message: "Global agent must use its canonical physical path.",
+      });
+    } else if (diagnostics.length === 0) existing = readFileSync(path, "utf8");
+  }
+  let nextContent = existing;
+  const globalContent = existsSync(context.globalConfigPath) ? readFileSync(context.globalConfigPath, "utf8") : "";
+  try {
+    const config: unknown = parse(globalContent);
+    validateGlobalConfig(config);
+    if (!config.authorityProfiles?.some((profile) => profile.id === authorityProfileId))
+      throw new Error("Unknown global authority profile.");
+    const agent = parseAgentDefinitionContent(existing, "global");
+    if (!agent || agent.name !== name)
+      throw new Error("Existing global agent is missing, invalid, or has a mismatched name.");
+    const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(existing);
+    const frontmatter = match?.[1];
+    if (frontmatter === undefined) throw new Error("Existing global agent requires YAML frontmatter.");
+    const document = parseDocument(frontmatter);
+    const node = document.get("authorityProfileId", true);
+    if (document.errors.length || !isScalar(node) || typeof node.value !== "string" || !node.range)
+      throw new Error("Existing authorityProfileId must be a unique scalar field.");
+    const offset = existing.indexOf(frontmatter);
+    nextContent =
+      existing.slice(0, offset + node.range[0]) +
+      stringify(authorityProfileId).trimEnd() +
+      existing.slice(offset + node.range[1]);
+    const updated = parseAgentDefinitionContent(nextContent, "global");
+    if (!updated || updated.authorityProfileId !== authorityProfileId)
+      throw new Error("Updated global agent failed canonical parsing.");
+  } catch (error) {
+    diagnostics.push({
+      severity: "error",
+      field: "authorityProfileId",
+      message: error instanceof Error ? error.message : "Invalid global authority profile update.",
+    });
+  }
+  return {
+    scope: "global",
+    payload: { name, authorityProfileId, globalConfigRevision: hashText(globalContent) },
+    path,
+    nextContent,
+    diagnostics,
+    authorityImpact: "unknown",
+    affectedOwners: ["global-agent-catalog"],
+    reconciliationTargets: ["native-agents", "workflow-snapshot"],
+    activation: "reconcile",
+  };
 }
 
 function normalizeAgentUpsert(binding: ProjectStateBinding, rawPayload: unknown): NormalizedConfigMutation {

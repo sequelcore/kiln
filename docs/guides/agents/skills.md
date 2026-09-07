@@ -502,3 +502,20 @@ Skills can be triggered by events. The supported event types are defined in `pac
 - [CLI Wrapper](../gui/cli-wrapper.md) -- session lifecycle and transcript persistence
 - [Tool Use](../channels/tool-use.md) -- canonical tool surface, MCP projection, and
   execution policy
+
+### Installed Codex plugin inventory
+
+Codex plugin inventory prefers the exact installed cache version returned by
+`codex plugin list --json`, verifies its manifest identity, and projects paths
+from that cache. A readable local source is the fallback when no installed cache
+exists. Unverifiable caches and unsupported layouts leave inventory incomplete.
+Package digests include assets, with an 8 MiB per-file and 64 MiB total read budget.
+
+For external native plugins, portable identity diagnostics remain visible as
+warnings: keeping a native plugin exposed does not admit it into Kiln's portable
+registry. Invalid packages, broken references, and traversal failures still block
+exposure. Canonical package admission retains its portable identity checks.
+
+An exact `kiln uninstall <target-id>` resolves project or global recorded ownership
+and refuses ambiguous ownership. Whole-file removals preserve a private backup;
+`--force` is required to remove a file that has drifted from its recorded content.

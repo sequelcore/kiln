@@ -9,6 +9,10 @@
     "packages/*"
   ],
   "scripts": {
+    "research:references": "bun run scripts/repository-analysis/query.ts",
+    "research:references:local": "bun run scripts/repository-analysis/local-reference-workflow.ts",
+    "research:references:evaluate": "bun run scripts/repository-analysis/evaluate.ts",
+    "research:references:project:evaluate": "bun run scripts/repository-analysis/evaluate-project.ts",
     "build": "bun run scripts/release/cli.ts build",
     "compile": "tsc -b packages/operator-appearance packages/gateway-contracts packages/tools packages/core packages/runtime packages/sdk packages/cli packages/tui",
     "docs:check": "bun run scripts/validate-docs.ts",

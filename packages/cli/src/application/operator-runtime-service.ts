@@ -1,3 +1,4 @@
+import { digestManagedEconomicValue } from "@kilnai/core";
 import { createHash } from "node:crypto";
 import { dirname } from "node:path";
 import type { ManagedEconomicSettlement } from "@kilnai/core";
@@ -19,6 +20,8 @@ import {
   defineEffectiveAuthorityAdmissionBundle,
   signOperatorSessionCredential,
   type ManagedEconomicCommitmentAcquireInput,
+  type ManagedEconomicCommitmentRecord,
+  type ManagedEconomicNotDispatchedReconciliationInput,
 } from "@kilnai/runtime";
 import { NativeHarnessMcpTools, type AgentTaskApplicationPort } from "../native-harness/native-harness-mcp-tools.js";
 import { createNativeHarnessInspectionService } from "./native-harness-inspection.js";
@@ -31,6 +34,7 @@ import {
 } from "./operator-project-agent-tasks.js";
 import {
   closeManagedAccountRuntimeComposition,
+  createManagedAccountLeaseAuthority,
 } from "../config/managed-agent-routes.js";
 import { resolveGlobalConfigPath } from "../config/global-config.js";
 import { resolveKilnHomePath } from "../config/global-config/path.js";
@@ -100,6 +104,10 @@ export interface OperatorRuntimeMcpSdk {
   ) => McpHandler;
 }
 
+export interface OperatorEconomicReconciliationPort {
+  reconcileNotDispatched(input: ManagedEconomicNotDispatchedReconciliationInput): Pick<ManagedEconomicCommitmentRecord, "state" | "settlement">;
+}
+
 export interface OperatorRuntimeServiceOptions {
   readonly sessionSecret: Uint8Array;
   readonly nowEpochSeconds?: () => number;
@@ -107,6 +115,7 @@ export interface OperatorRuntimeServiceOptions {
   /** Operator-private diagnostic sink; errors never cross the application protocol. */
   readonly onApplicationError?: (error: unknown) => void;
   readonly maxSessions?: number;
+  readonly economicReconciliation?: OperatorEconomicReconciliationPort;
   readonly resolveWorkspace?: (context: TrustedProcessContext) => TrustedWorkspaceResolution;
   readonly createComposition?: (options: {
     readonly projectPath: string;
@@ -114,6 +123,7 @@ export interface OperatorRuntimeServiceOptions {
   readonly registry?: ProjectRuntimeRegistry<OperatorProjectAgentTaskApplicationComposition>;
   readonly sdkLoader?: () => Promise<OperatorRuntimeMcpSdk>;
   readonly userHome?: string;
+  readonly kilnHome?: string;
 }
 
 export interface OperatorRuntimeService {
@@ -139,13 +149,15 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
   }
 
   const resolveWorkspace = options.resolveWorkspace ?? resolveTrustedWorkspace;
-  const globalEconomicAuthorityDatabasePath = resolveGlobalEconomicAuthorityDatabasePath(resolveGlobalConfigPath());
+  const globalEconomicAuthorityDatabasePath = resolveGlobalEconomicAuthorityDatabasePath(resolveGlobalConfigPath(options.kilnHome));
   const globalEconomicRuntimeDirectory = dirname(globalEconomicAuthorityDatabasePath);
+  let globalEconomicAuthority: ReturnType<typeof createManagedAccountLeaseAuthority> | undefined;
+  const ensureGlobalEconomicAuthority = () => globalEconomicAuthority ??= createManagedAccountLeaseAuthority(globalEconomicAuthorityDatabasePath);
   let globalManagedAccountComposition: ReturnType<typeof createOperatorGlobalManagedAccountComposition>;
   let globalManagedAccountCompositionRevision: string | undefined;
   let globalRevisionRefresh: Promise<void> | undefined;
   const refreshGlobalCompositionRevision = async (globalConfigRevision: string): Promise<void> => {
-    if (options.createComposition !== undefined || globalManagedAccountCompositionRevision === globalConfigRevision)
+    if ((options.createComposition !== undefined && globalEconomicAuthority === undefined) || globalManagedAccountCompositionRevision === globalConfigRevision)
       return;
     if (globalRevisionRefresh) {
       await globalRevisionRefresh;
@@ -167,6 +179,8 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
         closeManagedAccountRuntimeComposition(globalEconomicRuntimeDirectory);
         globalManagedAccountComposition = undefined;
       }
+      globalEconomicAuthority?.close();
+      globalEconomicAuthority = undefined;
       globalManagedAccountCompositionRevision = globalConfigRevision;
     })();
     globalRevisionRefresh = refresh;
@@ -176,22 +190,23 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
       if (globalRevisionRefresh === refresh) globalRevisionRefresh = undefined;
     }
   };
-  const createDefaultComposition = async ({
-    projectPath,
-  }: {
-    readonly projectPath: string;
-  }): Promise<OperatorProjectAgentTaskApplicationComposition> => {
+  const ensureGlobalManagedAccountComposition = (projectPath: string) => {
     if (globalManagedAccountComposition === undefined) {
       globalManagedAccountComposition = createOperatorGlobalManagedAccountComposition({
         projectPath,
         compositionKey: globalEconomicRuntimeDirectory,
         databasePath: globalEconomicAuthorityDatabasePath,
+        authority: ensureGlobalEconomicAuthority(),
       });
     }
+    return globalManagedAccountComposition;
+  };
+  const createDefaultComposition = async ({ projectPath }: { readonly projectPath: string }): Promise<OperatorProjectAgentTaskApplicationComposition> => {
+    const managedAccountComposition = ensureGlobalManagedAccountComposition(projectPath);
     return createOperatorProjectAgentTaskApplicationComposition({
       projectPath,
       ...(options.onApplicationError ? { onDispatchError: options.onApplicationError } : {}),
-      ...(globalManagedAccountComposition ? { managedAccountComposition: globalManagedAccountComposition } : {}),
+      ...(managedAccountComposition ? { managedAccountComposition } : {}),
     });
   };
   const registry = options.registry ?? new ProjectRuntimeRegistry((descriptor) =>
@@ -297,7 +312,7 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
     const initialResolution = resolveWorkspace({ cwd: () => input.canonicalRoot });
     if (!isExactResolution(initialResolution, input.canonicalRoot, input.binding)) throw unavailable();
     try {
-      if (options.createComposition === undefined)
+      if (options.createComposition === undefined || globalEconomicAuthority !== undefined)
         await refreshGlobalCompositionRevision(readGlobalConfigRevision(initialResolution));
     } catch {
       throw unavailable();
@@ -307,7 +322,7 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
       if (closed) throw unavailable();
       const resolution = resolveWorkspace({ cwd: () => input.canonicalRoot });
       if (!isExactResolution(resolution, input.canonicalRoot, input.binding)) throw unavailable();
-      if (options.createComposition === undefined
+      if ((options.createComposition === undefined || globalEconomicAuthority !== undefined)
         && readGlobalConfigRevision(resolution) !== globalManagedAccountCompositionRevision) throw unavailable();
 
       const existing = sessions.get(input.sessionId);
@@ -473,11 +488,40 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
     });
     requestCompletions.add(requestCompletion);
     try {
+      const request = parsedRequest.data;
+      if (request.operation === "managed-economic.reconcile-not-dispatched") {
+        const reconciliation = request.input;
+        const authority = options.economicReconciliation ?? ensureGlobalEconomicAuthority();
+        const record = authority.reconcileNotDispatched({
+          jobId: reconciliation.jobId,
+          economicAttemptId: reconciliation.economicAttemptId,
+          dispatchFenceId: reconciliation.dispatchFenceId,
+          settlement: {
+            kind: "not-dispatched",
+            reservationId: reconciliation.reservationId,
+            dispatchFenceId: reconciliation.dispatchFenceId,
+            expectedPendingSettlementDigest: reconciliation.expectedPendingSettlementDigest,
+            sourceEvidenceDigest: reconciliation.sourceEvidenceDigest,
+            denialEvidenceDigest: reconciliation.denialEvidenceDigest,
+            authorityEvidenceDigest: digestManagedEconomicValue({
+              principal: session.principal,
+              projectRuntimeId,
+              request,
+            }),
+          },
+        });
+        return applicationSuccess({
+          jobId: reconciliation.jobId,
+          economicAttemptId: reconciliation.economicAttemptId,
+          dispatchFenceId: reconciliation.dispatchFenceId,
+          state: record.state,
+          settlement: record.settlement,
+        });
+      }
       const composition = await registry.ensure({
         canonicalRoot: session.canonicalRoot,
         binding: session.binding,
       });
-      const request = parsedRequest.data;
       const callerId = deriveOperatorProjectSurfaceCallerId({
         projectRuntimeId,
         principal: session.principal,
@@ -575,10 +619,12 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
       try {
         await registry.closeAll();
       } finally {
-        if (options.createComposition === undefined && globalManagedAccountComposition) {
+        if (globalManagedAccountComposition) {
           closeManagedAccountRuntimeComposition(globalEconomicRuntimeDirectory);
           globalManagedAccountComposition = undefined;
         }
+        globalEconomicAuthority?.close();
+        globalEconomicAuthority = undefined;
       }
     })();
     return closePromise;
@@ -622,6 +668,7 @@ async function handleMcpRequest(input: {
   readonly sdkLoader: () => Promise<OperatorRuntimeMcpSdk>;
   readonly requestId: string;
   readonly userHome?: string;
+  readonly kilnHome?: string;
 }): Promise<Response> {
   let sdk: OperatorRuntimeMcpSdk;
   try {

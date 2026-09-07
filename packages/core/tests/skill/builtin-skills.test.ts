@@ -125,8 +125,8 @@ describe("Kiln core builtin skills", () => {
     const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === "implementation-planning");
 
     expect(skill).toBeDefined();
-    expect(skill?.instructions).toContain("after scouting and before implementation");
-    expect(skill?.instructions).toMatch(/Skip a full plan for one\s+obvious low-risk edit/);
+    expect(skill?.instructions).toContain("a separate scouting");
+    expect(skill?.instructions).toMatch(/Skip a full plan for one obvious\s+low-risk edit/);
     expect(skill?.instructions).toContain("acceptance evidence");
     expect(skill?.instructions).toMatch(/Do not hide unresolved\s+product, architecture, authority, security, or data-safety decisions/);
     expect(skill?.instructions).toMatch(/confirmed by repository evidence/);

@@ -1,6 +1,7 @@
 # Context Efficiency Post-Fix Control v1
 
-Status: Two frozen collections are reconciled as diagnostic-only. See the
+Status: The latest [fifth collection](collection-5.md) is diagnostic-only with
+economic settlement subsequently reconciled. For earlier evidence, see the
 [first collection](collection-1.md) and [second collection](collection-2.md).
 A valid promotion control remains unestablished.
 
@@ -57,9 +58,10 @@ Task success and trial validity remain separate:
 - Shards require eight complete singular reads and a host-verified checksum.
   A frozen random seed determines their contents. The model-visible manifest
   describes the format without revealing the checksum.
-- Bounded implementation uses a disposable fixture. Its canonical verifier runs
-  `bun run test` before lease cleanup and checks that only `src/normalize.ts`
-  changed. The new fixture makes its tests discoverable by Bun.
+- Bounded implementation uses a disposable fixture and the dedicated
+  `kiln-bounded-implementation` profile. The dataset owns its sole solver prompt;
+  no delegation, pre-completed milestones, or model-reported test result is scored.
+  Core owns the verification contract and acceptance rule. CLI owns execution.
 - Managed work requires the declared child count, read-only authority, route,
   handoff, and complete transport evidence. A terminal lifecycle label alone
   cannot pass settlement.
@@ -149,3 +151,35 @@ The next template caps collection at the remaining 39 requests and binds the
 prior report and reconciliation digests. That allowance cannot cover a full
 corrected cohort. Any new authority configuration or additional quota needs its
 own concrete authorization; previous frozen manifests and reports remain intact.
+
+## Bounded implementation verifier revision 2
+
+The current pending protocol replaces the failed coding control's shell-test
+requirement. The candidate implements a synchronous, import-free TypeScript
+function with exactly the named export. The evaluator checks eight committed
+input/result cases, including required errors. It rejects out-of-scope changes
+before execution and checks the source and fixture identities again afterward.
+The obsolete Bun test-command fixture and duplicate protocol prompt are removed.
+Old frozen manifests and reports retain their original identities.
+
+The verifier uses the same container process owner as backend verification, with
+a digest-pinned Node image, no network, read-only filesystem and candidate-only
+mount, non-root execution, dropped capabilities, and resource limits. Docker and
+the pinned runtime are checked before freeze and before bounded model dispatch.
+Unavailable verification infrastructure cannot become a successful trial or
+trigger an unsandboxed fallback.
+
+Each case uses a fresh VM context with no process, console, imports, or runtime
+code generation. Module evaluation, function invocation and error-message access
+have timeouts. Only bounded primitive results cross to the trusted wrapper;
+expected results remain outside the container. Candidate stdout, fake test
+summaries, and early process exits cannot supply completion evidence. This is a
+bounded behavioral oracle for this fixture, not a general TypeScript sandbox:
+[Node explicitly does not designate `vm` as a security mechanism](https://nodejs.org/api/vm.html).
+Docker contains effects; passing these finite cases does not prove correctness
+for every input or establish a general adversarial execution guarantee.
+
+The pending collection ceiling is 116 requests: 532 previously observed plus
+17 conservatively reserved plus 116 remaining equals the approved total of 665.
+The protocol binds verifier revision 2 and its image digest; another live run
+requires a new clean source freeze and its ordinary scoped file admission.

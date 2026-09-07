@@ -121,6 +121,27 @@ export interface ManagedInvocationUnavailableRoute {
   readonly reason: string;
 }
 
+type ManagedInvocationEconomicDispatchInput<PreparedExecution = undefined> = {
+  readonly candidateSet: ManagedEconomicCandidateSet;
+  readonly jobId: string;
+  readonly economicAttemptId: string;
+  readonly intentFingerprint: string;
+  readonly admissionBundle: EffectiveAuthorityAdmissionBundle;
+  readonly effectIdentity: string;
+  readonly adoptedDecisionAt: string;
+  readonly parentSessionId: string;
+  readonly parentTurnId: string;
+  readonly authorityProfileId: string;
+  readonly invocationId: string;
+  readonly abortSignal?: AbortSignal;
+  readonly workLimitDurationMs?: number;
+  readonly lifecycleEvents?: ManagedEconomicLifecycleEventPort;
+  readonly validateAndConsumeApprovalBeforeFence?: ManagedEconomicDispatchPrepareInput<PreparedExecution>["validateAndConsumeApprovalBeforeFence"];
+  readonly validateExecutionProfile?: ManagedEconomicDispatchPrepareInput<PreparedExecution>["validateExecutionProfile"];
+  readonly realizeExecutionBeforeFence?: ManagedEconomicDispatchPrepareInput<PreparedExecution>["realizeExecutionBeforeFence"];
+  readonly releasePreparedExecutionBeforeFence?: ManagedEconomicDispatchPrepareInput<PreparedExecution>["releasePreparedExecutionBeforeFence"];
+};
+
 export interface ManagedInvocationToolOptions {
   readonly routes: readonly ManagedInvocationToolRoute[];
   readonly unavailableRoutes?: readonly ManagedInvocationUnavailableRoute[];
@@ -140,24 +161,9 @@ export interface ManagedInvocationToolOptions {
   /** Project root used to redact durable economic-lifecycle session events. */
   readonly workspaceRoot?: string;
   readonly economicDispatch?: {
-    prepare(input: {
-      readonly candidateSet: ManagedEconomicCandidateSet;
-      readonly jobId: string;
-      readonly economicAttemptId: string;
-      readonly intentFingerprint: string;
-      readonly admissionBundle: EffectiveAuthorityAdmissionBundle;
-      readonly effectIdentity: string;
-      readonly adoptedDecisionAt: string;
-      readonly parentSessionId: string;
-      readonly parentTurnId: string;
-      readonly authorityProfileId: string;
-      readonly invocationId: string;
-      readonly abortSignal?: AbortSignal;
-      readonly workLimitDurationMs?: number;
-       readonly lifecycleEvents?: ManagedEconomicLifecycleEventPort;
-       readonly validateAndConsumeApprovalBeforeFence?: ManagedEconomicDispatchPrepareInput["validateAndConsumeApprovalBeforeFence"];
-       readonly validateExecutionProfile?: ManagedEconomicDispatchPrepareInput["validateExecutionProfile"];
-     }): Promise<ManagedEconomicDispatchPreparation>;
+    prepare<PreparedExecution = undefined>(
+      input: ManagedInvocationEconomicDispatchInput<PreparedExecution>,
+    ): Promise<ManagedEconomicDispatchPreparation<PreparedExecution>>;
   };
 }
 
@@ -311,10 +317,7 @@ export interface ManagedInvocationSkillCatalogEntry {
 }
 
 export interface ManagedInvocationSessionEventSink {
-  publish(
-    events: readonly CanonicalSessionEvent[],
-    context: RuntimeBuiltinToolExecutionContext,
-  ): void | Promise<void>;
+  publish(events: readonly CanonicalSessionEvent[], context: RuntimeBuiltinToolExecutionContext): void | Promise<void>;
 }
 
 export interface ManagedInvocationContextResolverInput {

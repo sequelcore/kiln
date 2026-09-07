@@ -6,19 +6,24 @@ import {
   detectNativeProjectionDrift,
   detectNativeProjectionFileDrift,
   readNativeProjectionInstallState,
+  resolveGlobalNativeProjectionStateDir,
   removeNativeProjectionTargetState,
   stripManagedFields,
   writeNativeProjectionInstallState,
   type NativeProjectionInstallState,
   type NativeProjectionTargetState,
 } from "../config/native-projection-state.js";
+import { backupNativeProjectionFile } from "../config/native-projection-backup.js";
 import type { KilnAppConfig } from "../config.js";
-import { CODEX_EXTERNAL_SKILL_EXPOSURE_TARGET_ID, uninstallCodexExternalSkillExposure } from "../config/codex-external-skill-exposure-projection.js";
-import { OPENCODE_SKILL_VISIBILITY_TARGET_ID, uninstallOpenCodeSkillVisibilityProjection } from "../config/native-permission-projection.js";
 import {
-  resolveProjectStateBinding,
-  type ProjectStateBinding,
-} from "../application/project-state-root.js";
+  CODEX_EXTERNAL_SKILL_EXPOSURE_TARGET_ID,
+  uninstallCodexExternalSkillExposure,
+} from "../config/codex-external-skill-exposure-projection.js";
+import {
+  OPENCODE_SKILL_VISIBILITY_TARGET_ID,
+  uninstallOpenCodeSkillVisibilityProjection,
+} from "../config/native-permission-projection.js";
+import { resolveProjectStateBinding, type ProjectStateBinding } from "../application/project-state-root.js";
 
 export interface UninstallNativeOptions {
   readonly target?: string;
@@ -48,10 +53,15 @@ const TARGET_ALIASES: Readonly<Record<string, string>> = {
 
 type NativeHarnessTarget = "claude" | "codex" | "opencode";
 
-const HARNESS_TARGET_OWNERSHIP: Readonly<Record<NativeHarnessTarget, {
-  readonly exact: ReadonlySet<string>;
-  readonly prefixes: readonly string[];
-}>> = {
+const HARNESS_TARGET_OWNERSHIP: Readonly<
+  Record<
+    NativeHarnessTarget,
+    {
+      readonly exact: ReadonlySet<string>;
+      readonly prefixes: readonly string[];
+    }
+  >
+> = {
   claude: {
     exact: new Set([
       "claude-settings",
@@ -63,20 +73,11 @@ const HARNESS_TARGET_OWNERSHIP: Readonly<Record<NativeHarnessTarget, {
     prefixes: ["claude-agent:", "claude-skill:"],
   },
   codex: {
-    exact: new Set([
-      "codex-config",
-      "codex-global-instructions",
-      "codex-autoformat-hook",
-      "mcp:codex",
-    ]),
+    exact: new Set(["codex-config", "codex-global-instructions", "codex-autoformat-hook", "mcp:codex"]),
     prefixes: ["codex-agent:", "codex-skill:"],
   },
   opencode: {
-    exact: new Set([
-      "opencode-config",
-      "opencode-global-instructions",
-      "mcp:opencode",
-    ]),
+    exact: new Set(["opencode-config", "opencode-global-instructions", "mcp:opencode"]),
     prefixes: ["opencode-agent:", "opencode-skill:"],
   },
 } as const;
@@ -111,15 +112,47 @@ export async function uninstallCommand(
   }
 }
 
-export function uninstallNativeTargets(projectPath: string, options: UninstallNativeOptions = {}): UninstallNativeResult {
-  const stateBinding = options.projectStateBinding ?? resolveProjectStateBinding(projectPath, options.userHome === undefined
-    ? {}
-    : { kilnHome: join(options.userHome, ".kiln") });
-  const projectionStateDir = stateBinding.projectionsPath;
+export function uninstallNativeTargets(
+  projectPath: string,
+  options: UninstallNativeOptions = {},
+): UninstallNativeResult {
+  const stateBinding =
+    options.projectStateBinding ??
+    resolveProjectStateBinding(
+      projectPath,
+      options.userHome === undefined ? {} : { kilnHome: join(options.userHome, ".kiln") },
+    );
+  let projectionStateDir = stateBinding.projectionsPath;
   let installState = readNativeProjectionInstallState(projectionStateDir);
-  const targetIds = options.target?.trim() === CODEX_EXTERNAL_SKILL_EXPOSURE_TARGET_ID
-    || options.target?.trim() === OPENCODE_SKILL_VISIBILITY_TARGET_ID
-    ? [] : resolveTargetIds(installState, options.target);
+  // Exact global targets must be removed through the same owner that installed
+  // them. Do not widen a surgical uninstall into other harnesses or targets.
+  const exactTarget = options.target?.trim();
+  if (
+    exactTarget &&
+    !isNativeHarnessTarget(exactTarget) &&
+    !TARGET_ALIASES[exactTarget] &&
+    exactTarget !== "instructions" &&
+    exactTarget !== "global-instructions"
+  ) {
+    const globalStateDir = resolveGlobalNativeProjectionStateDir(options.userHome);
+    const globalState = readNativeProjectionInstallState(globalStateDir);
+    if (globalState.targets[exactTarget]) {
+      if (installState.targets[exactTarget]) {
+        return {
+          removed: [],
+          skipped: [exactTarget],
+          errors: [`${exactTarget}: ambiguous project and global projection ownership`],
+        };
+      }
+      projectionStateDir = globalStateDir;
+      installState = globalState;
+    }
+  }
+  const targetIds =
+    options.target?.trim() === CODEX_EXTERNAL_SKILL_EXPOSURE_TARGET_ID ||
+    options.target?.trim() === OPENCODE_SKILL_VISIBILITY_TARGET_ID
+      ? []
+      : resolveTargetIds(installState, options.target);
   const removed: string[] = [];
   const skipped: string[] = [];
   const errors: string[] = [];
@@ -146,6 +179,7 @@ export function uninstallNativeTargets(projectPath: string, options: UninstallNa
         continue;
       }
 
+      backupNativeProjectionFile({ kilnDir: projectionStateDir, targetId, filePath: target.filePath });
       unlinkSync(target.filePath);
       installState = removeNativeProjectionTargetState(installState, targetId);
       removed.push(targetId);
@@ -182,14 +216,25 @@ export function uninstallNativeTargets(projectPath: string, options: UninstallNa
   }
 
   const target = options.target?.trim();
-  if (!target || target === "codex" || target === "codex-config" || target === CODEX_EXTERNAL_SKILL_EXPOSURE_TARGET_ID) {
+  if (
+    !target ||
+    target === "codex" ||
+    target === "codex-config" ||
+    target === CODEX_EXTERNAL_SKILL_EXPOSURE_TARGET_ID
+  ) {
     const global = uninstallCodexExternalSkillExposure({ force: options.force, userHome: options.userHome });
     removed.push(...global.removed);
     errors.push(...global.errors);
   }
-  if (!target || target === "opencode" || target === "opencode-config" || target === OPENCODE_SKILL_VISIBILITY_TARGET_ID) {
+  if (
+    !target ||
+    target === "opencode" ||
+    target === "opencode-config" ||
+    target === OPENCODE_SKILL_VISIBILITY_TARGET_ID
+  ) {
     const global = uninstallOpenCodeSkillVisibilityProjection({ force: options.force, userHome: options.userHome });
-    removed.push(...global.removed); errors.push(...global.errors);
+    removed.push(...global.removed);
+    errors.push(...global.errors);
   }
   return { removed, skipped, errors };
 }
@@ -204,8 +249,9 @@ function resolveTargetIds(state: NativeProjectionInstallState, target: string | 
   }
   if (isNativeHarnessTarget(normalized)) {
     const ownership = HARNESS_TARGET_OWNERSHIP[normalized];
-    return Object.keys(state.targets).filter((targetId) =>
-      ownership.exact.has(targetId) || ownership.prefixes.some((prefix) => targetId.startsWith(prefix)));
+    return Object.keys(state.targets).filter(
+      (targetId) => ownership.exact.has(targetId) || ownership.prefixes.some((prefix) => targetId.startsWith(prefix)),
+    );
   }
   return [TARGET_ALIASES[normalized] ?? normalized];
 }

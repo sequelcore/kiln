@@ -99,6 +99,25 @@ export class GlobalConfigMutationError extends Error {
   }
 }
 
+/** Holds the canonical config lock while a dependent synchronous write checks its source revision. */
+export function withGlobalConfigRevision<T>(expectedRevision: string | undefined, commit: () => T): T {
+  const configPath = resolveGlobalConfigPath();
+  const lockPath = configPath + ".lock";
+  const lock = acquireGlobalConfigLock(configPath, lockPath);
+  try {
+    const raw = existsSync(configPath) ? readFileSync(configPath, "utf8") : null;
+    const actualRevision = globalConfigRevision(raw);
+    if (expectedRevision !== undefined && actualRevision !== expectedRevision) {
+      throw new GlobalConfigMutationError("GLOBAL_CONFIG_REVISION_CONFLICT", {
+        configPath, expectedRevision, actualRevision,
+      });
+    }
+    return commit();
+  } finally {
+    releaseGlobalConfigLock(lockPath, lock);
+  }
+}
+
 export interface GlobalConfigMutationResult {
   readonly config: KilnGlobalConfig;
   readonly previousRevision: string;

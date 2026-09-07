@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
@@ -28,6 +28,40 @@ function runUninstall(root: string, options: Omit<UninstallNativeOptions, "proje
 }
 
 describe("uninstallNativeTargets", () => {
+  it("retires only an exact global agent target after explicit drift override", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-uninstall-global-"));
+    const userHome = join(root, "home");
+    const stateDir = join(userHome, ".kiln", "runtime", "native-projections");
+    const selected = join(userHome, ".codex", "agents", "reviewer.toml");
+    const other = join(userHome, ".claude", "agents", "reviewer.md");
+    try {
+      let state = emptyNativeProjectionInstallState();
+      for (const [targetId, filePath] of [
+        ["codex-agent:reviewer", selected],
+        ["claude-agent:reviewer", other],
+      ] as const) {
+        writeFileSyncRecursive(filePath, "original", "utf8");
+        state = upsertNativeProjectionTargetState(
+          state,
+          createNativeProjectionFileSnapshot({ targetId, filePath, content: "original" }),
+        );
+      }
+      writeNativeProjectionInstallState(stateDir, state);
+      writeFileSync(selected, "operator-edited", "utf8");
+      const refused = runUninstall(root, { target: "codex-agent:reviewer", userHome });
+      expect(refused.removed).toEqual([]);
+      expect(refused.errors).toEqual(["codex-agent:reviewer: managed file drift detected: $file"]);
+      expect(readFileSync(selected, "utf8")).toBe("operator-edited");
+      const result = runUninstall(root, { target: "codex-agent:reviewer", userHome, force: true });
+      expect(result).toEqual({ removed: ["codex-agent:reviewer"], skipped: [], errors: [] });
+      expect(existsSync(selected)).toBe(false);
+      expect(readFileSync(other, "utf8")).toBe("original");
+      expect(Object.keys(readNativeProjectionInstallState(stateDir).targets)).toEqual(["claude-agent:reviewer"]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("strips only managed TOML fields and removes target install state", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-uninstall-codex-"));
     const codexConfigPath = join(root, "home", ".codex", "config.toml");
@@ -301,9 +335,7 @@ describe("uninstallNativeTargets", () => {
 
       expect(result.removed).toEqual([]);
       expect(result.skipped).toEqual(["opencode-config"]);
-      expect(result.errors).toEqual([
-        "opencode-config: managed field drift detected: permission",
-      ]);
+      expect(result.errors).toEqual(["opencode-config: managed field drift detected: permission"]);
       expect(JSON.parse(readFileSync(opencodeConfigPath, "utf-8"))).toEqual(drifted);
       expect(Object.keys(readNativeProjectionInstallState(kilnDir).targets)).toEqual(["opencode-config"]);
     } finally {
@@ -417,9 +449,7 @@ describe("uninstallNativeTargets", () => {
 
       expect(result.removed).toEqual([]);
       expect(result.skipped).toEqual(["claude-autoformat-hook"]);
-      expect(result.errors).toEqual([
-        "claude-autoformat-hook: managed file drift detected: $file",
-      ]);
+      expect(result.errors).toEqual(["claude-autoformat-hook: managed file drift detected: $file"]);
       expect(readFileSync(hookPath, "utf-8")).toBe(drifted);
     } finally {
       rmSync(root, { recursive: true, force: true });

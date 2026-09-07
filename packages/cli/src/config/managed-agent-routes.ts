@@ -925,6 +925,8 @@ function createManagedEconomicDispatchWithAuthority(
           ? { validateAndConsumeApprovalBeforeFence: input.validateAndConsumeApprovalBeforeFence }
           : {}),
         ...(input.validateExecutionProfile ? { validateExecutionProfile: input.validateExecutionProfile } : {}),
+        ...(input.realizeExecutionBeforeFence ? { realizeExecutionBeforeFence: input.realizeExecutionBeforeFence } : {}),
+        ...(input.releasePreparedExecutionBeforeFence ? { releasePreparedExecutionBeforeFence: input.releasePreparedExecutionBeforeFence } : {}),
       });
     },
   } };
@@ -2452,6 +2454,26 @@ function createManagedExternalActionClaimContext(
   };
 }
 
+/** Opens the sole process-owned managed-account ledger and performs its startup recovery. */
+export function createManagedAccountLeaseAuthority(databasePath: string): SqliteManagedAccountLeaseAuthority {
+  mkdirSync(dirname(databasePath), { recursive: true, mode: 0o700 });
+  const authority = new SqliteManagedAccountLeaseAuthority({ path: databasePath });
+  try {
+    for (const commitment of authority.recoverCommitments()) {
+      if (commitment.state === "held") {
+        authority.releaseCommitmentPreFence(
+          commitment.commitment.reservation.jobId,
+          commitment.commitment.reservation.economicAttemptId,
+        );
+      }
+    }
+    return authority;
+  } catch (error) {
+    authority.close();
+    throw new Error("Managed account startup recovery failed.", { cause: error });
+  }
+}
+
 export function createManagedAccountRuntimeComposition(
   config: ManagedAgentRouteConfigSource,
   cwd: string,
@@ -2460,6 +2482,8 @@ export function createManagedAccountRuntimeComposition(
     /** Exact operator-private Runtime state root supplied by CLI composition. */
     readonly runtimeStateRoot?: string;
     readonly databasePath?: string;
+    /** Existing process-owned ledger; this composition borrows and never recovers or closes it. */
+    readonly authority?: SqliteManagedAccountLeaseAuthority;
   } = {},
 ): ManagedAccountRuntimeComposition | undefined {
   const hasDirectRoute = resolveRouteConfigs(config)
@@ -2474,28 +2498,12 @@ export function createManagedAccountRuntimeComposition(
   }
   const databasePath = storage.databasePath
     ?? join(storage.runtimeStateRoot ?? resolveProjectStateBinding(cwd).runtimePath, "managed-account-leases.sqlite");
-  const runtimeDirectory = dirname(databasePath);
-  mkdirSync(runtimeDirectory, { recursive: true, mode: 0o700 });
   const routing = new ConfiguredExecutionAccountRuntime({
     catalog: executionCatalog,
     kilnHome: resolveProjectStateBinding(cwd).kilnHome,
   });
-  const authority = new SqliteManagedAccountLeaseAuthority({
-    path: databasePath,
-  });
-  try {
-    for (const commitment of authority.recoverCommitments()) {
-      if (commitment.state === "held") {
-        authority.releaseCommitmentPreFence(
-          commitment.commitment.reservation.jobId,
-          commitment.commitment.reservation.economicAttemptId,
-        );
-      }
-    }
-  } catch (error) {
-    authority.close();
-    throw new Error("Managed account startup recovery failed.", { cause: error });
-  }
+  const authority = storage.authority ?? createManagedAccountLeaseAuthority(databasePath);
+  const ownsAuthority = storage.authority === undefined;
   const composition: ManagedAccountRuntimeComposition = {
     routing,
     authority,
@@ -2503,7 +2511,7 @@ export function createManagedAccountRuntimeComposition(
       routing.updateCatalog(next);
     },
     close() {
-      authority.close();
+      if (ownsAuthority) authority.close();
     },
   };
   MANAGED_ACCOUNT_COMPOSITIONS.set(compositionKey, composition);

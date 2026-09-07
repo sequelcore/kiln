@@ -10,6 +10,8 @@ import { defaultGlobalConfig } from "../../src/config/global-config.js";
 import { DomainRegistry } from "@kilnai/core/domain";
 import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 import { bootstrapProjectAdoption } from "../../src/application/project-adoption-manifest.js";
+import { managedAgentIntentConfig, managedAgentTargetEvidence } from "../config/managed-agent-intent-config-fixture.js";
+import { writeExecutionTargetEvidenceSnapshot } from "../../src/config/execution-target-evidence-store.js";
 
 const MOCK_APP_CONFIG: KilnAppConfig = {
   createRegistry: () => new DomainRegistry(),
@@ -247,6 +249,38 @@ describe("configCommand", () => {
 
     expect(readFileSync(path, "utf8")).toBe(before);
     expect(consoleSpy.mock.calls.flat().join("\n")).toContain("Restore recorded configuration: committed");
+  });
+
+  it("requires approval to change a global agent profile and exposes an exact rollback", async () => {
+    seedProjectConfig(tempDir);
+    seedGlobalConfig(globalHome);
+    const globalPath = join(globalHome, "kiln", "config.yaml");
+    writeFileSync(globalPath, stringify(managedAgentIntentConfig()), "utf8");
+    writeExecutionTargetEvidenceSnapshot({ snapshot: managedAgentTargetEvidence(), globalConfigPath: globalPath });
+    const agentDirectory = join(globalHome, "kiln", "agents");
+    mkdirSync(agentDirectory);
+    const agentPath = join(agentDirectory, "scout.md");
+    const before = "---\r\nname: scout\r\nrole: Scout\r\ngoal: Find evidence\r\ntier: fast\r\ntools: [read]\r\ntargetId: codex-standard\r\nauthorityProfileId: missing-profile # preserve comment\r\n---\r\nRead the requested evidence.\r\n";
+    writeFileSync(agentPath, before, "utf8");
+    const previousExitCode = process.exitCode;
+    try {
+      await configCommand(MOCK_APP_CONFIG, "agent-authority-profile", ["scout", "readonly-plan"], tempDir);
+      expect(process.exitCode).toBe(1);
+      expect(readFileSync(agentPath, "utf8")).toBe(before);
+      expect(consoleSpy.mock.calls.flat().join("\n")).toContain("needs approval");
+
+      process.exitCode = previousExitCode;
+      await configCommand(MOCK_APP_CONFIG, "agent-authority-profile", ["scout", "readonly-plan", "--approve"], tempDir);
+      expect(readFileSync(agentPath, "utf8")).toBe(before.replace("missing-profile", "readonly-plan"));
+      const output = consoleSpy.mock.calls.flat().join("\n");
+      const token = /rollback token: (cfg_[a-f0-9]+)/u.exec(output)?.[1];
+      if (!token) throw new Error("Agent mutation did not expose a rollback token.");
+
+      await configCommand(MOCK_APP_CONFIG, "rollback", [token, "--approve"], tempDir);
+      expect(readFileSync(agentPath, "utf8")).toBe(before);
+    } finally {
+      process.exitCode = previousExitCode;
+    }
   });
 
   it("rejects a missing rollback settlement without changing global configuration", async () => {

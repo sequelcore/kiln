@@ -1,34 +1,22 @@
-import { execFile } from "node:child_process";
+import {
+  buildContainerVerifierArgs,
+  CONTAINER_VERIFIER_RUNNER,
+  NODE_VERIFIER_IMAGE,
+  type ContainerVerifierRunner,
+} from "../container-verifier-runner.js";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type {
-  BenchmarkWriteWorkspaceChanges,
-  BenchmarkWriteWorkspaceLease,
-} from "../../benchmark-write-workspace.js";
+import type { BenchmarkWriteWorkspaceChanges, BenchmarkWriteWorkspaceLease } from "../../benchmark-write-workspace.js";
 import { countBenchmarkHiddenTests } from "../../benchmark-hidden-test-source.js";
 
 export const BACKEND_VERIFIER_ID = "kiln.backend-write.v2";
 export const BACKEND_VERIFIER_VERSION = "2";
-export const BACKEND_VERIFIER_IMAGE = "node:24.15.0-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f";
 export const BACKEND_VERIFIER_ALLOWED_CHANGED_PATHS = ["src/solution.mjs"] as const;
-const VERIFIER_TIMEOUT_MS = 30_000;
+
 const MAX_OUTPUT_BYTES = 1_048_576;
-
-export interface BackendVerifierProcessResult {
-  readonly exitCode: number;
-  readonly stdout: string;
-  readonly stderr: string;
-  readonly timedOut: boolean;
-  readonly infrastructureFailure: boolean;
-}
-
-export interface BackendVerifierRunner {
-  run(containerName: string, args: readonly string[]): Promise<BackendVerifierProcessResult>;
-  cleanup(containerName: string): Promise<void>;
-}
 
 export interface BackendVerifierCasePayload {
   readonly id: string;
@@ -46,7 +34,7 @@ export interface BackendBenchmarkVerification {
   readonly testDigest: string;
   readonly runner: {
     readonly kind: "docker";
-    readonly image: typeof BACKEND_VERIFIER_IMAGE;
+    readonly image: typeof NODE_VERIFIER_IMAGE;
     readonly network: "none";
     readonly rootFilesystem: "read-only";
   };
@@ -65,7 +53,7 @@ export async function verifyBackendBenchmarkLease(input: {
   readonly lease: BenchmarkWriteWorkspaceLease;
   readonly benchmarkCase: BackendVerifierCasePayload;
   readonly allowedChangedPaths?: readonly string[];
-  readonly runner?: BackendVerifierRunner;
+  readonly runner?: ContainerVerifierRunner;
 }): Promise<BackendBenchmarkVerification> {
   const benchmarkCase = input.benchmarkCase;
   const changes = input.lease.collectChanges();
@@ -81,18 +69,22 @@ export async function verifyBackendBenchmarkLease(input: {
   const verifierRoot = await mkdtemp(join(tmpdir(), "kiln-backend-verifier-"));
   const testPath = join(verifierRoot, "hidden.test.mjs");
   const containerName = `kiln-backend-verifier-${randomUUID()}`;
-  const runner = input.runner ?? DOCKER_RUNNER;
+  const runner = input.runner ?? CONTAINER_VERIFIER_RUNNER;
   try {
     await writeFile(testPath, benchmarkCase.hiddenTestSource, "utf8");
-    const result = await runner.run(containerName, buildBackendVerifierDockerArgs(containerName, input.lease.rootPath, verifierRoot));
+    const result = await runner.run(
+      containerName,
+      buildBackendVerifierDockerArgs(containerName, input.lease.rootPath, verifierRoot),
+    );
     const counts = parseTapCounts(result.stdout);
-    const status = !result.infrastructureFailure
-      && !result.timedOut
-      && result.exitCode === 0
-      && counts.passed === benchmarkCase.hiddenTestCount
-      && counts.failed === 0
-      ? "passed"
-      : "failed";
+    const status =
+      !result.infrastructureFailure &&
+      !result.timedOut &&
+      result.exitCode === 0 &&
+      counts.passed === benchmarkCase.hiddenTestCount &&
+      counts.failed === 0
+        ? "passed"
+        : "failed";
     return {
       verifierId: BACKEND_VERIFIER_ID,
       verifierVersion: BACKEND_VERIFIER_VERSION,
@@ -102,7 +94,7 @@ export async function verifyBackendBenchmarkLease(input: {
       testDigest: benchmarkCase.hiddenTestDigest,
       runner: {
         kind: "docker",
-        image: BACKEND_VERIFIER_IMAGE,
+        image: NODE_VERIFIER_IMAGE,
         network: "none",
         rootFilesystem: "read-only",
       },
@@ -150,7 +142,10 @@ function validateBackendVerifierCasePayload(casePayload: BackendVerifierCasePayl
   if (typeof casePayload?.hiddenTestSource !== "string" || casePayload.hiddenTestSource.trim().length === 0) {
     violations.push("Backend benchmark hidden test source must be non-empty.");
   }
-  if (typeof casePayload?.hiddenTestDigest !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(casePayload.hiddenTestDigest)) {
+  if (
+    typeof casePayload?.hiddenTestDigest !== "string" ||
+    !/^sha256:[a-f0-9]{64}$/u.test(casePayload.hiddenTestDigest)
+  ) {
     violations.push("Backend benchmark hidden test digest must be a sha256 digest.");
   } else if (typeof casePayload.hiddenTestSource === "string") {
     const actualDigest = `sha256:${createHash("sha256").update(casePayload.hiddenTestSource, "utf8").digest("hex")}`;
@@ -158,9 +153,11 @@ function validateBackendVerifierCasePayload(casePayload: BackendVerifierCasePayl
       violations.push("Backend benchmark hidden test digest does not match its source.");
     }
   }
-  if (typeof casePayload?.hiddenTestCount !== "number"
-    || !Number.isSafeInteger(casePayload.hiddenTestCount)
-    || casePayload.hiddenTestCount <= 0) {
+  if (
+    typeof casePayload?.hiddenTestCount !== "number" ||
+    !Number.isSafeInteger(casePayload.hiddenTestCount) ||
+    casePayload.hiddenTestCount <= 0
+  ) {
     violations.push("Backend benchmark hidden test count must be a positive integer.");
   } else if (typeof casePayload.hiddenTestSource === "string") {
     const actualCount = countBenchmarkHiddenTests(casePayload.hiddenTestSource);
@@ -178,9 +175,8 @@ function failedScopeVerification(
   infrastructureFailure: boolean,
 ): BackendBenchmarkVerification {
   const benchmarkCaseId = typeof benchmarkCase?.id === "string" ? benchmarkCase.id : "invalid-case";
-  const testDigest = typeof benchmarkCase?.hiddenTestDigest === "string"
-    ? benchmarkCase.hiddenTestDigest
-    : "sha256:" + "0".repeat(64);
+  const testDigest =
+    typeof benchmarkCase?.hiddenTestDigest === "string" ? benchmarkCase.hiddenTestDigest : "sha256:" + "0".repeat(64);
   return {
     verifierId: BACKEND_VERIFIER_ID,
     verifierVersion: BACKEND_VERIFIER_VERSION,
@@ -190,7 +186,7 @@ function failedScopeVerification(
     testDigest,
     runner: {
       kind: "docker",
-      image: BACKEND_VERIFIER_IMAGE,
+      image: NODE_VERIFIER_IMAGE,
       network: "none",
       rootFilesystem: "read-only",
     },
@@ -211,18 +207,21 @@ export function buildBackendVerifierDockerArgs(
   workspaceRoot: string,
   verifierRoot: string,
 ): readonly string[] {
-  return [
-    "run", "--rm", "--pull", "never", "--name", containerName,
-    "--network", "none", "--read-only", "--cap-drop", "ALL",
-    "--security-opt", "no-new-privileges", "--pids-limit", "64",
-    "--memory", "256m", "--cpus", "1", "--user", "65532:65532",
-    "--tmpfs", "/tmp:rw,noexec,nosuid,size=16m",
-    "--volume", `${workspaceRoot}:/workspace:ro`,
-    "--volume", `${verifierRoot}:/verifier:ro`,
-    BACKEND_VERIFIER_IMAGE,
-    "node", "--permission", "--allow-fs-read=/workspace", "--allow-fs-read=/verifier",
-    "/verifier/hidden.test.mjs",
-  ];
+  return buildContainerVerifierArgs({
+    name: containerName,
+    image: NODE_VERIFIER_IMAGE,
+    mounts: [
+      { source: workspaceRoot, target: "/workspace" },
+      { source: verifierRoot, target: "/verifier" },
+    ],
+    command: [
+      "node",
+      "--permission",
+      "--allow-fs-read=/workspace",
+      "--allow-fs-read=/verifier",
+      "/verifier/hidden.test.mjs",
+    ],
+  });
 }
 
 function parseTapCounts(output: string): { readonly passed: number; readonly failed: number } {
@@ -233,64 +232,4 @@ function parseTapCounts(output: string): { readonly passed: number; readonly fai
 
 function clipOutput(output: string): string {
   return Buffer.from(output).subarray(0, MAX_OUTPUT_BYTES).toString("utf8");
-}
-
-const DOCKER_RUNNER: BackendVerifierRunner = {
-  run: (_containerName, args) => runDocker(args),
-  cleanup: async (containerName) => {
-    await execDocker(["rm", "--force", containerName], 5_000).catch(() => undefined);
-  },
-};
-
-async function runDocker(args: readonly string[]): Promise<BackendVerifierProcessResult> {
-  try {
-    const result = await execDocker(args, VERIFIER_TIMEOUT_MS);
-    return {
-      exitCode: 0,
-      stdout: result.stdout,
-      stderr: result.stderr,
-      timedOut: false,
-      infrastructureFailure: false,
-    };
-  } catch (error) {
-    const failure = error as Error & { code?: number | string; stdout?: string; stderr?: string; killed?: boolean };
-    return {
-      exitCode: typeof failure.code === "number" ? failure.code : 1,
-      stdout: failure.stdout ?? "",
-      stderr: failure.stderr ?? failure.message,
-      timedOut: failure.killed === true,
-      infrastructureFailure: isDockerInfrastructureFailure(failure),
-    };
-  }
-}
-
-function isDockerInfrastructureFailure(
-  failure: Error & { readonly code?: number | string; readonly stderr?: string },
-): boolean {
-  if (typeof failure.code !== "number") return true;
-  if (failure.code === 125 || failure.code === 126 || failure.code === 127) return true;
-  const diagnostic = `${failure.stderr ?? ""}\n${failure.message}`.toLowerCase();
-  return diagnostic.includes("failed to connect to the docker api")
-    || diagnostic.includes("cannot connect to the docker daemon")
-    || diagnostic.includes("docker daemon is not running")
-    || diagnostic.includes("dockerdesktoplinuxengine")
-    || diagnostic.includes("error during connect");
-}
-
-function execDocker(args: readonly string[], timeout: number): Promise<{ readonly stdout: string; readonly stderr: string }> {
-  return new Promise((resolve, reject) => {
-    execFile("docker", [...args], {
-      timeout,
-      maxBuffer: MAX_OUTPUT_BYTES,
-      windowsHide: true,
-      encoding: "utf8",
-    }, (error, stdout, stderr) => {
-      if (error) {
-        Object.assign(error, { stdout, stderr });
-        reject(error);
-        return;
-      }
-      resolve({ stdout, stderr });
-    });
-  });
 }

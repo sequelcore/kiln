@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  createAuthority: vi.fn(),
   createGlobal: vi.fn(),
   createProject: vi.fn(),
   closeGlobal: vi.fn(),
@@ -12,6 +13,7 @@ vi.mock("../../src/application/operator-project-agent-tasks.js", () => ({
 }));
 vi.mock("../../src/config/managed-agent-routes.js", () => ({
   closeManagedAccountRuntimeComposition: mocks.closeGlobal,
+  createManagedAccountLeaseAuthority: mocks.createAuthority,
 }));
 
 import {
@@ -36,13 +38,14 @@ describe("operator runtime global composition refresh", () => {
   it("refreshes only when global revision changes, not for project-only rebuilds", async () => {
     let currentCompositionRevision = PROJECT_REVISION_A;
     let currentGlobalRevision = GLOBAL_REVISION_A;
-    const globalAuthorities: object[] = [];
+    const globalAuthorities: Array<{ readonly close: ReturnType<typeof vi.fn> }> = [];
     const projectCompositions: Array<{ readonly close: ReturnType<typeof vi.fn> }> = [];
-    mocks.createGlobal.mockImplementation(() => {
-      const authority = {};
+    mocks.createAuthority.mockImplementation(() => {
+      const authority = { close: vi.fn() };
       globalAuthorities.push(authority);
-      return { authority };
+      return authority;
     });
+    mocks.createGlobal.mockImplementation(({ authority }: { readonly authority: object }) => ({ authority }));
     mocks.createProject.mockImplementation(({ managedAccountComposition }: {
       readonly managedAccountComposition?: { readonly authority?: object };
     }) => {
@@ -94,9 +97,12 @@ describe("operator runtime global composition refresh", () => {
     await releasePreFence(service, second.credential, PROJECT_REVISION_B, "second-session", "job-b");
 
     expect(globalAuthorities).toHaveLength(1);
+    expect(mocks.createAuthority).toHaveBeenCalledOnce();
+    expect(mocks.createGlobal).toHaveBeenCalledOnce();
     expect(projectCompositions).toHaveLength(2);
     expect(projectCompositions[0]!.close).toHaveBeenCalledOnce();
     expect(mocks.closeGlobal).not.toHaveBeenCalled();
+    expect(globalAuthorities[0]!.close).not.toHaveBeenCalled();
 
     currentCompositionRevision = PROJECT_REVISION_C;
     currentGlobalRevision = GLOBAL_REVISION_B;
@@ -104,12 +110,17 @@ describe("operator runtime global composition refresh", () => {
     await releasePreFence(service, third.credential, PROJECT_REVISION_C, "third-session", "job-c");
 
     expect(globalAuthorities).toHaveLength(2);
+    expect(mocks.createAuthority).toHaveBeenCalledTimes(2);
+    expect(mocks.createGlobal).toHaveBeenCalledTimes(2);
     expect(globalAuthorities[0]).not.toBe(globalAuthorities[1]);
+    expect(globalAuthorities[0]!.close).toHaveBeenCalledOnce();
+    expect(globalAuthorities[1]!.close).not.toHaveBeenCalled();
     expect(projectCompositions).toHaveLength(3);
     expect(projectCompositions[1]!.close).toHaveBeenCalledOnce();
     expect(mocks.closeGlobal).toHaveBeenCalledOnce();
     await service.close();
     expect(mocks.closeGlobal).toHaveBeenCalledTimes(2);
+    expect(globalAuthorities[1]!.close).toHaveBeenCalledOnce();
   });
 });
 

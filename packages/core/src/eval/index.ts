@@ -156,3 +156,13 @@ export type {
   FormalVerificationScreeningGates,
   FormalVerificationScreeningReport,
 } from "./formal-verification-screening.js";
+export type { BoundedImplementationVerification } from "./bounded-implementation.js";
+export {
+  BOUNDED_IMPLEMENTATION_PROFILE_ID,
+  BOUNDED_IMPLEMENTATION_FIXTURE,
+  BOUNDED_IMPLEMENTATION_VERIFIER_ID,
+  BOUNDED_IMPLEMENTATION_VERIFIER_VERSION,
+  BOUNDED_IMPLEMENTATION_SOURCE_PATH,
+  BOUNDED_IMPLEMENTATION_TEST_COUNT,
+  hasPassedBoundedImplementationVerification,
+} from "./bounded-implementation.js";

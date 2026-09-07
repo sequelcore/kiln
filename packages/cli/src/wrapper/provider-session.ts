@@ -247,8 +247,7 @@ export function admitToolAuthorityForRequestedAuthority(input: {
       reason: "Destructive authority was admitted by the parent runtime turn.",
     };
   }
-  if ((input.authority.allowed && !input.authority.requiresApproval && input.authority.level <= 2)
-    || input.authority.requiresApproval) {
+  if (input.authority.allowed && !input.authority.requiresApproval && input.authority.level <= 2) {
     return input.authority;
   }
   return undefined;

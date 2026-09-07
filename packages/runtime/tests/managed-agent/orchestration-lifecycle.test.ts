@@ -430,7 +430,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
     })).rejects.toThrow("durable economic commitment");
 
-    expect(managedInvocation.prepare).toHaveBeenCalledOnce();
+    expect(managedInvocation.prepareCalls).toHaveLength(1);
     expect(managedInvocation.invoked).not.toHaveBeenCalled();
   });
 
@@ -594,7 +594,10 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
     const orchestrationRequest = request(2);
     const events: string[] = [];
     type EconomicPrepare = NonNullable<ManagedInvocationToolOptions["economicDispatch"]>["prepare"];
-    const preparation = vi.fn<EconomicPrepare>(async (input) => ({
+    let preparationCount = 0;
+    const preparation: EconomicPrepare = async (input) => {
+      preparationCount += 1;
+      return {
       status: "prepared" as const,
       commitment: {
         reservation: {
@@ -636,7 +639,9 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
         events.push(`settlement:${input.jobId}`);
         void Promise.resolve(settlement).then(() => events.push(`settled:${input.jobId}`));
       },
-    }));
+      realization: { kind: "none" },
+      };
+    };
 
     const result = await runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: {
@@ -681,14 +686,14 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
     });
 
     expect(result.orchestrationResult.status).toBe("completed");
-    expect(preparation).toHaveBeenCalledTimes(2);
+    expect(preparationCount).toBe(2);
     expect(events.filter((event) => event.startsWith("settlement:"))).toHaveLength(2);
     await vi.waitFor(() => expect(events.filter((event) => event.startsWith("settled:"))).toHaveLength(2));
     expect(events.some((event) => event.startsWith("pending:"))).toBe(false);
   });
 
-  it("does not invoke an economic child whose commitment is already dispatch-fenced", async () => {
-    const managedInvocation = createEconomicManagedInvocation({ status: "already-dispatched" });
+  it("does not invoke an economic child whose commitment is not dispatchable", async () => {
+    const managedInvocation = createEconomicManagedInvocation({ status: "not-dispatchable" });
     await expect(runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: economicRequest(2),
       managedInvocation: managedInvocation.options,
@@ -697,7 +702,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       requestedAuthority: "audited",
       authorityAdmission: managedInvocation.authorityAdmission,
       economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
-    })).rejects.toThrow("already dispatch-fenced");
+    })).rejects.toThrow("not dispatchable");
 
     expect(managedInvocation.invoked).not.toHaveBeenCalled();
   });
@@ -719,8 +724,8 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
     await run(low);
     await run(high);
 
-    const lowInput = low.prepare.mock.calls[0]?.[0];
-    const highInput = high.prepare.mock.calls[0]?.[0];
+    const lowInput = low.prepareCalls[0];
+    const highInput = high.prepareCalls[0];
     expect(lowInput?.intentFingerprint).not.toBe(highInput?.intentFingerprint);
     expect(low.invoked.mock.calls[0]?.[0]?.providerRoute.deliberationIntent).toMatchObject({
       mode: "fixed",
@@ -737,12 +742,9 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
   });
 
   it("marks every fenced commitment pending when a later child cannot be prepared", async () => {
-    const managedInvocation = createEconomicManagedInvocation();
-    const successfulPreparation = managedInvocation.prepare.getMockImplementation();
-    if (!successfulPreparation) throw new Error("fixture");
-    managedInvocation.prepare
-      .mockImplementationOnce(successfulPreparation)
-      .mockRejectedValueOnce(new Error("synthetic second preparation failure"));
+    const managedInvocation = createEconomicManagedInvocation({
+      rejectPreparationOrdinals: new Set([2]),
+    });
 
     await expect(runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: economicRequest(2),
@@ -792,12 +794,12 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
     });
 
-    expect(managedInvocation.prepare).toHaveBeenCalledOnce();
+    expect(managedInvocation.prepareCalls).toHaveLength(1);
     expect(result.childRecords[1]?.error).toContain("Blocked by failed dependencies: producer");
   });
 
   it("does not redispatch an economic child whose durable commitment is already fenced", async () => {
-    const managedInvocation = createEconomicManagedInvocation({ status: "already-dispatched" });
+    const managedInvocation = createEconomicManagedInvocation({ status: "not-dispatchable" });
 
     await expect(runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: economicRequest(2),
@@ -807,9 +809,9 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       requestedAuthority: "audited",
       authorityAdmission: managedInvocation.authorityAdmission,
       economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
-    })).rejects.toThrow("already dispatch-fenced");
+    })).rejects.toThrow("not dispatchable");
 
-    expect(managedInvocation.prepare).toHaveBeenCalledOnce();
+    expect(managedInvocation.prepareCalls).toHaveLength(1);
     expect(managedInvocation.invoked).not.toHaveBeenCalled();
   });
 
@@ -850,6 +852,7 @@ function request(childCount: number) {
 
 function createManagedInvocation(input: {
   readonly failOrdinals?: ReadonlySet<number>;
+  readonly rejectPreparationOrdinals?: ReadonlySet<number>;
   readonly recoveredOrdinals?: ReadonlySet<number>;
   readonly holdOrdinals?: ReadonlySet<number>;
   readonly failAcquireOrdinals?: ReadonlySet<number>;
@@ -959,8 +962,9 @@ function economicRequest(childCount: number) {
 }
 
 function createEconomicManagedInvocation(input: {
-  readonly status?: "prepared" | "already-dispatched" | "denied";
+  readonly status?: "prepared" | "not-dispatchable" | "denied";
   readonly failOrdinals?: ReadonlySet<number>;
+  readonly rejectPreparationOrdinals?: ReadonlySet<number>;
   readonly deliberationLevel?: "low" | "high";
 } = {}) {
   const base = createManagedInvocation({
@@ -983,9 +987,14 @@ function createEconomicManagedInvocation(input: {
   };
   const recordExecutionSettlementPending = vi.fn();
   type EconomicPrepare = NonNullable<ManagedInvocationToolOptions["economicDispatch"]>["prepare"];
-  const prepare = vi.fn<EconomicPrepare>(async (prepareInput) => {
-    if (input.status === "already-dispatched") {
-      return { status: "already-dispatched" as const, record: {} as never };
+  const prepareCalls: Array<{ readonly intentFingerprint: string }> = [];
+  const prepare: EconomicPrepare = async (prepareInput) => {
+    prepareCalls.push({ intentFingerprint: prepareInput.intentFingerprint });
+    if (input.rejectPreparationOrdinals?.has(prepareCalls.length)) {
+      throw new Error("synthetic second preparation failure");
+    }
+    if (input.status === "not-dispatchable") {
+      return { status: "not-dispatchable" as const, record: { state: "dispatch-fenced" } as never };
     }
     if (input.status === "denied") {
       return { status: "denied" as const, result: {} as never };
@@ -1015,8 +1024,9 @@ function createEconomicManagedInvocation(input: {
       recordExecutionSettlementPending,
       createExecutionSettlement: () => ({} as never),
       registerEconomicSettlement: () => undefined,
+      realization: { kind: "none" },
     };
-  });
+  };
   return {
     options: {
       ...base,
@@ -1068,6 +1078,7 @@ function createEconomicManagedInvocation(input: {
       economicDispatch: { prepare },
     } satisfies ManagedInvocationToolOptions,
     prepare,
+    prepareCalls,
     recordExecutionSettlementPending,
     invoked,
     authorityAdmission: managedEconomicAdmissionBundle({

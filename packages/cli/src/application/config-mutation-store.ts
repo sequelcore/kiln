@@ -115,15 +115,13 @@ export class ConfigMutationStore {
     this.root = join(base, projectNamespace(binding?.canonicalRoot ?? projectPath));
     this.privateStateRoot = resolve(binding?.projectStateRoot ?? dirname(base));
     this.globalConfigPath = options?.globalConfigPath ?? resolveGlobalConfigPath();
-    this.globalBase = options?.root === undefined
-      ? base
-      : join(dirname(this.globalConfigPath), "mutations", "config");
+    this.globalBase = join(dirname(this.globalConfigPath), "mutations", "config");
     this.projectIdentity = projectNamespace(projectPath);
   }
 
   /** Lock file guarding the commit window for one canonical path. */
   lockPathFor(canonicalPath: string): string {
-    return join(this.isGlobalPath(canonicalPath) ? this.globalBase : this.root, "locks", `${hashPath(canonicalPath)}.lock`);
+    return join(this.isGlobalPath(canonicalPath) ? this.globalBase : this.root, "locks", `${hashPath(this.isGlobalPath(canonicalPath) ? this.globalConfigPath : canonicalPath)}.lock`);
   }
 
   /** Cross-process lock for one owned reconciliation target. */
@@ -394,7 +392,9 @@ export class ConfigMutationStore {
   }
 
   private isGlobalPath(canonicalPath: string): boolean {
-    return samePath(canonicalPath, this.globalConfigPath);
+    return samePath(canonicalPath, this.globalConfigPath)
+      || isWithin(join(dirname(this.globalConfigPath), "agents"), canonicalPath)
+      || isWithin(join(dirname(this.globalConfigPath), "skills"), canonicalPath);
   }
 
   private markerPath(proposalId: string): string {
