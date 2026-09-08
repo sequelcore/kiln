@@ -471,15 +471,55 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
         privateStateRoot: projectStateBinding.projectStateRoot,
       });
   } catch (error) {
-    if (ownsManagedDirectModelRoundActionClaims) managedDirectModelRoundActionClaims.close();
+    if (ownsManagedDirectModelRoundActionClaims) {
+      try {
+        managedDirectModelRoundActionClaims.close();
+      } catch (cleanupError) {
+        throw new AggregateError([cleanupError], "Agent task application startup failed and cleanup was incomplete.", {
+          cause: error,
+        });
+      }
+    }
     throw error;
   }
-  const closeOwnedActionClaimStores = (): void => {
-    try {
-      if (ownsManagedDirectToolActionClaims) managedDirectToolActionClaims.close();
-    } finally {
-      if (ownsManagedDirectModelRoundActionClaims) managedDirectModelRoundActionClaims.close();
+  let managedInvocationService: NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>["invocationService"];
+  let managedInvocationServiceKey: NonNullable<
+    ManagedInvocationRouteResolution["managedInvocation"]
+  >["invocationServiceKey"];
+  let ownsManagedAccountComposition = false;
+  let writeApprovalAuthority: SqliteManagedWriteApprovalAuthority | undefined;
+  let dispatcher: OperatorProjectAgentTaskDispatcher | undefined;
+  const closeOwnedResources = async (): Promise<readonly unknown[]> => {
+    const failures: unknown[] = [];
+    const attempt = async (close: () => void | Promise<void>): Promise<void> => {
+      try {
+        await close();
+      } catch (error) {
+        failures.push(error);
+      }
+    };
+    await attempt(() => dispatcher?.close());
+    await attempt(() => writeApprovalAuthority?.close());
+    if (ownsManagedDirectToolActionClaims) {
+      await attempt(() => managedDirectToolActionClaims.close());
     }
+    if (ownsManagedDirectModelRoundActionClaims) {
+      await attempt(() => managedDirectModelRoundActionClaims.close());
+    }
+    await attempt(() => managedInvocationService?.close());
+    if (ownsManagedAccountComposition) {
+      await attempt(() => closeManagedAccountRuntimeComposition(root.rootPath));
+    }
+    return failures;
+  };
+  const failStartup = async (error: unknown): Promise<never> => {
+    const cleanupFailures = await closeOwnedResources();
+    if (cleanupFailures.length > 0) {
+      throw new AggregateError(cleanupFailures, "Agent task application startup failed and cleanup was incomplete.", {
+        cause: error,
+      });
+    }
+    throw error;
   };
   const governance = createOperatorProjectGovernanceReader(root.rootPath, projectStateBinding);
   const assertNativeRouteDataPolicy = (route: { readonly routeId: string; readonly providerId: string; readonly model: string }): SanitizedExecutionTargetDataPolicyDecision => {
@@ -503,8 +543,6 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
       throw new AgentTaskApplicationError("route_unavailable", "Restore current execution-route data-policy evidence.");
     }
   };
-  let managedInvocationService: NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>["invocationService"];
-  let managedInvocationServiceKey: NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>["invocationServiceKey"];
   const freshManagedInvocation = async (
     compositionMode: "execution" | "candidate-admission" = "candidate-admission",
     managedAccountComposition?: ReturnType<typeof createManagedAccountRuntimeComposition>,
@@ -553,7 +591,15 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
       }
       return current;
     } catch (error) {
-      await catalog.dispose();
+      try {
+        await catalog.dispose();
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [cleanupError],
+          "Managed invocation route refresh failed and cleanup was incomplete.",
+          { cause: error },
+        );
+      }
       throw error;
     }
   };
@@ -561,794 +607,865 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
   try {
     managedInvocation = await freshManagedInvocation();
   } catch (error) {
-    closeOwnedActionClaimStores();
-    managedInvocationService?.close();
-    throw error;
+    return failStartup(error);
   }
-  // The acknowledgement is durable evidence for this composition's exact
-  // route admission. Capture it once, never regenerate it per profile lookup.
-  const nativeHarnessAcknowledgedAt = new Date().toISOString();
-  const initialConfig = loadRouteConfig();
-  if (!initialConfig) {
-    closeOwnedActionClaimStores();
-    managedInvocationService?.close();
-    throw new AgentTaskApplicationError("route_unavailable", "Refresh current canonical managed economic configuration.");
-  }
-  const managedAccountDatabasePath = join(projectStateBinding.runtimePath, "managed-account-leases.sqlite");
-  assertPrivateStateFileTargetSync(projectStateBinding.projectStateRoot, managedAccountDatabasePath);
-  const managedAccountComposition = options.managedAccountComposition
-    ?? createManagedAccountRuntimeComposition(initialConfig, root.rootPath, {
-      compositionKey: root.rootPath,
-      databasePath: managedAccountDatabasePath,
-    });
-  const ownsManagedAccountComposition = options.managedAccountComposition === undefined;
   try {
-    await freshManagedInvocation("execution", managedAccountComposition);
-  } catch (error) {
-    try {
-      closeOwnedActionClaimStores();
-    } finally {
-      managedInvocationService?.close();
-      if (ownsManagedAccountComposition) closeManagedAccountRuntimeComposition(root.rootPath);
+    // The acknowledgement is durable evidence for this composition's exact
+    // route admission. Capture it once, never regenerate it per profile lookup.
+    const nativeHarnessAcknowledgedAt = new Date().toISOString();
+    const initialConfig = loadRouteConfig();
+    if (!initialConfig) {
+      throw new AgentTaskApplicationError(
+        "route_unavailable",
+        "Refresh current canonical managed economic configuration.",
+      );
     }
-    throw error;
-  }
-  const economicDispatch = managedAccountComposition
-    ? createManagedEconomicDispatchComposition(
-        initialConfig,
-        root.rootPath,
-        managedInvocation.routes,
-        managedAccountComposition,
-      )
-    : undefined;
-  const commitmentRecovery = managedAccountComposition?.authority.createAgentTaskCommitmentRecoveryPort();
-  const economicReplay = managedAccountComposition?.authority.createAgentTaskReplayInspectionPort();
-  const configuredAgents = await loadAgentDefinitions(root.rootPath, { projectStateBinding });
-  const localVisionAgentProfileId = resolveOperatorProjectLocalVisionAgentProfileId(
-    configuredAgents,
-    managedInvocation,
-    nativeHarnessAcknowledgedAt,
-    initialConfig.deliberationPolicy,
-  );
-  const project = { id: `project-${createHash("sha256").update(root.rootPath).digest("hex").slice(0, 32)}` };
-  const agentTaskRoot = join(projectStateBinding.runtimePath, "agent-tasks");
-  ensurePrivateStateDirectorySync(projectStateBinding.projectStateRoot, agentTaskRoot);
-  const agentTaskStore = new FilesystemAgentTaskStore(
-    agentTaskRoot,
-    60_000,
-    projectStateBinding.projectStateRoot,
-  );
-  const writeApprovalDatabasePath = join(runtimeDirectory, MANAGED_WRITE_APPROVAL_DB_FILE);
-  assertPrivateStateFileTargetSync(projectStateBinding.projectStateRoot, writeApprovalDatabasePath);
-  const writeApprovalAuthority = new SqliteManagedWriteApprovalAuthority({
-    path: writeApprovalDatabasePath,
-  });
-  const service = new AgentTaskApplicationService({
-    project: { resolve: async () => project },
-    governance: {
-      resolve: async () => {
-        await governance.read();
-        const now = new Date();
-        return {
-          version: 1,
-          authority: "authoritative",
-          source: "kiln-config-status",
-          issuedAt: now.toISOString(),
-          validUntil: new Date(now.getTime() + 60_000).toISOString(),
-        };
+    const managedAccountDatabasePath = join(projectStateBinding.runtimePath, "managed-account-leases.sqlite");
+    assertPrivateStateFileTargetSync(projectStateBinding.projectStateRoot, managedAccountDatabasePath);
+    const managedAccountComposition =
+      options.managedAccountComposition ??
+      createManagedAccountRuntimeComposition(initialConfig, root.rootPath, {
+        compositionKey: root.rootPath,
+        databasePath: managedAccountDatabasePath,
+      });
+    ownsManagedAccountComposition = options.managedAccountComposition === undefined;
+    await freshManagedInvocation("execution", managedAccountComposition);
+    const economicDispatch = managedAccountComposition
+      ? createManagedEconomicDispatchComposition(
+          initialConfig,
+          root.rootPath,
+          managedInvocation.routes,
+          managedAccountComposition,
+        )
+      : undefined;
+    const commitmentRecovery = managedAccountComposition?.authority.createAgentTaskCommitmentRecoveryPort();
+    const economicReplay = managedAccountComposition?.authority.createAgentTaskReplayInspectionPort();
+    const configuredAgents = await loadAgentDefinitions(root.rootPath, { projectStateBinding });
+    const localVisionAgentProfileId = resolveOperatorProjectLocalVisionAgentProfileId(
+      configuredAgents,
+      managedInvocation,
+      nativeHarnessAcknowledgedAt,
+      initialConfig.deliberationPolicy,
+    );
+    const project = { id: `project-${createHash("sha256").update(root.rootPath).digest("hex").slice(0, 32)}` };
+    const agentTaskRoot = join(projectStateBinding.runtimePath, "agent-tasks");
+    ensurePrivateStateDirectorySync(projectStateBinding.projectStateRoot, agentTaskRoot);
+    const agentTaskStore = new FilesystemAgentTaskStore(agentTaskRoot, 60_000, projectStateBinding.projectStateRoot);
+    const writeApprovalDatabasePath = join(runtimeDirectory, MANAGED_WRITE_APPROVAL_DB_FILE);
+    assertPrivateStateFileTargetSync(projectStateBinding.projectStateRoot, writeApprovalDatabasePath);
+    writeApprovalAuthority = new SqliteManagedWriteApprovalAuthority({
+      path: writeApprovalDatabasePath,
+    });
+    const approvalAuthority = writeApprovalAuthority;
+    const service = new AgentTaskApplicationService({
+      project: { resolve: async () => project },
+      governance: {
+        resolve: async () => {
+          await governance.read();
+          const now = new Date();
+          return {
+            version: 1,
+            authority: "authoritative",
+            source: "kiln-config-status",
+            issuedAt: now.toISOString(),
+            validUntil: new Date(now.getTime() + 60_000).toISOString(),
+          };
+        },
+        admit: async () => {
+          const { policy } = await governance.read();
+          // This surface is delegation, never direct execution. The configured
+          // policy must explicitly govern managed-agent work before it is admitted.
+          if (!policy.requireDelegationFor.includes("managed-agents")) {
+            return { admitted: false };
+          }
+          const authorityAdmission = requestAuthorityAdmission.getStore() ?? options.authorityAdmission;
+          if (!authorityAdmission) return { admitted: false };
+          return {
+            admitted: true,
+            admissionBundle: authorityAdmission,
+            source: OPERATOR_AGENT_TASK_SOURCE,
+          };
+        },
       },
-      admit: async () => {
-        const { policy } = await governance.read();
-        // This surface is delegation, never direct execution. The configured
-        // policy must explicitly govern managed-agent work before it is admitted.
-        if (!policy.requireDelegationFor.includes("managed-agents")) {
-          return { admitted: false };
-        }
-        const authorityAdmission = requestAuthorityAdmission.getStore() ?? options.authorityAdmission;
-        if (!authorityAdmission) return { admitted: false };
-        return {
-          admitted: true,
-          admissionBundle: authorityAdmission,
-          source: OPERATOR_AGENT_TASK_SOURCE,
-        };
-      },
-    },
-    profiles: {
-      resolve: async (id) => {
-        const agent = findAgent(await loadAgentDefinitions(root.rootPath, { projectStateBinding }), id);
-        const current = await freshManagedInvocation();
-        const catalogEntry = current.agentCatalog?.find(
-          (candidate) => candidate.name === id,
-        );
-        if (!agent && !catalogEntry?.economicPolicyId) return undefined;
-        if (!catalogEntry?.economicPolicyId) {
-          if (!agent) return undefined;
-          const nativeRoute = resolveNativeHarnessRouteForAgent(agent, current.routes);
-          if (!nativeRoute || !catalogEntry?.routeId) return undefined;
-          const access = catalogEntry.access;
-          if (!resolveConfiguredManagedInvocationRouteProfile(nativeRoute, catalogEntry, access)) return undefined;
-          return createNativeHarnessProfile(
-            agent,
-            access,
-            nativeRoute,
-            nativeHarnessAcknowledgedAt,
-            loadRouteConfig()?.deliberationPolicy,
-          );
-        }
-        if (
-          !catalogEntry?.economicPolicyId
-          || !catalogEntry.economicPolicyRevision
-        ) {
-          return undefined;
-        }
-        return {
-          kind: "economic" as const,
-          id,
-          authorityProfileId: catalogEntry.authorityProfileId,
-          economicPolicyId: catalogEntry.economicPolicyId,
-          economicPolicyRevision: catalogEntry.economicPolicyRevision,
-          access: catalogEntry.access,
-          ...(catalogEntry.economicSpendApproval
-            ? { economicSpendApproval: catalogEntry.economicSpendApproval }
-            : {}),
-          ...(catalogEntry.workLimits ? { workLimits: catalogEntry.workLimits } : {}),
-          constraints: {
-            ...(agent?.targetId ? { routeId: agent.targetId } : {}),
-          },
-        };
-      },
-    },
-    routes: {
-      resolve: async (profile, context) => {
-        const current = await freshManagedInvocation(
-          context?.compositionMode ?? "candidate-admission",
-          context?.compositionMode === "execution" ? managedAccountComposition : undefined,
-        );
-        if (profile.kind === "native-harness") {
-          const route = current.routes.find((candidate) =>
-            candidate.routeId === profile.routeId
-            && candidate.providerId === profile.providerId
-            && candidate.model === profile.model);
-          if (!route || !resolveConfiguredManagedInvocationRouteProfile(route, {
-            authorityProfileId: profile.authorityProfileId,
-            access: profile.access,
-          }, profile.access) || route.capability.identity.revision !== profile.routeRevision) {
+      profiles: {
+        resolve: async (id) => {
+          const agent = findAgent(await loadAgentDefinitions(root.rootPath, { projectStateBinding }), id);
+          const current = await freshManagedInvocation();
+          const catalogEntry = current.agentCatalog?.find((candidate) => candidate.name === id);
+          if (!agent && !catalogEntry?.economicPolicyId) return undefined;
+          if (!catalogEntry?.economicPolicyId) {
+            if (!agent) return undefined;
+            const nativeRoute = resolveNativeHarnessRouteForAgent(agent, current.routes);
+            if (!nativeRoute || !catalogEntry?.routeId) return undefined;
+            const access = catalogEntry.access;
+            if (!resolveConfiguredManagedInvocationRouteProfile(nativeRoute, catalogEntry, access)) return undefined;
+            return createNativeHarnessProfile(
+              agent,
+              access,
+              nativeRoute,
+              nativeHarnessAcknowledgedAt,
+              loadRouteConfig()?.deliberationPolicy,
+            );
+          }
+          if (!catalogEntry?.economicPolicyId || !catalogEntry.economicPolicyRevision) {
             return undefined;
           }
-          if (route.capability.capacity.kind !== "accountless") return undefined;
-          const agent = findAgent(await loadAgentDefinitions(root.rootPath, { projectStateBinding }), profile.id);
-          if (!agent) return undefined;
-          return nativeHarnessRouteFromProfile(
-            profile,
-            route,
-            agent,
-            loadRouteConfig()?.deliberationPolicy,
-          );
-        }
-        return collectManagedEconomicCandidates({
-          economicPolicyId: profile.economicPolicyId,
-          economicPolicyRevision: profile.economicPolicyRevision,
-          configuredAgentProfileId: profile.id,
-          authorityProfileId: profile.authorityProfileId,
-          access: profile.access,
-          ...(profile.constraints?.routeId
-            ? { routeId: profile.constraints.routeId }
-            : {}),
-          ...(profile.constraints?.providerId
-            ? {
-                providerRoute: {
-                  providerId: profile.constraints.providerId,
-                  surface: "configured",
-                  ...(profile.constraints.model
-                    ? { model: profile.constraints.model }
-                    : {}),
-                },
-              }
-            : {}),
-          ...(context?.invocationId ? { invocationId: context.invocationId } : {}),
-        }, current.routes, current.unavailableRoutes);
-      },
-    },
-    ...(managedAccountComposition ? { economicAdoption: {
-      adopt: async (job) => {
-        if (job.dispatch.kind !== "economic") {
-          throw new AgentTaskApplicationError("identity-revision-conflict", "Restore the persisted economic managed dispatch.");
-        }
-        const currentConfig = loadRouteConfig();
-        if (!currentConfig) {
-          throw new AgentTaskApplicationError("route_unavailable", "Refresh current canonical managed economic configuration.");
-        }
-        if (!currentConfig.executionCatalog) {
-          throw new AgentTaskApplicationError("route_unavailable", "Restore the current managed economic execution catalog.");
-        }
-        managedAccountComposition.updateCatalog(currentConfig.executionCatalog);
-        return projectManagedEconomicJobAdoption(
-          currentConfig,
-          job as Parameters<typeof projectManagedEconomicJobAdoption>[1],
-          managedAccountComposition.routing,
-        );
-      },
-    } } : {}),
-    ...(managedAccountComposition ? { economicCommitment: {
-      query: (input) => commitmentRecovery!.query(input),
-      acquire: (input) => managedAccountComposition.authority.acquireCommitment(input),
-      releasePreFence: (jobId, economicAttemptId) => {
-        managedAccountComposition.authority.releaseCommitmentPreFence(jobId, economicAttemptId);
-      },
-      recordReleaseFailure: (input) => {
-        managedAccountComposition.authority.recordCommitmentReleaseFailure(input);
-      },
-    } } : {}),
-    ...(economicReplay ? { economicReplay } : {}),
-    writeApprovals: writeApprovalAuthority,
-    ...(economicDispatch ? { economicDispatch: economicDispatch.coordinator } : {}),
-    ...(options.onDispatchError ? { onEconomicDispatchError: options.onDispatchError } : {}),
-    nativeHarnessExecution: {
-      execute: async ({ job, route, dispatchFenceId, consumedWriteApproval, callerIdentity, abortSignal }) => {
-        const execution = await freshManagedInvocation("execution", managedAccountComposition);
-        const currentRoute = execution.routes.find((candidate) =>
-          candidate.routeId === route.routeId
-          && candidate.providerId === route.providerId
-          && candidate.model === route.model);
-        const invocationService = execution.invocationService;
-          const agent = findAgent(await loadAgentDefinitions(root.rootPath, { projectStateBinding }), job.configuredAgentProfileId);
-        const catalogEntry = execution.agentCatalog?.find((candidate) => candidate.name === job.configuredAgentProfileId);
-        const profile = currentRoute && catalogEntry
-          ? resolveConfiguredManagedInvocationRouteProfile(currentRoute, catalogEntry, job.access)
-          : undefined;
-        const currentDeliberation = agent && currentRoute
-          ? resolveNativeHarnessDeliberation(
-              agent,
-              currentRoute,
-              loadRouteConfig()?.deliberationPolicy,
-            )
-          : undefined;
-        if (
-          !currentRoute
-          || !profile
-          || !invocationService
-          || currentRoute.capability.identity.revision !== route.routeRevision
-          || currentRoute.capability.target.providerId !== route.providerId
-          || currentRoute.capability.target.modelId !== route.model
-          || currentRoute.capability.adapter.capabilityId !== route.adapterCapabilityId
-          || currentRoute.capability.adapter.capabilityVersion !== route.adapterCapabilityVersion
-          || currentRoute.capability.capacity.kind !== "accountless"
-          || !currentRoute.createAdapter
-          || !agent
-          || currentDeliberation?.status === "denied"
-          || !sameNativeHarnessDeliberationResolution(
-            route.deliberationResolution,
-            toNativeHarnessDeliberationResolution(currentDeliberation),
-          )
-        ) {
-          throw new AgentTaskApplicationError("route_unavailable", "Restore the exact admitted native-harness Runtime route.");
-        }
-        const dataPolicyDecision = assertNativeRouteDataPolicy(route);
-        const adapter = await currentRoute.createAdapter();
-        if (!adapter) throw new AgentTaskApplicationError("route_unavailable", "Materialize the exact admitted native-harness adapter after the dispatch fence.");
-        const childSessionId = `agent-task:${job.id}`;
-        const childTurnId = canonicalTurnId(childSessionId, 1);
-        const childAuthorityAdmission = createAgentTaskChildAuthorityAdmission(
-          job,
-          childSessionId,
-          childTurnId,
-          { status: "not-routed" },
-        );
-        await authorityAdmissionEvidence.persist(childAuthorityAdmission);
-        const request = defineManagedAgentInvocationRequest({
-          invocationId: `agent-task:${job.id}`,
-          agentId: job.configuredAgentProfileId,
-          parentSessionId: childAuthorityAdmission.sessionId,
-          parentTurnId: childAuthorityAdmission.turnId,
-          access: job.access,
-          requestedBy: job.callerId,
-          requestSource: OPERATOR_AGENT_TASK_SOURCE,
-          providerRoute: {
-            providerId: route.providerId,
-            surface: currentRoute.surface ?? "cli-harness",
-            model: route.model,
-            // Equality with the committed Runtime subset above proves this Core
-            // resolution is the exact admitted level and capability evidence.
-            ...(currentDeliberation?.status === "exact" || currentDeliberation?.status === "clamped"
-              ? { deliberationResolution: currentDeliberation }
+          return {
+            kind: "economic" as const,
+            id,
+            authorityProfileId: catalogEntry.authorityProfileId,
+            economicPolicyId: catalogEntry.economicPolicyId,
+            economicPolicyRevision: catalogEntry.economicPolicyRevision,
+            access: catalogEntry.access,
+            ...(catalogEntry.economicSpendApproval
+              ? { economicSpendApproval: catalogEntry.economicSpendApproval }
               : {}),
-          },
-          adapterKind: adapter.descriptor.adapterKind,
-          executionMode: adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
-          ...agentTaskRequestedAuthority(job.access),
-          authority: {
-            authorityProfileId: profile.authorityProfileId,
-            toolAuthority: {
-              allowedToolNames: profile.allowedToolNames,
-              writeAllowed: profile.writeAllowed ?? false,
-              networkAllowed: profile.networkAllowed ?? false,
+            ...(catalogEntry.workLimits ? { workLimits: catalogEntry.workLimits } : {}),
+            constraints: {
+              ...(agent?.targetId ? { routeId: agent.targetId } : {}),
             },
-            workingDirectory: profile.workingDirectory,
-            timeoutMs: profile.timeoutMs,
-            credentialRoute: profile.credentialRoute,
-            memoryScope: profile.memoryScope,
-            ...(profile.readAuthority ? { readAuthority: profile.readAuthority } : {}),
-            ...(profile.writeAuthority ? { writeAuthority: profile.writeAuthority } : {}),
-          },
-          input: agentTaskManagedInvocationInput(job),
-        });
-        const started = await invocationService.start(request, adapter, {
-          capturedAt: new Date().toISOString(),
-          routeId: currentRoute.routeId,
-          routeSource: currentRoute.routeSource,
-          ...(callerIdentity ? { callerIdentity } : {}),
-          ...(currentRoute.externalRuntimeAttachment ? { externalRuntimeAttachment: currentRoute.externalRuntimeAttachment } : {}),
-          ...(currentRoute.providerModelProof ? { providerModelProof: currentRoute.providerModelProof } : {}),
-          ...(job.capability
-            ? {
-                resourcePlane: {
-                  available: true,
-                  resourceUris: job.capability.input.resourceUris,
-                  reason: "Agent Task capability resources admitted by the persisted child authority.",
-                },
-              }
-            : {}),
-        }, {
-          ...(abortSignal ? { abortSignal } : {}),
-          ...(consumedWriteApproval ? { consumedWriteApproval } : {}),
-          childAuthorityAdmission: { bundle: childAuthorityAdmission },
-        });
-        if (started.status !== "started") {
-          throw new AgentTaskApplicationError("admission_denied", "Review the exact admitted native-harness Runtime authority.");
-        }
-        const joined = await invocationService.join(request.invocationId);
-        const progressEvents = invocationService.status(request.invocationId)?.progressEvents;
-        if (joined.status !== "completed" || joined.record.lifecycleState !== "completed" || !joined.record.resultHandoff) {
-          options.onDispatchError?.({
-            kind: "managed-invocation-terminal-diagnostic",
-            joinStatus: joined.status,
-            ...(joined.status === "completed"
-              ? {
-                  lifecycleState: joined.record.lifecycleState,
-                  diagnostics: joined.record.diagnostics,
-                  resultSummary: joined.record.resultHandoff?.summary,
-                }
-              : {}),
-            ...(progressEvents ? { progressEvents } : {}),
-          });
-          throw agentTaskExecutionFailure(
-            joined.status === "completed" ? joined.record : undefined,
-            progressEvents,
-          );
-        }
-        const writeEvidence = sanitizeManagedWriteEvidence(joined.record);
-        const capabilityOutput = projectAgentTaskCapabilityOutput(job, joined.record);
-        return {
-          runtimeInvocationId: joined.record.invocationId,
-          completedAt: new Date().toISOString(),
-          resultHandoff: joined.record.resultHandoff,
-          ...(capabilityOutput ? { capabilityOutput } : {}),
-          dataPolicyProof: {
-            version: 1,
-            jobId: job.id,
-            dispatchFenceId,
-            routeId: route.routeId,
-            providerId: route.providerId,
-            providerModelId: route.model,
-            decision: dataPolicyDecision.decision,
-            evidence: dataPolicyDecision.evidence!,
-          } satisfies AgentTaskDataPolicyProof,
-          ...(writeEvidence ? { writeEvidence } : {}),
-        };
+          };
+        },
       },
-    },
-    economicExecution: {
-      execute: async ({ job, preparation, consumedWriteApproval, workLimits }) => {
-        if (!managedAccountComposition) {
-          throw new AgentTaskApplicationError("route_unavailable", "Restore the process-owned managed economic Runtime authority.");
-        }
-        const selectedIdentity = preparation.commitment.reservation.selectedIdentity;
-        const selected = selectedIdentity.route;
-        const selectedCandidate = job.dispatch.kind === "economic"
-          ? job.dispatch.candidateSet.candidates.find((candidate) =>
-              candidate.routeId === selected.routeId
-              && candidate.providerId === selected.providerId
-              && candidate.model === selected.modelId)
-          : undefined;
-        if (!selectedCandidate) {
-          throw new AgentTaskApplicationError(
-            "identity-revision-conflict",
-            "Restore the exact selected managed economic candidate before execution.",
+      routes: {
+        resolve: async (profile, context) => {
+          const current = await freshManagedInvocation(
+            context?.compositionMode ?? "candidate-admission",
+            context?.compositionMode === "execution" ? managedAccountComposition : undefined,
           );
-        }
-        const dataPolicyDecision = managedAccountComposition.routing.assertAdmittedDataPolicy({
-          targetId: selected.routeId,
-          providerId: selected.providerId,
-          providerModelId: selected.modelId,
-        });
-        if (!dataPolicyDecision.evidence) {
-          throw new AgentTaskApplicationError("route_unavailable", "Restore exact admitted managed Runtime data-policy evidence.");
-        }
-        const execution = await freshManagedInvocation("execution", managedAccountComposition);
-        const route = execution.routes.find((candidate) =>
-          candidate.routeId === selected.routeId
-          && candidate.providerId === selected.providerId
-          && candidate.model === selected.modelId);
-        if (
-          !route
-          || route.economicCapability?.status !== "verified"
-          || route.economicCapability?.adapterCapabilityId !== selected.adapterCapabilityId
-          || route.economicCapability?.adapterCapabilityVersion !== selected.adapterCapabilityVersion
-        ) {
-          throw new AgentTaskApplicationError("route_unavailable", "Restore the exact committed managed Runtime route.");
-        }
-        const catalogEntry = execution.agentCatalog?.find((candidate) => candidate.name === job.configuredAgentProfileId);
-        const profile = catalogEntry
-          ? resolveConfiguredManagedInvocationRouteProfile(route, catalogEntry, job.access)
-          : undefined;
-        const invocationService = execution.invocationService;
-        if (!profile || !invocationService) {
-          throw new AgentTaskApplicationError("route_unavailable", "Restore the exact committed managed Runtime route.");
-        }
-        if (
-          selectedCandidate.profileAuthorityDigest
-          !== digestManagedEconomicCandidateProfileAuthority(profile, `agent-task:${job.id}`)
-        ) {
-          throw new AgentTaskApplicationError(
-            "identity-revision-conflict",
-            "Restore the exact selected managed economic execution authority.",
-          );
-        }
-        const executionBinding = preparation.adapter.executionBinding;
-        if (
-          !executionBinding
-          || executionBinding.routeId !== selected.routeId
-          || selectedIdentity.account.kind !== "account-bound"
-        ) {
-          throw new AgentTaskApplicationError(
-            "identity-revision-conflict",
-            "Restore the exact committed managed account binding before execution.",
-          );
-        }
-        const currentConfig = loadRouteConfig();
-        const executionCatalog = currentConfig?.executionCatalog;
-        if (!executionCatalog) {
-          throw new AgentTaskApplicationError(
-            "route_unavailable",
-            "Restore the current managed economic execution catalog.",
-          );
-        }
-        let admittedTarget;
-        try {
-          admittedTarget = admitOperatorExecutionIntent(executionCatalog, {
-            targetId: selected.routeId,
-          });
-        } catch {
-          throw new AgentTaskApplicationError(
-            "identity-revision-conflict",
-            "Restore the exact committed managed account policy before execution.",
-          );
-        }
-        if (
-          admittedTarget.providerId !== selected.providerId
-          || admittedTarget.providerModelId !== selected.modelId
-          || admittedTarget.accountSelection.kind !== "policy"
-          || !admittedTarget.accountSelection.eligibleAccountIds.includes(executionBinding.accountId)
-        ) {
-          throw new AgentTaskApplicationError(
-            "identity-revision-conflict",
-            "Restore the exact committed managed account policy before execution.",
-          );
-        }
-        const childAuthorityAdmittedAt = job.lifecycle.find((entry) => entry.state === "running")?.observedAt
-          ?? job.updatedAt;
-        const childSessionId = `agent-task:${job.id}`;
-        const childTurnId = canonicalTurnId(childSessionId, 1);
-        const parentOperatorAdoption = job.admissionBundle.turn.operatorAdoption;
-        let parentOperatorActorId: string | undefined;
-        if (parentOperatorAdoption.status === "admitted") {
-          if (parentOperatorAdoption.decision.contractAuthority.kind !== "operator") {
-            throw new AgentTaskApplicationError(
-              "admission_denied",
-              "Restore the canonical operator adoption authority for managed child execution.",
+          if (profile.kind === "native-harness") {
+            const route = current.routes.find(
+              (candidate) =>
+                candidate.routeId === profile.routeId &&
+                candidate.providerId === profile.providerId &&
+                candidate.model === profile.model,
             );
+            if (
+              !route ||
+              !resolveConfiguredManagedInvocationRouteProfile(
+                route,
+                {
+                  authorityProfileId: profile.authorityProfileId,
+                  access: profile.access,
+                },
+                profile.access,
+              ) ||
+              route.capability.identity.revision !== profile.routeRevision
+            ) {
+              return undefined;
+            }
+            if (route.capability.capacity.kind !== "accountless") return undefined;
+            const agent = findAgent(await loadAgentDefinitions(root.rootPath, { projectStateBinding }), profile.id);
+            if (!agent) return undefined;
+            return nativeHarnessRouteFromProfile(profile, route, agent, loadRouteConfig()?.deliberationPolicy);
           }
-          parentOperatorActorId = parentOperatorAdoption.decision.contractAuthority.actorId;
-        }
-        const childOperatorAdoption = parentOperatorAdoption.status === "admitted"
-          ? {
-              status: "admitted" as const,
-              decision: createOperatorAdoptionDecisionAuthority({
-                ownerSessionId: childSessionId,
-                operatorTurnId: childTurnId,
-                actorId: parentOperatorActorId!,
-              }),
-            }
-          : parentOperatorAdoption;
-        const childWorkGovernance = job.admissionBundle.turn.workGovernance.status === "required"
-          && childOperatorAdoption.status === "admitted"
-          ? {
-              ...job.admissionBundle.turn.workGovernance,
-              subjectId: childOperatorAdoption.decision.decisionId,
-              authorityRevision: childOperatorAdoption.decision.decisionId,
-            }
-          : job.admissionBundle.turn.workGovernance;
-        const childAuthorityAdmission = defineEffectiveAuthorityAdmissionBundle({
-          sessionId: childSessionId,
-          turnId: childTurnId,
-          admittedAt: childAuthorityAdmittedAt,
-          configuration: job.admissionBundle.configuration,
-          session: job.admissionBundle.session,
-          turn: {
-            ...job.admissionBundle.turn,
-            workGovernance: childWorkGovernance,
-            operatorAdoption: childOperatorAdoption,
-            execution: {
-              status: "routed",
-              target: admittedTarget,
-              dataPolicy: dataPolicyDecision,
-              binding: executionBinding,
-              economicCommitment: {
-                commitmentId: preparation.commitment.commitmentId,
-                authorityRevision: preparation.commitment.reservation.authorityRevision,
+          return collectManagedEconomicCandidates(
+            {
+              economicPolicyId: profile.economicPolicyId,
+              economicPolicyRevision: profile.economicPolicyRevision,
+              configuredAgentProfileId: profile.id,
+              authorityProfileId: profile.authorityProfileId,
+              access: profile.access,
+              ...(profile.constraints?.routeId ? { routeId: profile.constraints.routeId } : {}),
+              ...(profile.constraints?.providerId
+                ? {
+                    providerRoute: {
+                      providerId: profile.constraints.providerId,
+                      surface: "configured",
+                      ...(profile.constraints.model ? { model: profile.constraints.model } : {}),
+                    },
+                  }
+                : {}),
+              ...(context?.invocationId ? { invocationId: context.invocationId } : {}),
+            },
+            current.routes,
+            current.unavailableRoutes,
+          );
+        },
+      },
+      ...(managedAccountComposition
+        ? {
+            economicAdoption: {
+              adopt: async (job) => {
+                if (job.dispatch.kind !== "economic") {
+                  throw new AgentTaskApplicationError(
+                    "identity-revision-conflict",
+                    "Restore the persisted economic managed dispatch.",
+                  );
+                }
+                const currentConfig = loadRouteConfig();
+                if (!currentConfig) {
+                  throw new AgentTaskApplicationError(
+                    "route_unavailable",
+                    "Refresh current canonical managed economic configuration.",
+                  );
+                }
+                if (!currentConfig.executionCatalog) {
+                  throw new AgentTaskApplicationError(
+                    "route_unavailable",
+                    "Restore the current managed economic execution catalog.",
+                  );
+                }
+                managedAccountComposition.updateCatalog(currentConfig.executionCatalog);
+                return projectManagedEconomicJobAdoption(
+                  currentConfig,
+                  job as Parameters<typeof projectManagedEconomicJobAdoption>[1],
+                  managedAccountComposition.routing,
+                );
               },
             },
-          },
-        });
-        await authorityAdmissionEvidence.persist(childAuthorityAdmission);
-        const request = defineManagedAgentInvocationRequest({
-          invocationId: `agent-task:${job.id}`,
-          agentId: job.configuredAgentProfileId,
-          parentSessionId: childAuthorityAdmission.sessionId,
-          parentTurnId: childAuthorityAdmission.turnId,
-          access: job.access,
-          requestedBy: job.callerId,
-          requestSource: OPERATOR_AGENT_TASK_SOURCE,
-          providerRoute: {
-            providerId: selected.providerId,
-            surface: route.surface ?? "direct-provider",
-            model: selected.modelId,
-          },
-          adapterKind: preparation.adapter.descriptor.adapterKind,
-          executionMode: preparation.adapter.descriptor.supportedExecutionModes[0] ?? "direct-provider",
-          ...agentTaskRequestedAuthority(job.access),
-          authority: {
-            authorityProfileId: profile.authorityProfileId,
-            toolAuthority: {
-              allowedToolNames: profile.allowedToolNames,
-              writeAllowed: profile.writeAllowed ?? false,
-              networkAllowed: profile.networkAllowed ?? false,
+          }
+        : {}),
+      ...(managedAccountComposition
+        ? {
+            economicCommitment: {
+              query: (input) => commitmentRecovery!.query(input),
+              acquire: (input) => managedAccountComposition.authority.acquireCommitment(input),
+              releasePreFence: (jobId, economicAttemptId) => {
+                managedAccountComposition.authority.releaseCommitmentPreFence(jobId, economicAttemptId);
+              },
+              recordReleaseFailure: (input) => {
+                managedAccountComposition.authority.recordCommitmentReleaseFailure(input);
+              },
             },
-            workingDirectory: profile.workingDirectory,
-            timeoutMs: profile.timeoutMs,
-            credentialRoute: profile.credentialRoute,
-            memoryScope: profile.memoryScope,
-            ...(profile.readAuthority ? { readAuthority: profile.readAuthority } : {}),
-            ...(profile.writeAuthority ? { writeAuthority: profile.writeAuthority } : {}),
-          },
-          input: agentTaskManagedInvocationInput(job),
-        });
-        const started = await invocationService.start(request, preparation.adapter, {
-          capturedAt: new Date().toISOString(),
-          routeId: route.routeId,
-          routeSource: route.routeSource,
-          callerIdentity: {
-            kind: "kiln-runtime",
-            surface: OPERATOR_AGENT_TASK_SOURCE,
-            attachmentId: `agent-task:${job.id}`,
-          },
-          ...(route.providerModelProof ? { providerModelProof: route.providerModelProof } : {}),
-          ...(job.capability
-            ? {
-                resourcePlane: {
-                  available: true,
-                  resourceUris: job.capability.input.resourceUris,
-                  reason: "Agent Task capability resources admitted by the persisted child authority.",
-                },
-              }
-            : {}),
-        }, {
-          abortSignal: preparation.abortSignal,
-          ...(workLimits ? { workLimits } : {}),
-          ...(consumedWriteApproval ? { consumedWriteApproval } : {}),
-          economicDispatch: {
-            commitment: preparation.commitment,
-            dispatchFenceId: preparation.dispatchFenceId,
-            admissionId: preparation.actionClaim.admissionId,
-            recordExecutionSettlementPending: preparation.recordExecutionSettlementPending,
-            recordExecutionNotDispatched: preparation.recordExecutionNotDispatched,
-            createExecutionSettlement: preparation.createExecutionSettlement,
-            registerEconomicSettlement: preparation.registerEconomicSettlement,
-          },
-          childAuthorityAdmission: { bundle: childAuthorityAdmission },
-        });
-        if (started.status !== "started") {
-          throw new AgentTaskApplicationError("admission_denied", "Review the exact committed managed Runtime authority.");
-        }
-        const joined = await invocationService.join(request.invocationId);
-        const progressEvents = invocationService.status(request.invocationId)?.progressEvents;
-        if (
-          joined.status === "completed"
-          && joined.record.lifecycleState === "cancelled"
-          && preparation.abortSignal.aborted
-        ) {
-          throw new AgentTaskApplicationError(
-            "provider_timeout",
-            "Retry the exact admitted managed route after verifying provider availability.",
-            agentTaskProviderTimeoutEvidence(joined.record, progressEvents),
+          }
+        : {}),
+      ...(economicReplay ? { economicReplay } : {}),
+      writeApprovals: approvalAuthority,
+      ...(economicDispatch ? { economicDispatch: economicDispatch.coordinator } : {}),
+      ...(options.onDispatchError ? { onEconomicDispatchError: options.onDispatchError } : {}),
+      nativeHarnessExecution: {
+        execute: async ({ job, route, dispatchFenceId, consumedWriteApproval, callerIdentity, abortSignal }) => {
+          const execution = await freshManagedInvocation("execution", managedAccountComposition);
+          const currentRoute = execution.routes.find(
+            (candidate) =>
+              candidate.routeId === route.routeId &&
+              candidate.providerId === route.providerId &&
+              candidate.model === route.model,
           );
-        }
-        if (joined.status !== "completed" || joined.record.lifecycleState !== "completed" || !joined.record.resultHandoff) {
-          options.onDispatchError?.({
-            kind: "managed-invocation-terminal-diagnostic",
-            joinStatus: joined.status,
-            ...(joined.status === "completed"
-              ? {
-                  lifecycleState: joined.record.lifecycleState,
-                  diagnostics: joined.record.diagnostics,
-                  resultSummary: joined.record.resultHandoff?.summary,
-                }
-              : {}),
-            ...(progressEvents ? { progressEvents } : {}),
-          });
-          throw agentTaskExecutionFailure(
-            joined.status === "completed" ? joined.record : undefined,
-            progressEvents,
+          const invocationService = execution.invocationService;
+          const agent = findAgent(
+            await loadAgentDefinitions(root.rootPath, { projectStateBinding }),
+            job.configuredAgentProfileId,
           );
-        }
-        const writeEvidence = sanitizeManagedWriteEvidence(joined.record);
-        const capabilityOutput = projectAgentTaskCapabilityOutput(job, joined.record);
-        return {
-          runtimeInvocationId: joined.record.invocationId,
-          completedAt: new Date().toISOString(),
-          resultHandoff: joined.record.resultHandoff,
-          ...(capabilityOutput ? { capabilityOutput } : {}),
-          dataPolicyProof: {
-            version: 1,
-            jobId: job.id,
-            dispatchFenceId: preparation.dispatchFenceId,
-            routeId: selected.routeId,
-            providerId: selected.providerId,
-            providerModelId: selected.modelId,
-            decision: dataPolicyDecision.decision,
-            evidence: dataPolicyDecision.evidence,
-          } satisfies AgentTaskDataPolicyProof,
-          ...(writeEvidence ? { writeEvidence } : {}),
-        };
-      },
-    },
-    commitmentRecovery,
-    store: agentTaskStore,
-    ...(options.requestEconomicApproval ? { requestEconomicApproval: options.requestEconomicApproval } : {}),
-  });
-  const dispatcher = new OperatorProjectAgentTaskDispatcher(service, options.onDispatchError);
-  const recoveredJobs = await service.recoverInterrupted();
-  for (const job of recoveredJobs) {
-    if (job.dispatch.kind === "economic" && (job.state === "queued" || job.state === "running")) {
-      dispatcher.enqueue(job.id);
-    }
-  }
-  const acceptAgentTask = async (
-    input: unknown,
-    callerIdentity: ManagedAgentCallerAttachmentIdentity | undefined,
-    authorityAdmission: EffectiveAuthorityAdmissionBundle,
-  ): Promise<AgentTaskRecord> => {
-    // This is deliberately acceptance-only. The local capability executor
-    // owns the one dispatch call after acceptance; ordinary application
-    // callers continue through `application.accept` below.
-    void callerIdentity;
-    await authorityAdmissionEvidence.persist(authorityAdmission);
-    return requestAuthorityAdmission.run(authorityAdmission, () => service.accept(input));
-  };
-  const application: OperatorProjectAgentTaskApplicationPort & OperatorProjectManagedWriteApprovalPort = {
-    accept: async (input, callerIdentity, authorityAdmission) => {
-      const job = authorityAdmission
-        ? await acceptAgentTask(input, callerIdentity, authorityAdmission)
-        : await service.accept(input);
-      if (job.state !== "awaiting_approval") dispatcher.enqueue(job.id, callerIdentity);
-      return job;
-    },
-    approveWrite: async (jobId, expiresAt) => {
-      const job = await agentTaskStore.get(jobId);
-      if (!job) throw new AgentTaskApplicationError("unknown_job", "Verify the agent-task identifier.");
-      if (job.state !== "awaiting_approval" || job.access !== "approved-write" || job.writeApproval !== undefined) {
-        throw new AgentTaskApplicationError("invalid_transition", "Approve only an awaiting managed approved-write job once.");
-      }
-      const binding = managedWriteApprovalBinding(job);
-      const issued = writeApprovalAuthority.issue({
-        binding,
-        approverId: TRUSTED_WRITE_APPROVER_ID,
-        expiresAt,
-      });
-      try {
-        const attached = await service.attachWriteApproval(
-          { project, callerId: job.callerId },
-          job.id,
-          issued.approvalId,
-        );
-        dispatcher.enqueue(attached.id);
-        return attached;
-      } catch (error) {
-        try {
-          writeApprovalAuthority.revoke({ approvalId: issued.approvalId, projectId: job.projectId });
-        } catch {
-          // Keep the original attach failure; an issued-but-unattached receipt cannot authorize dispatch.
-        }
-        throw error;
-      }
-    },
-    getStatus: (input, jobId) => service.getStatus({ project, callerId: input.callerId }, jobId),
-    getResult: (input, jobId) => service.getResult({ project, callerId: input.callerId }, jobId),
-    cancel: (input, jobId) => service.cancel({ project, callerId: input.callerId }, jobId),
-    getReplay: (input, jobId) => service.getReplay({ project, callerId: input.callerId }, jobId),
-  };
-  return {
-    service,
-    application,
-    ...(localVisionAgentProfileId ? { localVisionAgentProfileId } : {}),
-    createAgentTaskVisionAnalysisCapabilityBinding: ({ configuredAgentProfileId, callerId, callerIdentity }) => ({
-      agentTaskService: {
-        dispatch: async (jobId, context) => {
-          const settled = await dispatcher.dispatch(jobId, context?.callerIdentity);
-          if (!settled) {
+          const catalogEntry = execution.agentCatalog?.find(
+            (candidate) => candidate.name === job.configuredAgentProfileId,
+          );
+          const profile =
+            currentRoute && catalogEntry
+              ? resolveConfiguredManagedInvocationRouteProfile(currentRoute, catalogEntry, job.access)
+              : undefined;
+          const currentDeliberation =
+            agent && currentRoute
+              ? resolveNativeHarnessDeliberation(agent, currentRoute, loadRouteConfig()?.deliberationPolicy)
+              : undefined;
+          if (
+            !currentRoute ||
+            !profile ||
+            !invocationService ||
+            currentRoute.capability.identity.revision !== route.routeRevision ||
+            currentRoute.capability.target.providerId !== route.providerId ||
+            currentRoute.capability.target.modelId !== route.model ||
+            currentRoute.capability.adapter.capabilityId !== route.adapterCapabilityId ||
+            currentRoute.capability.adapter.capabilityVersion !== route.adapterCapabilityVersion ||
+            currentRoute.capability.capacity.kind !== "accountless" ||
+            !currentRoute.createAdapter ||
+            !agent ||
+            currentDeliberation?.status === "denied" ||
+            !sameNativeHarnessDeliberationResolution(
+              route.deliberationResolution,
+              toNativeHarnessDeliberationResolution(currentDeliberation),
+            )
+          ) {
             throw new AgentTaskApplicationError(
-              "invocation_failed",
-              "The run-owned Agent Task dispatcher closed before capability settlement.",
+              "route_unavailable",
+              "Restore the exact admitted native-harness Runtime route.",
             );
           }
-          return settled;
-        },
-        getResult: (context, jobId) => service.getResult(context, jobId),
-        cancel: (context, jobId) => service.cancel(context, jobId),
-      },
-      configuredAgentProfileId,
-      callerId,
-      ...(callerIdentity ? { callerIdentity } : {}),
-      acceptAgentTask,
-    }),
-    configuredAgents: summarizeOperatorProjectManagedAgents(configuredAgents, managedInvocation),
-    ...(managedAccountComposition ? {
-      economicAuthority: {
-        acquire: (input) => managedAccountComposition.authority.acquireCommitment(input),
-        releasePreFence: (jobId, economicAttemptId) => {
-          managedAccountComposition.authority.releaseCommitmentPreFence(jobId, economicAttemptId);
-        },
-        fenceDispatch: (jobId, economicAttemptId, dispatchFenceId, actionClaim) => {
-          managedAccountComposition.authority.fenceDispatch(jobId, economicAttemptId, dispatchFenceId, actionClaim);
-        },
-        readDispatch: (jobId, economicAttemptId, dispatchFenceId, actionClaim) => {
-          return managedAccountComposition.authority.readDispatch(jobId, economicAttemptId, dispatchFenceId, actionClaim);
-        },
-        settleExecution: (jobId, economicAttemptId, dispatchFenceId, settlement) => {
-          managedAccountComposition.authority.settleExecution(jobId, economicAttemptId, dispatchFenceId, settlement);
-        },
-        recordExecutionSettlementPending: (jobId, economicAttemptId, dispatchFenceId, reason) => {
-          managedAccountComposition.authority.recordExecutionSettlementPending(
-            jobId,
-            economicAttemptId,
-            dispatchFenceId,
-            reason,
+          const dataPolicyDecision = assertNativeRouteDataPolicy(route);
+          const adapter = await currentRoute.createAdapter();
+          if (!adapter)
+            throw new AgentTaskApplicationError(
+              "route_unavailable",
+              "Materialize the exact admitted native-harness adapter after the dispatch fence.",
+            );
+          const childSessionId = `agent-task:${job.id}`;
+          const childTurnId = canonicalTurnId(childSessionId, 1);
+          const childAuthorityAdmission = createAgentTaskChildAuthorityAdmission(job, childSessionId, childTurnId, {
+            status: "not-routed",
+          });
+          await authorityAdmissionEvidence.persist(childAuthorityAdmission);
+          const request = defineManagedAgentInvocationRequest({
+            invocationId: `agent-task:${job.id}`,
+            agentId: job.configuredAgentProfileId,
+            parentSessionId: childAuthorityAdmission.sessionId,
+            parentTurnId: childAuthorityAdmission.turnId,
+            access: job.access,
+            requestedBy: job.callerId,
+            requestSource: OPERATOR_AGENT_TASK_SOURCE,
+            providerRoute: {
+              providerId: route.providerId,
+              surface: currentRoute.surface ?? "cli-harness",
+              model: route.model,
+              // Equality with the committed Runtime subset above proves this Core
+              // resolution is the exact admitted level and capability evidence.
+              ...(currentDeliberation?.status === "exact" || currentDeliberation?.status === "clamped"
+                ? { deliberationResolution: currentDeliberation }
+                : {}),
+            },
+            adapterKind: adapter.descriptor.adapterKind,
+            executionMode: adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
+            ...agentTaskRequestedAuthority(job.access),
+            authority: {
+              authorityProfileId: profile.authorityProfileId,
+              toolAuthority: {
+                allowedToolNames: profile.allowedToolNames,
+                writeAllowed: profile.writeAllowed ?? false,
+                networkAllowed: profile.networkAllowed ?? false,
+              },
+              workingDirectory: profile.workingDirectory,
+              timeoutMs: profile.timeoutMs,
+              credentialRoute: profile.credentialRoute,
+              memoryScope: profile.memoryScope,
+              ...(profile.readAuthority ? { readAuthority: profile.readAuthority } : {}),
+              ...(profile.writeAuthority ? { writeAuthority: profile.writeAuthority } : {}),
+            },
+            input: agentTaskManagedInvocationInput(job),
+          });
+          const started = await invocationService.start(
+            request,
+            adapter,
+            {
+              capturedAt: new Date().toISOString(),
+              routeId: currentRoute.routeId,
+              routeSource: currentRoute.routeSource,
+              ...(callerIdentity ? { callerIdentity } : {}),
+              ...(currentRoute.externalRuntimeAttachment
+                ? { externalRuntimeAttachment: currentRoute.externalRuntimeAttachment }
+                : {}),
+              ...(currentRoute.providerModelProof ? { providerModelProof: currentRoute.providerModelProof } : {}),
+              ...(job.capability
+                ? {
+                    resourcePlane: {
+                      available: true,
+                      resourceUris: job.capability.input.resourceUris,
+                      reason: "Agent Task capability resources admitted by the persisted child authority.",
+                    },
+                  }
+                : {}),
+            },
+            {
+              ...(abortSignal ? { abortSignal } : {}),
+              ...(consumedWriteApproval ? { consumedWriteApproval } : {}),
+              childAuthorityAdmission: { bundle: childAuthorityAdmission },
+            },
           );
-        },
-        recordExecutionNotDispatched: (jobId, economicAttemptId, dispatchFenceId, reason) => {
-          managedAccountComposition.authority.recordExecutionNotDispatched(
-            jobId,
-            economicAttemptId,
-            dispatchFenceId,
-            reason,
-          );
+          if (started.status !== "started") {
+            throw new AgentTaskApplicationError(
+              "admission_denied",
+              "Review the exact admitted native-harness Runtime authority.",
+            );
+          }
+          const joined = await invocationService.join(request.invocationId);
+          const progressEvents = invocationService.status(request.invocationId)?.progressEvents;
+          if (
+            joined.status !== "completed" ||
+            joined.record.lifecycleState !== "completed" ||
+            !joined.record.resultHandoff
+          ) {
+            options.onDispatchError?.({
+              kind: "managed-invocation-terminal-diagnostic",
+              joinStatus: joined.status,
+              ...(joined.status === "completed"
+                ? {
+                    lifecycleState: joined.record.lifecycleState,
+                    diagnostics: joined.record.diagnostics,
+                    resultSummary: joined.record.resultHandoff?.summary,
+                  }
+                : {}),
+              ...(progressEvents ? { progressEvents } : {}),
+            });
+            throw agentTaskExecutionFailure(joined.status === "completed" ? joined.record : undefined, progressEvents);
+          }
+          const writeEvidence = sanitizeManagedWriteEvidence(joined.record);
+          const capabilityOutput = projectAgentTaskCapabilityOutput(job, joined.record);
+          return {
+            runtimeInvocationId: joined.record.invocationId,
+            completedAt: new Date().toISOString(),
+            resultHandoff: joined.record.resultHandoff,
+            ...(capabilityOutput ? { capabilityOutput } : {}),
+            dataPolicyProof: {
+              version: 1,
+              jobId: job.id,
+              dispatchFenceId,
+              routeId: route.routeId,
+              providerId: route.providerId,
+              providerModelId: route.model,
+              decision: dataPolicyDecision.decision,
+              evidence: dataPolicyDecision.evidence!,
+            } satisfies AgentTaskDataPolicyProof,
+            ...(writeEvidence ? { writeEvidence } : {}),
+          };
         },
       },
-    } : {}),
-    close: async () => {
-      await dispatcher.close();
-      try {
-        writeApprovalAuthority.close();
-      } finally {
-        try {
-          closeOwnedActionClaimStores();
-        } finally {
-          managedInvocationService?.close();
-          if (ownsManagedAccountComposition) closeManagedAccountRuntimeComposition(root.rootPath);
-        }
+      economicExecution: {
+        execute: async ({ job, preparation, consumedWriteApproval, workLimits }) => {
+          if (!managedAccountComposition) {
+            throw new AgentTaskApplicationError(
+              "route_unavailable",
+              "Restore the process-owned managed economic Runtime authority.",
+            );
+          }
+          const selectedIdentity = preparation.commitment.reservation.selectedIdentity;
+          const selected = selectedIdentity.route;
+          const selectedCandidate =
+            job.dispatch.kind === "economic"
+              ? job.dispatch.candidateSet.candidates.find(
+                  (candidate) =>
+                    candidate.routeId === selected.routeId &&
+                    candidate.providerId === selected.providerId &&
+                    candidate.model === selected.modelId,
+                )
+              : undefined;
+          if (!selectedCandidate) {
+            throw new AgentTaskApplicationError(
+              "identity-revision-conflict",
+              "Restore the exact selected managed economic candidate before execution.",
+            );
+          }
+          const dataPolicyDecision = managedAccountComposition.routing.assertAdmittedDataPolicy({
+            targetId: selected.routeId,
+            providerId: selected.providerId,
+            providerModelId: selected.modelId,
+          });
+          if (!dataPolicyDecision.evidence) {
+            throw new AgentTaskApplicationError(
+              "route_unavailable",
+              "Restore exact admitted managed Runtime data-policy evidence.",
+            );
+          }
+          const execution = await freshManagedInvocation("execution", managedAccountComposition);
+          const route = execution.routes.find(
+            (candidate) =>
+              candidate.routeId === selected.routeId &&
+              candidate.providerId === selected.providerId &&
+              candidate.model === selected.modelId,
+          );
+          if (
+            !route ||
+            route.economicCapability?.status !== "verified" ||
+            route.economicCapability?.adapterCapabilityId !== selected.adapterCapabilityId ||
+            route.economicCapability?.adapterCapabilityVersion !== selected.adapterCapabilityVersion
+          ) {
+            throw new AgentTaskApplicationError(
+              "route_unavailable",
+              "Restore the exact committed managed Runtime route.",
+            );
+          }
+          const catalogEntry = execution.agentCatalog?.find(
+            (candidate) => candidate.name === job.configuredAgentProfileId,
+          );
+          const profile = catalogEntry
+            ? resolveConfiguredManagedInvocationRouteProfile(route, catalogEntry, job.access)
+            : undefined;
+          const invocationService = execution.invocationService;
+          if (!profile || !invocationService) {
+            throw new AgentTaskApplicationError(
+              "route_unavailable",
+              "Restore the exact committed managed Runtime route.",
+            );
+          }
+          if (
+            selectedCandidate.profileAuthorityDigest !==
+            digestManagedEconomicCandidateProfileAuthority(profile, `agent-task:${job.id}`)
+          ) {
+            throw new AgentTaskApplicationError(
+              "identity-revision-conflict",
+              "Restore the exact selected managed economic execution authority.",
+            );
+          }
+          const executionBinding = preparation.adapter.executionBinding;
+          if (
+            !executionBinding ||
+            executionBinding.routeId !== selected.routeId ||
+            selectedIdentity.account.kind !== "account-bound"
+          ) {
+            throw new AgentTaskApplicationError(
+              "identity-revision-conflict",
+              "Restore the exact committed managed account binding before execution.",
+            );
+          }
+          const currentConfig = loadRouteConfig();
+          const executionCatalog = currentConfig?.executionCatalog;
+          if (!executionCatalog) {
+            throw new AgentTaskApplicationError(
+              "route_unavailable",
+              "Restore the current managed economic execution catalog.",
+            );
+          }
+          let admittedTarget;
+          try {
+            admittedTarget = admitOperatorExecutionIntent(executionCatalog, {
+              targetId: selected.routeId,
+            });
+          } catch {
+            throw new AgentTaskApplicationError(
+              "identity-revision-conflict",
+              "Restore the exact committed managed account policy before execution.",
+            );
+          }
+          if (
+            admittedTarget.providerId !== selected.providerId ||
+            admittedTarget.providerModelId !== selected.modelId ||
+            admittedTarget.accountSelection.kind !== "policy" ||
+            !admittedTarget.accountSelection.eligibleAccountIds.includes(executionBinding.accountId)
+          ) {
+            throw new AgentTaskApplicationError(
+              "identity-revision-conflict",
+              "Restore the exact committed managed account policy before execution.",
+            );
+          }
+          const childAuthorityAdmittedAt =
+            job.lifecycle.find((entry) => entry.state === "running")?.observedAt ?? job.updatedAt;
+          const childSessionId = `agent-task:${job.id}`;
+          const childTurnId = canonicalTurnId(childSessionId, 1);
+          const parentOperatorAdoption = job.admissionBundle.turn.operatorAdoption;
+          let parentOperatorActorId: string | undefined;
+          if (parentOperatorAdoption.status === "admitted") {
+            if (parentOperatorAdoption.decision.contractAuthority.kind !== "operator") {
+              throw new AgentTaskApplicationError(
+                "admission_denied",
+                "Restore the canonical operator adoption authority for managed child execution.",
+              );
+            }
+            parentOperatorActorId = parentOperatorAdoption.decision.contractAuthority.actorId;
+          }
+          const childOperatorAdoption =
+            parentOperatorAdoption.status === "admitted"
+              ? {
+                  status: "admitted" as const,
+                  decision: createOperatorAdoptionDecisionAuthority({
+                    ownerSessionId: childSessionId,
+                    operatorTurnId: childTurnId,
+                    actorId: parentOperatorActorId!,
+                  }),
+                }
+              : parentOperatorAdoption;
+          const childWorkGovernance =
+            job.admissionBundle.turn.workGovernance.status === "required" && childOperatorAdoption.status === "admitted"
+              ? {
+                  ...job.admissionBundle.turn.workGovernance,
+                  subjectId: childOperatorAdoption.decision.decisionId,
+                  authorityRevision: childOperatorAdoption.decision.decisionId,
+                }
+              : job.admissionBundle.turn.workGovernance;
+          const childAuthorityAdmission = defineEffectiveAuthorityAdmissionBundle({
+            sessionId: childSessionId,
+            turnId: childTurnId,
+            admittedAt: childAuthorityAdmittedAt,
+            configuration: job.admissionBundle.configuration,
+            session: job.admissionBundle.session,
+            turn: {
+              ...job.admissionBundle.turn,
+              workGovernance: childWorkGovernance,
+              operatorAdoption: childOperatorAdoption,
+              execution: {
+                status: "routed",
+                target: admittedTarget,
+                dataPolicy: dataPolicyDecision,
+                binding: executionBinding,
+                economicCommitment: {
+                  commitmentId: preparation.commitment.commitmentId,
+                  authorityRevision: preparation.commitment.reservation.authorityRevision,
+                },
+              },
+            },
+          });
+          await authorityAdmissionEvidence.persist(childAuthorityAdmission);
+          const request = defineManagedAgentInvocationRequest({
+            invocationId: `agent-task:${job.id}`,
+            agentId: job.configuredAgentProfileId,
+            parentSessionId: childAuthorityAdmission.sessionId,
+            parentTurnId: childAuthorityAdmission.turnId,
+            access: job.access,
+            requestedBy: job.callerId,
+            requestSource: OPERATOR_AGENT_TASK_SOURCE,
+            providerRoute: {
+              providerId: selected.providerId,
+              surface: route.surface ?? "direct-provider",
+              model: selected.modelId,
+            },
+            adapterKind: preparation.adapter.descriptor.adapterKind,
+            executionMode: preparation.adapter.descriptor.supportedExecutionModes[0] ?? "direct-provider",
+            ...agentTaskRequestedAuthority(job.access),
+            authority: {
+              authorityProfileId: profile.authorityProfileId,
+              toolAuthority: {
+                allowedToolNames: profile.allowedToolNames,
+                writeAllowed: profile.writeAllowed ?? false,
+                networkAllowed: profile.networkAllowed ?? false,
+              },
+              workingDirectory: profile.workingDirectory,
+              timeoutMs: profile.timeoutMs,
+              credentialRoute: profile.credentialRoute,
+              memoryScope: profile.memoryScope,
+              ...(profile.readAuthority ? { readAuthority: profile.readAuthority } : {}),
+              ...(profile.writeAuthority ? { writeAuthority: profile.writeAuthority } : {}),
+            },
+            input: agentTaskManagedInvocationInput(job),
+          });
+          const started = await invocationService.start(
+            request,
+            preparation.adapter,
+            {
+              capturedAt: new Date().toISOString(),
+              routeId: route.routeId,
+              routeSource: route.routeSource,
+              callerIdentity: {
+                kind: "kiln-runtime",
+                surface: OPERATOR_AGENT_TASK_SOURCE,
+                attachmentId: `agent-task:${job.id}`,
+              },
+              ...(route.providerModelProof ? { providerModelProof: route.providerModelProof } : {}),
+              ...(job.capability
+                ? {
+                    resourcePlane: {
+                      available: true,
+                      resourceUris: job.capability.input.resourceUris,
+                      reason: "Agent Task capability resources admitted by the persisted child authority.",
+                    },
+                  }
+                : {}),
+            },
+            {
+              abortSignal: preparation.abortSignal,
+              ...(workLimits ? { workLimits } : {}),
+              ...(consumedWriteApproval ? { consumedWriteApproval } : {}),
+              economicDispatch: {
+                commitment: preparation.commitment,
+                dispatchFenceId: preparation.dispatchFenceId,
+                admissionId: preparation.actionClaim.admissionId,
+                recordExecutionSettlementPending: preparation.recordExecutionSettlementPending,
+                recordExecutionNotDispatched: preparation.recordExecutionNotDispatched,
+                createExecutionSettlement: preparation.createExecutionSettlement,
+                registerEconomicSettlement: preparation.registerEconomicSettlement,
+              },
+              childAuthorityAdmission: { bundle: childAuthorityAdmission },
+            },
+          );
+          if (started.status !== "started") {
+            throw new AgentTaskApplicationError(
+              "admission_denied",
+              "Review the exact committed managed Runtime authority.",
+            );
+          }
+          const joined = await invocationService.join(request.invocationId);
+          const progressEvents = invocationService.status(request.invocationId)?.progressEvents;
+          if (
+            joined.status === "completed" &&
+            joined.record.lifecycleState === "cancelled" &&
+            preparation.abortSignal.aborted
+          ) {
+            throw new AgentTaskApplicationError(
+              "provider_timeout",
+              "Retry the exact admitted managed route after verifying provider availability.",
+              agentTaskProviderTimeoutEvidence(joined.record, progressEvents),
+            );
+          }
+          if (
+            joined.status !== "completed" ||
+            joined.record.lifecycleState !== "completed" ||
+            !joined.record.resultHandoff
+          ) {
+            options.onDispatchError?.({
+              kind: "managed-invocation-terminal-diagnostic",
+              joinStatus: joined.status,
+              ...(joined.status === "completed"
+                ? {
+                    lifecycleState: joined.record.lifecycleState,
+                    diagnostics: joined.record.diagnostics,
+                    resultSummary: joined.record.resultHandoff?.summary,
+                  }
+                : {}),
+              ...(progressEvents ? { progressEvents } : {}),
+            });
+            throw agentTaskExecutionFailure(joined.status === "completed" ? joined.record : undefined, progressEvents);
+          }
+          const writeEvidence = sanitizeManagedWriteEvidence(joined.record);
+          const capabilityOutput = projectAgentTaskCapabilityOutput(job, joined.record);
+          return {
+            runtimeInvocationId: joined.record.invocationId,
+            completedAt: new Date().toISOString(),
+            resultHandoff: joined.record.resultHandoff,
+            ...(capabilityOutput ? { capabilityOutput } : {}),
+            dataPolicyProof: {
+              version: 1,
+              jobId: job.id,
+              dispatchFenceId: preparation.dispatchFenceId,
+              routeId: selected.routeId,
+              providerId: selected.providerId,
+              providerModelId: selected.modelId,
+              decision: dataPolicyDecision.decision,
+              evidence: dataPolicyDecision.evidence,
+            } satisfies AgentTaskDataPolicyProof,
+            ...(writeEvidence ? { writeEvidence } : {}),
+          };
+        },
+      },
+      commitmentRecovery,
+      store: agentTaskStore,
+      ...(options.requestEconomicApproval ? { requestEconomicApproval: options.requestEconomicApproval } : {}),
+    });
+    dispatcher = new OperatorProjectAgentTaskDispatcher(service, options.onDispatchError);
+    const taskDispatcher = dispatcher;
+    const recoveredJobs = await service.recoverInterrupted();
+    for (const job of recoveredJobs) {
+      if (job.dispatch.kind === "economic" && (job.state === "queued" || job.state === "running")) {
+        taskDispatcher.enqueue(job.id);
       }
-    },
-  };
+    }
+    const acceptAgentTask = async (
+      input: unknown,
+      callerIdentity: ManagedAgentCallerAttachmentIdentity | undefined,
+      authorityAdmission: EffectiveAuthorityAdmissionBundle,
+    ): Promise<AgentTaskRecord> => {
+      // This is deliberately acceptance-only. The local capability executor
+      // owns the one dispatch call after acceptance; ordinary application
+      // callers continue through `application.accept` below.
+      void callerIdentity;
+      await authorityAdmissionEvidence.persist(authorityAdmission);
+      return requestAuthorityAdmission.run(authorityAdmission, () => service.accept(input));
+    };
+    const application: OperatorProjectAgentTaskApplicationPort & OperatorProjectManagedWriteApprovalPort = {
+      accept: async (input, callerIdentity, authorityAdmission) => {
+        const job = authorityAdmission
+          ? await acceptAgentTask(input, callerIdentity, authorityAdmission)
+          : await service.accept(input);
+        if (job.state !== "awaiting_approval") taskDispatcher.enqueue(job.id, callerIdentity);
+        return job;
+      },
+      approveWrite: async (jobId, expiresAt) => {
+        const job = await agentTaskStore.get(jobId);
+        if (!job) throw new AgentTaskApplicationError("unknown_job", "Verify the agent-task identifier.");
+        if (job.state !== "awaiting_approval" || job.access !== "approved-write" || job.writeApproval !== undefined) {
+          throw new AgentTaskApplicationError(
+            "invalid_transition",
+            "Approve only an awaiting managed approved-write job once.",
+          );
+        }
+        const binding = managedWriteApprovalBinding(job);
+        const issued = approvalAuthority.issue({
+          binding,
+          approverId: TRUSTED_WRITE_APPROVER_ID,
+          expiresAt,
+        });
+        try {
+          const attached = await service.attachWriteApproval(
+            { project, callerId: job.callerId },
+            job.id,
+            issued.approvalId,
+          );
+          taskDispatcher.enqueue(attached.id);
+          return attached;
+        } catch (error) {
+          try {
+            approvalAuthority.revoke({ approvalId: issued.approvalId, projectId: job.projectId });
+          } catch {
+            // Keep the original attach failure; an issued-but-unattached receipt cannot authorize dispatch.
+          }
+          throw error;
+        }
+      },
+      getStatus: (input, jobId) => service.getStatus({ project, callerId: input.callerId }, jobId),
+      getResult: (input, jobId) => service.getResult({ project, callerId: input.callerId }, jobId),
+      cancel: (input, jobId) => service.cancel({ project, callerId: input.callerId }, jobId),
+      getReplay: (input, jobId) => service.getReplay({ project, callerId: input.callerId }, jobId),
+    };
+    return {
+      service,
+      application,
+      ...(localVisionAgentProfileId ? { localVisionAgentProfileId } : {}),
+      createAgentTaskVisionAnalysisCapabilityBinding: ({ configuredAgentProfileId, callerId, callerIdentity }) => ({
+        agentTaskService: {
+          dispatch: async (jobId, context) => {
+            const settled = await taskDispatcher.dispatch(jobId, context?.callerIdentity);
+            if (!settled) {
+              throw new AgentTaskApplicationError(
+                "invocation_failed",
+                "The run-owned Agent Task dispatcher closed before capability settlement.",
+              );
+            }
+            return settled;
+          },
+          getResult: (context, jobId) => service.getResult(context, jobId),
+          cancel: (context, jobId) => service.cancel(context, jobId),
+        },
+        configuredAgentProfileId,
+        callerId,
+        ...(callerIdentity ? { callerIdentity } : {}),
+        acceptAgentTask,
+      }),
+      configuredAgents: summarizeOperatorProjectManagedAgents(configuredAgents, managedInvocation),
+      ...(managedAccountComposition
+        ? {
+            economicAuthority: {
+              acquire: (input) => managedAccountComposition.authority.acquireCommitment(input),
+              releasePreFence: (jobId, economicAttemptId) => {
+                managedAccountComposition.authority.releaseCommitmentPreFence(jobId, economicAttemptId);
+              },
+              fenceDispatch: (jobId, economicAttemptId, dispatchFenceId, actionClaim) => {
+                managedAccountComposition.authority.fenceDispatch(
+                  jobId,
+                  economicAttemptId,
+                  dispatchFenceId,
+                  actionClaim,
+                );
+              },
+              readDispatch: (jobId, economicAttemptId, dispatchFenceId, actionClaim) => {
+                return managedAccountComposition.authority.readDispatch(
+                  jobId,
+                  economicAttemptId,
+                  dispatchFenceId,
+                  actionClaim,
+                );
+              },
+              settleExecution: (jobId, economicAttemptId, dispatchFenceId, settlement) => {
+                managedAccountComposition.authority.settleExecution(
+                  jobId,
+                  economicAttemptId,
+                  dispatchFenceId,
+                  settlement,
+                );
+              },
+              recordExecutionSettlementPending: (jobId, economicAttemptId, dispatchFenceId, reason) => {
+                managedAccountComposition.authority.recordExecutionSettlementPending(
+                  jobId,
+                  economicAttemptId,
+                  dispatchFenceId,
+                  reason,
+                );
+              },
+              recordExecutionNotDispatched: (jobId, economicAttemptId, dispatchFenceId, reason) => {
+                managedAccountComposition.authority.recordExecutionNotDispatched(
+                  jobId,
+                  economicAttemptId,
+                  dispatchFenceId,
+                  reason,
+                );
+              },
+            },
+          }
+        : {}),
+      close: async () => {
+        const cleanupFailures = await closeOwnedResources();
+        if (cleanupFailures.length > 0) {
+          throw new AggregateError(cleanupFailures, "Agent task application close was incomplete.");
+        }
+      },
+    };
+  } catch (error) {
+    return failStartup(error);
+  }
 }
 
 function agentTaskExecutionFailure(

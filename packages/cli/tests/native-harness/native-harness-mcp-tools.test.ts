@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { KilnConfigStatusSnapshot } from "@kilnai/gateway-contracts";
 import { canonicalTurnId } from "@kilnai/core/events";
-import { defineEffectiveAuthorityAdmissionBundle } from "@kilnai/runtime";
+import { AgentTaskApplicationError, defineEffectiveAuthorityAdmissionBundle, ManagedWriteApprovalSchemaError } from "@kilnai/runtime";
 import type { AgentTaskDataPolicyProof, AgentTaskRecord, EffectiveAuthorityAdmissionBundle } from "@kilnai/runtime";
 import type { AccountUsageInspectionService } from "../../src/application/account-usage-inspection.js";
 import { discoverNativeHarnessProjectRoot } from "../../src/application/native-harness-project-root.js";
@@ -13,6 +13,7 @@ import {
   NativeHarnessMcpTools,
   createNativeHarnessInspectionService,
 } from "../../src/native-harness/native-harness-mcp-tools.js";
+import { SqliteActionClaimStoreOwnerError } from "../../src/application/sqlite-action-claim-store-owner.js";
 
 const CodexMcpTools = class extends NativeHarnessMcpTools {
   constructor(options: Omit<ConstructorParameters<typeof NativeHarnessMcpTools>[0], "harness">) {
@@ -1042,6 +1043,51 @@ describe("NativeHarnessMcpTools", () => {
     });
     expect(JSON.stringify(result)).not.toContain("super-secret");
     expect(JSON.stringify(result)).not.toContain("C:\\secrets");
+  });
+
+  it.each([
+    [
+      "unsupported Runtime schema",
+      new ManagedWriteApprovalSchemaError("C:\\private\\approvals.sqlite token=secret"),
+      "KILN_MANAGED_AGENTS_SCHEMA_UNSUPPORTED",
+    ],
+    [
+      "live action-claim owner",
+      new SqliteActionClaimStoreOwnerError("live_owner", "C:\\private\\claims.sqlite owner=secret"),
+      "KILN_MANAGED_AGENTS_ACTION_CLAIM_OWNER_LIVE",
+    ],
+    [
+      "corrupt persisted task store",
+      new AgentTaskApplicationError("job_persistence_corrupt", "C:\\private\\tasks.json payload=secret"),
+      "KILN_MANAGED_AGENTS_TASK_PERSISTENCE_CORRUPT",
+    ],
+    [
+      "unavailable persisted task store",
+      new AgentTaskApplicationError("job_persistence_unavailable", "C:\\private\\tasks.json payload=secret"),
+      "KILN_MANAGED_AGENTS_TASK_PERSISTENCE_UNAVAILABLE",
+    ],
+    [
+      "unknown Runtime startup failure",
+      new Error("C:\\private\\runtime.sqlite token=secret"),
+      "KILN_MANAGED_AGENTS_RUNTIME_UNAVAILABLE",
+    ],
+  ] as const)("classifies managed-agent capability read failures as %s", async (_, failure, code) => {
+    const result = await createServer(snapshot(), {
+      readManagedAgents: async () => {
+        throw failure;
+      },
+    }).callTool("kiln_capability_inspect", {});
+
+    expect(result).toMatchObject({
+      structuredContent: {
+        operation: "capability",
+        capability: { availability: "unresolved", managedAgents: [] },
+        diagnostics: expect.arrayContaining([expect.objectContaining({ code })]),
+      },
+    });
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain("C:\\private");
+    expect(serialized).not.toContain("secret");
   });
 
   it("fails closed for malformed canonical evidence and never reflects secrets", async () => {

@@ -1003,10 +1003,12 @@ export type {
 } from "./managed-write-approvals/contracts.js";
 export type {
   ManagedWriteApprovalErrorCode,
+  ManagedWriteApprovalSchemaErrorCode,
   SqliteManagedWriteApprovalAuthorityOptions,
 } from "./managed-write-approvals/sqlite-managed-write-approval-authority.js";
 export {
   ManagedWriteApprovalError,
+  ManagedWriteApprovalSchemaError,
   SQLITE_MANAGED_WRITE_APPROVAL_SCHEMA_VERSION,
   SqliteManagedWriteApprovalAuthority,
 } from "./managed-write-approvals/sqlite-managed-write-approval-authority.js";

@@ -2,12 +2,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { Database } from "bun:sqlite";
 import { fileURLToPath } from "node:url";
 import {
   AgentTaskApplicationService,
   RuntimeManagedAgentInvocationService,
   SqliteManagedAccountLeaseAuthority,
+  SqliteManagedWriteApprovalAuthority,
   type AgentTaskRecord,
 } from "@kilnai/runtime";
 import { syntheticExecutionTargetAuthority } from "../config/execution-target-evidence-fixture.js";
@@ -172,9 +174,14 @@ vi.mock("../../src/application/config-status.js", () => ({
 import {
   createOperatorProjectAgentTaskApplicationComposition,
   createOperatorProjectAgentTaskApplicationService,
+  createOperatorGlobalManagedAccountComposition,
   OperatorProjectAgentTaskDispatcher,
   summarizeOperatorProjectManagedAgents,
 } from "../../src/application/operator-project-agent-tasks.js";
+import { SqliteRuntimeModelRoundActionClaimStore } from "../../src/application/runtime-model-round-action-claim-store.js";
+import { SqliteRuntimeToolActionClaimStore } from "../../src/application/runtime-tool-action-claim-store.js";
+import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
+import { closeManagedAccountRuntimeComposition } from "../../src/config/managed-agent-routes.js";
 import { readConfigStatusSnapshot } from "../../src/application/config-status.js";
 import {
   readGlobalConfig,
@@ -398,6 +405,136 @@ describe("operator project agent-task production composition", () => {
       if (defaultTargetAuthority) mockedReadGlobalExecutionTargetAuthority.mockImplementation(defaultTargetAuthority);
       recoverInvocations.mockRestore();
       closeInvocationService.mockRestore();
+      await rm(projectRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    }
+  });
+
+  it("closes all owned startup resources when late approval-authority construction fails so retry can succeed", async () => {
+    const projectRoot = mkdtempSync(resolve(tmpdir(), "kiln-agent-task-late-startup-retry-"));
+    const binding = resolveProjectStateBinding(projectRoot);
+    mkdirSync(binding.runtimePath, { recursive: true });
+    const approvalPath = join(binding.runtimePath, "managed-write-approvals.sqlite");
+    const malformed = new Database(approvalPath);
+    malformed.exec("PRAGMA user_version=999;");
+    malformed.close();
+    const closeModel = vi.spyOn(SqliteRuntimeModelRoundActionClaimStore.prototype, "close");
+    const closeTool = vi.spyOn(SqliteRuntimeToolActionClaimStore.prototype, "close");
+    const closeInvocation = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "close");
+    const closeAccount = vi.spyOn(SqliteManagedAccountLeaseAuthority.prototype, "close");
+
+    try {
+      await expect(
+        createOperatorProjectAgentTaskApplicationComposition({
+          projectPath: projectRoot,
+          projectStateBinding: binding,
+          discoverProviderModels: async () => ({}),
+        }),
+      ).rejects.toMatchObject({ message: expect.stringContaining("schema version 999 is unsupported") });
+      expect(closeModel).toHaveBeenCalledOnce();
+      expect(closeTool).toHaveBeenCalledOnce();
+      expect(closeInvocation).toHaveBeenCalledOnce();
+      expect(closeAccount).toHaveBeenCalledOnce();
+
+      const repaired = new Database(approvalPath);
+      repaired.exec("PRAGMA user_version=0;");
+      repaired.close();
+      const retry = await createOperatorProjectAgentTaskApplicationComposition({
+        projectPath: projectRoot,
+        projectStateBinding: binding,
+        discoverProviderModels: async () => ({}),
+      });
+      await retry.close();
+      expect(closeModel).toHaveBeenCalledTimes(2);
+      expect(closeTool).toHaveBeenCalledTimes(2);
+      expect(closeInvocation).toHaveBeenCalledTimes(2);
+      expect(closeAccount).toHaveBeenCalledTimes(2);
+    } finally {
+      closeModel.mockRestore();
+      closeTool.mockRestore();
+      closeInvocation.mockRestore();
+      closeAccount.mockRestore();
+      await rm(projectRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    }
+  });
+
+  it("does not close borrowed action-claim stores during late startup cleanup", async () => {
+    const projectRoot = mkdtempSync(resolve(tmpdir(), "kiln-agent-task-borrowed-startup-"));
+    const binding = resolveProjectStateBinding(projectRoot);
+    mkdirSync(binding.runtimePath, { recursive: true });
+    const model = new SqliteRuntimeModelRoundActionClaimStore({
+      path: join(binding.runtimePath, "managed-direct-model-round-action-claims.sqlite"),
+      privateStateRoot: binding.projectStateRoot,
+    });
+    const tool = new SqliteRuntimeToolActionClaimStore({
+      path: join(binding.runtimePath, "managed-direct-tool-action-claims.sqlite"),
+      privateStateRoot: binding.projectStateRoot,
+    });
+    const closeModel = vi.spyOn(model, "close");
+    const closeTool = vi.spyOn(tool, "close");
+    const borrowedAccount = createOperatorGlobalManagedAccountComposition({
+      projectPath: projectRoot,
+      projectStateBinding: binding,
+      compositionKey: projectRoot,
+      databasePath: join(binding.runtimePath, "borrowed-managed-account-leases.sqlite"),
+    });
+    if (!borrowedAccount) throw new Error("Synthetic managed account composition was not created.");
+    const closeBorrowedAccount = vi.spyOn(borrowedAccount, "close");
+    const approvalPath = join(binding.runtimePath, "managed-write-approvals.sqlite");
+    const malformed = new Database(approvalPath);
+    malformed.exec("PRAGMA user_version=999;");
+    malformed.close();
+
+    try {
+      await expect(
+        createOperatorProjectAgentTaskApplicationComposition({
+          projectPath: projectRoot,
+          projectStateBinding: binding,
+          runtimeModelRoundActionClaims: model,
+          runtimeToolActionClaims: tool,
+          managedAccountComposition: borrowedAccount,
+          discoverProviderModels: async () => ({}),
+        }),
+      ).rejects.toMatchObject({ message: expect.stringContaining("schema version 999 is unsupported") });
+      expect(closeModel).not.toHaveBeenCalled();
+      expect(closeTool).not.toHaveBeenCalled();
+      expect(closeBorrowedAccount).not.toHaveBeenCalled();
+    } finally {
+      model.close();
+      tool.close();
+      closeModel.mockRestore();
+      closeTool.mockRestore();
+      closeBorrowedAccount.mockRestore();
+      closeManagedAccountRuntimeComposition(projectRoot);
+      await rm(projectRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    }
+  });
+
+  it("continues normal close after one owned resource reports a cleanup failure", async () => {
+    const projectRoot = mkdtempSync(resolve(tmpdir(), "kiln-agent-task-close-failure-"));
+    const composition = await createOperatorProjectAgentTaskApplicationComposition({
+      projectPath: projectRoot,
+      discoverProviderModels: async () => ({}),
+    });
+    const closeFailure = new Error("synthetic approval close failure");
+    const closeApproval = vi
+      .spyOn(SqliteManagedWriteApprovalAuthority.prototype, "close")
+      .mockImplementationOnce(() => {
+        throw closeFailure;
+      });
+    try {
+      const cleanupResult = await composition.close().then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      expect(cleanupResult).toBeInstanceOf(AggregateError);
+      expect(cleanupResult).toMatchObject({
+        message: "Agent task application close was incomplete.",
+        errors: [closeFailure],
+      });
+      await expect(composition.close()).resolves.toBeUndefined();
+    } finally {
+      closeApproval.mockRestore();
+      await composition.close();
       await rm(projectRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
     }
   });

@@ -2506,6 +2506,124 @@ describe("AgentTaskApplicationService V16 AgentTask/AgentRun record", () => {
     }
   });
 
+  it.each([14, 15] as const)("archives a homogeneous terminal V%s snapshot byte-for-byte", async (version) => {
+    const root = await mkdtemp(join(tmpdir(), `kiln-agent-tasks-v${version}-archive-`));
+    try {
+      const legacy = {
+        version,
+        id: `legacy-v${version}`,
+        state: "cancelled",
+        dispatch: { kind: "economic" },
+        run: { runId: `run-legacy-v${version}`, state: "cancelled", dispatch: { kind: "economic" } },
+        lifecycle: [{ sequence: 1, state: "cancelled", observedAt: now.toISOString() }],
+        historical: "preserve-me",
+      };
+      const persisted = `${JSON.stringify([legacy])}\n`;
+      const target = join(root, "agent-tasks", "agent-tasks.json");
+      await mkdir(join(root, "agent-tasks"));
+      await writeFile(target, persisted, "utf8");
+
+      await expect(new FilesystemAgentTaskStore(root).get(legacy.id)).resolves.toBeUndefined();
+      const archived = await readdir(join(root, "agent-tasks", "archive"));
+      expect(archived).toHaveLength(1);
+      expect(archived[0]).toMatch(new RegExp(`^agent-tasks-legacy-v${version}-[a-f0-9]{64}\\.json$`, "u"));
+      await expect(readFile(join(root, "agent-tasks", "archive", archived[0]!), "utf8")).resolves.toBe(persisted);
+      await expect(readFile(target, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+
+      await expect(new FilesystemAgentTaskStore(root).get(legacy.id)).resolves.toBeUndefined();
+      await expect(readdir(join(root, "agent-tasks", "archive"))).resolves.toHaveLength(1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a legacy snapshot when its archive destination cannot be prepared", async () => {
+    const root = await mkdtemp(join(tmpdir(), "kiln-agent-tasks-legacy-archive-failure-"));
+    try {
+      const legacy = {
+        version: 14,
+        id: "legacy-archive-failure",
+        state: "cancelled",
+        dispatch: { kind: "economic" },
+        run: { runId: "run-legacy-archive-failure", state: "cancelled", dispatch: { kind: "economic" } },
+        lifecycle: [{ sequence: 1, state: "cancelled", observedAt: now.toISOString() }],
+      };
+      const persisted = `${JSON.stringify([legacy])}\n`;
+      const targetDirectory = join(root, "agent-tasks");
+      const target = join(targetDirectory, "agent-tasks.json");
+      await mkdir(targetDirectory);
+      await writeFile(target, persisted, "utf8");
+      await writeFile(join(targetDirectory, "archive"), "archive path is not a directory", "utf8");
+
+      await expect(new FilesystemAgentTaskStore(root).get(legacy.id)).rejects.toMatchObject({
+        code: "job_persistence_unavailable",
+      });
+      await expect(readFile(target, "utf8")).resolves.toBe(persisted);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects mixed, active, malformed, and future snapshots without archiving them", async () => {
+    const cases = [
+      [
+        {
+          version: 14,
+          id: "legacy-active",
+          state: "queued",
+          dispatch: { kind: "economic" },
+          run: { runId: "run-legacy-active", state: "queued", dispatch: { kind: "economic" } },
+          lifecycle: [{ sequence: 1, state: "queued", observedAt: now.toISOString() }],
+        },
+      ],
+      [
+        {
+          version: 14,
+          id: "legacy-v14",
+          state: "cancelled",
+          dispatch: { kind: "economic" },
+          run: { runId: "run-legacy-v14", state: "cancelled", dispatch: { kind: "economic" } },
+          lifecycle: [{ sequence: 1, state: "cancelled", observedAt: now.toISOString() }],
+        },
+        {
+          version: 15,
+          id: "legacy-v15",
+          state: "cancelled",
+          dispatch: { kind: "economic" },
+          run: { runId: "run-legacy-v15", state: "cancelled", dispatch: { kind: "economic" } },
+          lifecycle: [{ sequence: 1, state: "cancelled", observedAt: now.toISOString() }],
+        },
+      ],
+      [
+        {
+          version: 17,
+          id: "future",
+          state: "cancelled",
+          dispatch: { kind: "economic" },
+          run: { runId: "run-future", state: "cancelled", dispatch: { kind: "economic" } },
+          lifecycle: [{ sequence: 1, state: "cancelled", observedAt: now.toISOString() }],
+        },
+      ],
+      [null],
+    ] as const;
+    for (const records of cases) {
+      const root = await mkdtemp(join(tmpdir(), "kiln-agent-tasks-legacy-reject-"));
+      try {
+        const persisted = `${JSON.stringify(records)}\n`;
+        const target = join(root, "agent-tasks", "agent-tasks.json");
+        await mkdir(join(root, "agent-tasks"));
+        await writeFile(target, persisted, "utf8");
+        await expect(new FilesystemAgentTaskStore(root).get("legacy-active")).rejects.toMatchObject({
+          code: "job_persistence_corrupt",
+        });
+        await expect(readFile(target, "utf8")).resolves.toBe(persisted);
+        await expect(readdir(join(root, "agent-tasks", "archive"))).rejects.toMatchObject({ code: "ENOENT" });
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    }
+  });
+
   it("rejects unknown persisted AgentRun fields", async () => {
     const stored = nativeStoredJob({ id: "native-job-extra-run-field", state: "queued" });
     await expect(async () => new InMemoryAgentTaskStore([{

@@ -19,6 +19,15 @@ records the evidence needed to start it, and projects a safe result afterward.
   recovery, and result/replay projections.
 - CLI owns trusted project composition and native-harness configuration
   projection.
+  Project composition owns every resource it acquires during startup. A failed
+  startup releases those resources before returning the failure, including
+  action-claim store ownership; borrowed process-wide authorities remain with
+  their owner. Shutdown attempts every owned cleanup even if one close fails.
+  Route catalogs reuse an explicitly supplied managed-account composition,
+  including across refreshes; they do not create a second project ledger owner.
+  Capability inspection distinguishes unsupported approval schemas and live
+  action-claim owners through typed diagnostics. Unknown startup failures remain
+  unresolved; raw exception messages never enter the MCP response.
 - GUI, TUI, CLI, SDK, and MCP consume Runtime projections. They never create a
   parallel task registry or reconstruct lifecycle from a transcript.
 - A native harness owns its loop, tool calls, child workers, local permissions,
@@ -78,11 +87,15 @@ data-policy evidence, and any required write approval. Missing, stale,
 contradictory, or unsupported evidence fails closed.
 
 Managed write approvals use SQLite schema v2, whose binding stores the exact
-`approved-write` access level. A v1 approval store used the obsolete admission
-profile binding and is rejected without mutation; operators must recreate its
-approvals explicitly. Runtime recovery checkpoints use schema v3 for the same
-access contract. Obsolete v2 checkpoints are quarantined and are never
-reinterpreted or redispatched.
+`approved-write` access level. Startup upgrades a v1 store in one SQLite
+transaction: it preserves the original rows in `managed_write_approvals_v1_archive`
+and creates an empty current approval table. Archived approvals are evidence
+only; Runtime never reads them as authority or translates the obsolete admission
+profile binding into current access. Operators must issue new approvals.
+Repeated startup leaves the archive and current approvals intact. Unsupported
+versions and malformed migration sources fail without advancing the schema.
+Runtime recovery checkpoints use schema v3 for the same access contract.
+Obsolete v2 checkpoints are quarantined and are never reinterpreted or redispatched.
 
 Economic routes adopt and commit one immutable route/account decision before
 dispatch. That resource commitment is not by itself the action fence. During
@@ -189,11 +202,15 @@ Process restart also ends every attended trusted-execution lease. Recovery may
 project retained admission and terminal evidence, but it cannot recreate the
 process-local principal or authorize a new effect from the former lease.
 
-Only the current Agent Task v16 schema is admitted. Agent Task configurations
-or records written as v15 are legacy state: they are rejected by schema without
-mutation and are never reinterpreted through the new `access` field. Runtime
-has no legacy reader, writer, migration, archive, or compatibility alias;
-operators must recreate v15 tasks explicitly under v16.
+Only the current Agent Task v16 schema is admitted. A complete snapshot of
+terminal v14 or v15 tasks can be archived during store initialization under the
+existing filesystem lease. The original snapshot remains evidence; it is never
+converted into current tasks, replayed, or used as authority. The current store
+then starts empty, and any new work requires a new v16 admission. Unsupported
+versions, mixed-version snapshots, and obsolete tasks whose identity or terminal
+state cannot be verified fail closed without automatic archival. Configuration still
+accepts only the current contract; archival is a one-way state migration, not
+an older-schema execution or inspection path.
 
 ## Invariants
 

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { mkdir, readFile, readdir, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -11,6 +11,7 @@ import {
 import {
   canTransition,
   cloneAgentTask,
+  isIdentifier,
   isIso,
   isManagedEconomicDispatchFenceId,
   isNativeHarnessDispatchFenceId,
@@ -205,18 +206,38 @@ export class FilesystemAgentTaskStore implements AgentTaskStore {
   }
   async reserve(input: { readonly job: AgentTaskRecord }): Promise<AgentTaskReservation> {
     return this.withLock(async (lease) => {
-      const memory = await this.loadMemory();
+      const memory = await this.loadMemory(lease);
       const result = await memory.reserve(input);
       if (result.kind === "created") await this.saveMemory(memory, lease);
       return result;
     });
   }
-  async get(id: string): Promise<AgentTaskRecord | undefined> { return this.withLock(async () => (await this.loadMemory()).get(id)); }
-  async attachWriteApproval(id: string, approval: AgentTaskWriteApproval, updatedAt?: string): Promise<AgentTaskRecord> {
-    return this.withLock(async (lease) => { const memory = await this.loadMemory(); const job = await memory.attachWriteApproval(id, approval, updatedAt); await this.saveMemory(memory, lease); return job; });
+  async get(id: string): Promise<AgentTaskRecord | undefined> {
+    return this.withLock(async (lease) => (await this.loadMemory(lease)).get(id));
   }
-  async recordWriteApproval(id: string, approval: AgentTaskWriteApproval, updatedAt?: string): Promise<AgentTaskRecord> {
-    return this.withLock(async (lease) => { const memory = await this.loadMemory(); const job = await memory.recordWriteApproval(id, approval, updatedAt); await this.saveMemory(memory, lease); return job; });
+  async attachWriteApproval(
+    id: string,
+    approval: AgentTaskWriteApproval,
+    updatedAt?: string,
+  ): Promise<AgentTaskRecord> {
+    return this.withLock(async (lease) => {
+      const memory = await this.loadMemory(lease);
+      const job = await memory.attachWriteApproval(id, approval, updatedAt);
+      await this.saveMemory(memory, lease);
+      return job;
+    });
+  }
+  async recordWriteApproval(
+    id: string,
+    approval: AgentTaskWriteApproval,
+    updatedAt?: string,
+  ): Promise<AgentTaskRecord> {
+    return this.withLock(async (lease) => {
+      const memory = await this.loadMemory(lease);
+      const job = await memory.recordWriteApproval(id, approval, updatedAt);
+      await this.saveMemory(memory, lease);
+      return job;
+    });
   }
   async fenceNativeHarness(
     id: string,
@@ -225,50 +246,115 @@ export class FilesystemAgentTaskStore implements AgentTaskStore {
     actionClaim: AgentTaskActionClaim,
   ): Promise<AgentTaskNativeHarnessFenceResult> {
     return this.withLock(async (lease) => {
-      const memory = await this.loadMemory();
+      const memory = await this.loadMemory(lease);
       const result = await memory.fenceNativeHarness(id, dispatchFenceId, updatedAt, actionClaim);
       if (result.kind === "acquired") await this.saveMemory(memory, lease);
       return result;
     });
   }
-  async projectEconomicDispatch(id: string, dispatchFenceId: string, updatedAt: string | undefined, actionClaim: AgentTaskActionClaim): Promise<AgentTaskEconomicFenceResult> {
+  async projectEconomicDispatch(
+    id: string,
+    dispatchFenceId: string,
+    updatedAt: string | undefined,
+    actionClaim: AgentTaskActionClaim,
+  ): Promise<AgentTaskEconomicFenceResult> {
     return this.withLock(async (lease) => {
-      const memory = await this.loadMemory();
+      const memory = await this.loadMemory(lease);
       const result = await memory.projectEconomicDispatch(id, dispatchFenceId, updatedAt, actionClaim);
       if (result.kind === "acquired") await this.saveMemory(memory, lease);
       return result;
     });
   }
-  async transition(id: string, state: AgentTaskState, diagnostic?: AgentTaskDiagnosticCode, updatedAt?: string, failureEvidence?: AgentTaskFailureEvidence): Promise<AgentTaskRecord> {
-    return this.withLock(async (lease) => { const memory = await this.loadMemory(); const job = await memory.transition(id, state, diagnostic, updatedAt, failureEvidence); await this.saveMemory(memory, lease); return job; });
+  async transition(
+    id: string,
+    state: AgentTaskState,
+    diagnostic?: AgentTaskDiagnosticCode,
+    updatedAt?: string,
+    failureEvidence?: AgentTaskFailureEvidence,
+  ): Promise<AgentTaskRecord> {
+    return this.withLock(async (lease) => {
+      const memory = await this.loadMemory(lease);
+      const job = await memory.transition(id, state, diagnostic, updatedAt, failureEvidence);
+      await this.saveMemory(memory, lease);
+      return job;
+    });
   }
   async completeSuccess(id: string, result: AgentTaskResult, updatedAt?: string): Promise<AgentTaskRecord> {
-    return this.withLock(async (lease) => { const memory = await this.loadMemory(); const job = await memory.completeSuccess(id, result, updatedAt); await this.saveMemory(memory, lease); return job; });
+    return this.withLock(async (lease) => {
+      const memory = await this.loadMemory(lease);
+      const job = await memory.completeSuccess(id, result, updatedAt);
+      await this.saveMemory(memory, lease);
+      return job;
+    });
   }
-  async listNonterminal(): Promise<readonly AgentTaskRecord[]> { return this.withLock(async () => (await this.loadMemory()).listNonterminal()); }
+  async listNonterminal(): Promise<readonly AgentTaskRecord[]> {
+    return this.withLock(async (lease) => (await this.loadMemory(lease)).listNonterminal());
+  }
   /** Inspection-only store projection; a task owns exactly one run in V16. */
-  async all(): Promise<readonly AgentTaskRecord[]> { return this.withLock(async () => (await this.loadMemory()).all()); }
-  private async loadMemory(): Promise<InMemoryAgentTaskStore> {
+  async all(): Promise<readonly AgentTaskRecord[]> {
+    return this.withLock(async (lease) => (await this.loadMemory(lease)).all());
+  }
+  private async loadMemory(lease: FilesystemLockLease): Promise<InMemoryAgentTaskStore> {
     const target = resolve(this.root, "agent-tasks", "agent-tasks.json");
     try {
       await this.ensurePrivateDirectory(dirname(target), false);
       await this.assertPrivateFile(target);
-      const parsed = JSON.parse(await readFile(target, "utf8")) as unknown;
+      let raw: string;
+      try {
+        raw = await readFile(target, "utf8");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return new InMemoryAgentTaskStore();
+        throw error;
+      }
+      const parsed = JSON.parse(raw) as unknown;
       if (!Array.isArray(parsed)) throw new Error("corrupt");
-      return new InMemoryAgentTaskStore(rejectLegacyAgentTasks(parsed));
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      const legacyVersion = legacyTerminalSnapshotVersion(parsed);
+      if (legacyVersion !== undefined) {
+        await this.archiveLegacySnapshot(target, raw, legacyVersion, lease);
         return new InMemoryAgentTaskStore();
       }
+      return new InMemoryAgentTaskStore(rejectLegacyAgentTasks(parsed));
+    } catch (error) {
+      if (error instanceof AgentTaskApplicationError && error.code === "job_persistence_unavailable") throw error;
       if (
-        error instanceof SyntaxError
-        || error instanceof AgentTaskApplicationError
-        || (error instanceof Error && (error.message === "corrupt" || error.message === "legacy_schema"))
+        error instanceof SyntaxError ||
+        error instanceof AgentTaskApplicationError ||
+        (error instanceof Error && (error.message === "corrupt" || error.message === "legacy_schema"))
       ) {
         throw new AgentTaskApplicationError("job_persistence_corrupt", "Repair the agent-task store before retrying.");
       }
-      throw new AgentTaskApplicationError("job_persistence_unavailable", "Restore the agent-task store and retry safely.");
+      throw new AgentTaskApplicationError(
+        "job_persistence_unavailable",
+        "Restore the agent-task store and retry safely.",
+      );
     }
+  }
+  private async archiveLegacySnapshot(
+    target: string,
+    raw: string,
+    version: 14 | 15,
+    lease: FilesystemLockLease,
+  ): Promise<void> {
+    const archiveDirectory = resolve(dirname(target), "archive");
+    await this.ensurePrivateDirectory(archiveDirectory, true);
+    const digest = createHash("sha256").update(raw, "utf8").digest("hex");
+    const archivePath = resolve(archiveDirectory, `agent-tasks-legacy-v${version}-${digest}.json`);
+    await this.assertPrivateFile(target);
+    await this.assertPrivateFile(archivePath);
+    let archiveExists = false;
+    try {
+      const existing = await readFile(archivePath, "utf8");
+      if (existing !== raw) throw new Error("legacy_archive_conflict");
+      archiveExists = true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    await this.assertLockOwner(lease);
+    if (archiveExists) {
+      await rm(target);
+      return;
+    }
+    await rename(target, archivePath);
   }
   private async saveMemory(memory: InMemoryAgentTaskStore, lease: FilesystemLockLease): Promise<void> {
     await this.assertLockOwner(lease);
@@ -673,10 +759,86 @@ function execFileText(file: string, args: readonly string[]): Promise<string | u
 }
 
 /**
- * Agent-task state is deliberately schema-replaced. Older records are not
- * interpreted as authority and are rejected in place; no compatibility
- * migration may turn an unbound record into a current claim.
+ * Agent-task state is deliberately schema-replaced. Only a homogeneous,
+ * terminal legacy snapshot with enough evidence to identify its completed
+ * run is archived; no compatibility migration may turn an unbound record
+ * into a current claim.
  */
+function legacyTerminalSnapshotVersion(records: readonly unknown[]): 14 | 15 | undefined {
+  if (records.length === 0) return undefined;
+  let version: 14 | 15 | undefined;
+  for (const record of records) {
+    if (typeof record !== "object" || record === null || Array.isArray(record)) throw new Error("corrupt");
+    const value = record as {
+      version?: unknown;
+      id?: unknown;
+      state?: unknown;
+      dispatch?: unknown;
+      run?: unknown;
+      lifecycle?: unknown;
+    };
+    if (value.version !== 14 && value.version !== 15) return undefined;
+    if (!isIdentifier(value.id)) return undefined;
+    if (
+      value.state !== "succeeded" &&
+      value.state !== "failed" &&
+      value.state !== "timed_out" &&
+      value.state !== "interrupted" &&
+      value.state !== "cancelled"
+    )
+      return undefined;
+    if (
+      typeof value.run !== "object" ||
+      value.run === null ||
+      Array.isArray(value.run) ||
+      typeof value.dispatch !== "object" ||
+      value.dispatch === null ||
+      Array.isArray(value.dispatch) ||
+      typeof (value.run as { dispatch?: unknown }).dispatch !== "object" ||
+      (value.run as { dispatch?: unknown }).dispatch === null ||
+      Array.isArray((value.run as { dispatch?: unknown }).dispatch) ||
+      !isIdentifier((value.run as { runId?: unknown }).runId) ||
+      (value.run as { state?: unknown }).state !== value.state
+    )
+      return undefined;
+    if (!Array.isArray(value.lifecycle) || value.lifecycle.length === 0) return undefined;
+    let previousObservedAt = Number.NEGATIVE_INFINITY;
+    for (const [index, entry] of value.lifecycle.entries()) {
+      if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return undefined;
+      const lifecycle = entry as { sequence?: unknown; state?: unknown; observedAt?: unknown };
+      if (
+        typeof lifecycle.sequence !== "number" ||
+        !Number.isSafeInteger(lifecycle.sequence) ||
+        lifecycle.sequence !== index + 1 ||
+        !isIso(lifecycle.observedAt) ||
+        !isAgentTaskState(lifecycle.state)
+      )
+        return undefined;
+      const observedAt = Date.parse(lifecycle.observedAt);
+      if (observedAt < previousObservedAt) return undefined;
+      previousObservedAt = observedAt;
+    }
+    const lastLifecycle = value.lifecycle.at(-1) as { state?: unknown } | undefined;
+    if (lastLifecycle?.state !== value.state) return undefined;
+    if (version !== undefined && version !== value.version) return undefined;
+    version = value.version;
+  }
+  return version;
+}
+
+function isAgentTaskState(value: unknown): value is AgentTaskState {
+  return (
+    value === "awaiting_approval" ||
+    value === "queued" ||
+    value === "running" ||
+    value === "succeeded" ||
+    value === "failed" ||
+    value === "timed_out" ||
+    value === "interrupted" ||
+    value === "cancelled"
+  );
+}
+
 function rejectLegacyAgentTasks(records: readonly unknown[]): readonly unknown[] {
   for (const record of records) {
     if (typeof record !== "object" || record === null || Array.isArray(record)) throw new Error("corrupt");

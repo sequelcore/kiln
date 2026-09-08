@@ -42,10 +42,12 @@ export async function createStagedManagedInvocationRouteCatalog(
   mark("route-catalog-entered");
   const currentConfig = () => options.reloadConfig?.() ?? config;
   const executionComposition = context.compositionMode !== "candidate-admission";
-  let managedAccountComposition = executionComposition && !context.managedEconomicAuthority && config
-    ? createManagedAccountRuntimeComposition(config, context.cwd, {
-        ...(context.runtimeStateRoot ? { runtimeStateRoot: context.runtimeStateRoot } : {}),
-      })
+  let managedAccountComposition = executionComposition && !context.managedEconomicAuthority
+    ? context.managedAccountComposition ?? (config
+      ? createManagedAccountRuntimeComposition(config, context.cwd, {
+          ...(context.runtimeStateRoot ? { runtimeStateRoot: context.runtimeStateRoot } : {}),
+        })
+      : undefined)
     : undefined;
   let invocationService: ManagedInvocationToolOptions["invocationService"] | undefined;
   let invocationServiceKey: ManagedInvocationToolOptions["invocationServiceKey"] | undefined;

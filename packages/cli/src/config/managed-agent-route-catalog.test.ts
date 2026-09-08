@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -348,6 +348,43 @@ function harnessDataPolicy(providerId: string, providerModelId: string) {
 }
 
 describe("managed agent route catalog", () => {
+  it("reuses a supplied global account composition across staged execution catalogs", async () => {
+    const cwd = createTempRoot();
+    const globalRoot = createTempRoot();
+    const globalRuntimeDirectory = resolveProjectStateBinding(globalRoot).runtimePath;
+    const projectRuntimeDirectory = resolveProjectStateBinding(cwd).runtimePath;
+    mkdirSync(globalRuntimeDirectory, { recursive: true });
+    const globalAuthority = new SqliteManagedAccountLeaseAuthority({
+      path: join(globalRuntimeDirectory, "managed-account-leases.sqlite"),
+    });
+    const globalComposition = createManagedAccountRuntimeComposition(makeConfig(false), globalRoot, {
+      compositionKey: globalRoot,
+      authority: globalAuthority,
+    });
+    if (!globalComposition) throw new Error("Expected a global managed account composition.");
+    const closeAuthority = vi.spyOn(globalAuthority, "close");
+    try {
+      const context = {
+        cwd,
+        registry: createRegistry("opencode-go"),
+        surface: "gui" as const,
+        isProviderAvailable: () => true,
+        directAdapterFactory: () => makeAdapter(),
+        managedAccountComposition: globalComposition,
+      };
+      const first = await createStagedManagedInvocationRouteCatalog(makeConfig(false), context);
+      await first.dispose();
+      const second = await createStagedManagedInvocationRouteCatalog(makeConfig(false), context);
+      await second.dispose();
+
+      expect(existsSync(join(projectRuntimeDirectory, "managed-account-leases.sqlite"))).toBe(false);
+      expect(closeAuthority).not.toHaveBeenCalled();
+    } finally {
+      closeManagedAccountRuntimeComposition(globalRoot);
+      globalAuthority.close();
+    }
+  });
+
   it("does not open a project-local authority when an operator-runtime authority is supplied", async () => {
     const cwd = createTempRoot();
     const runtimeDirectory = resolveProjectStateBinding(cwd).runtimePath;

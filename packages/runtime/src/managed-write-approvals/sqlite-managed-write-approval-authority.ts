@@ -8,6 +8,9 @@ import type {
 
 export type { ManagedWriteApprovalBinding, ManagedWriteApprovalReceipt, ManagedWriteApprovalState } from "./contracts.js";
 
+const SQLITE_MANAGED_WRITE_APPROVAL_LEGACY_SCHEMA_VERSION = 1 as const;
+const SQLITE_MANAGED_WRITE_APPROVAL_ARCHIVE_TABLE = "managed_write_approvals_v1_archive";
+
 export const SQLITE_MANAGED_WRITE_APPROVAL_SCHEMA_VERSION = 2 as const;
 
 export type ManagedWriteApprovalErrorCode =
@@ -17,6 +20,17 @@ export type ManagedWriteApprovalErrorCode =
   | "approval_replayed"
   | "approval_binding_mismatch";
 
+export type ManagedWriteApprovalSchemaErrorCode = "unsupported_schema";
+
+/** Stable classification for persisted approval schema failures. */
+export class ManagedWriteApprovalSchemaError extends Error {
+  readonly code: ManagedWriteApprovalSchemaErrorCode = "unsupported_schema";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "ManagedWriteApprovalSchemaError";
+  }
+}
 
 export interface SqliteManagedWriteApprovalAuthorityOptions {
   readonly path: string;
@@ -55,24 +69,9 @@ export class SqliteManagedWriteApprovalAuthority {
     this.#idGenerator = options.idGenerator ?? randomUUID;
     this.#db = new Database(options.path, { create: true, strict: true });
     try {
-      this.#db.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;");
-      const version = Number(this.#db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0);
-      if (version !== 0 && version !== SQLITE_MANAGED_WRITE_APPROVAL_SCHEMA_VERSION) {
-        throw new Error(`Managed write approval schema version ${version} is unsupported.`);
-      }
-      this.#db.exec(`CREATE TABLE IF NOT EXISTS managed_write_approvals (
-        approval_id TEXT PRIMARY KEY,
-        state TEXT NOT NULL CHECK(state IN ('issued','revoked','consumed')),
-        binding_json TEXT NOT NULL,
-        issued_at TEXT NOT NULL,
-        expires_at TEXT NOT NULL,
-        approver_id TEXT NOT NULL,
-        revoked_at TEXT,
-        consumed_at TEXT,
-        consumed_by TEXT
-      );
-      CREATE INDEX IF NOT EXISTS managed_write_approvals_project ON managed_write_approvals(approval_id, state);
-      PRAGMA user_version=${SQLITE_MANAGED_WRITE_APPROVAL_SCHEMA_VERSION};`);
+      this.#db.exec("PRAGMA busy_timeout=5000;");
+      this.#ensureSchema();
+      this.#db.exec("PRAGMA journal_mode=WAL;");
     } catch (error) {
       this.#db.close();
       throw error;
@@ -89,6 +88,15 @@ export class SqliteManagedWriteApprovalAuthority {
     const approverId = requireIdentifier(input.approverId, "Managed write approval approver id is invalid.");
     const expiresAt = requireFutureIso(input.expiresAt, this.#now(), "Managed write approval expiry is invalid.");
     const approvalId = `managed-write-approval:${requireIdentifier(this.#idGenerator(), "Managed write approval id is invalid.")}`;
+    if (
+      hasTable(this.#db, SQLITE_MANAGED_WRITE_APPROVAL_ARCHIVE_TABLE) &&
+      this.#db
+        .query<{ present: number }, [string]>(
+          `SELECT 1 AS present FROM ${SQLITE_MANAGED_WRITE_APPROVAL_ARCHIVE_TABLE} WHERE approval_id=? LIMIT 1`,
+        )
+        .get(approvalId)
+    )
+      throw new Error("Managed write approval id already exists in archived evidence.");
     const issuedAt = iso(this.#now());
     this.#db.query(`INSERT INTO managed_write_approvals(
       approval_id,state,binding_json,issued_at,expires_at,approver_id,revoked_at,consumed_at,consumed_by
@@ -158,6 +166,63 @@ export class SqliteManagedWriteApprovalAuthority {
     this.#db.close();
   }
 
+  #ensureSchema(): void {
+    this.#db
+      .transaction(() => {
+        const version = readSchemaVersion(this.#db);
+        if (
+          version !== 0 &&
+          version !== SQLITE_MANAGED_WRITE_APPROVAL_LEGACY_SCHEMA_VERSION &&
+          version !== SQLITE_MANAGED_WRITE_APPROVAL_SCHEMA_VERSION
+        ) {
+          throw new ManagedWriteApprovalSchemaError(`Managed write approval schema version ${version} is unsupported.`);
+        }
+
+        const hasActiveTable = hasTable(this.#db, "managed_write_approvals");
+        if (version === 0 && hasActiveTable) {
+          throw new ManagedWriteApprovalSchemaError("Managed write approval schema has an unversioned existing table.");
+        }
+        if (version === SQLITE_MANAGED_WRITE_APPROVAL_LEGACY_SCHEMA_VERSION) {
+          if (
+            !hasActiveTable ||
+            !hasColumns(this.#db, "managed_write_approvals", [
+              "approval_id",
+              "state",
+              "binding_json",
+              "issued_at",
+              "expires_at",
+              "approver_id",
+              "revoked_at",
+              "consumed_at",
+              "consumed_by",
+            ])
+          ) {
+            throw new ManagedWriteApprovalSchemaError("Managed write approval schema version 1 is malformed.");
+          }
+          if (hasTable(this.#db, SQLITE_MANAGED_WRITE_APPROVAL_ARCHIVE_TABLE)) {
+            throw new ManagedWriteApprovalSchemaError("Managed write approval v1 archive already exists.");
+          }
+          this.#db.exec(`DROP INDEX IF EXISTS managed_write_approvals_project;
+          ALTER TABLE managed_write_approvals RENAME TO ${SQLITE_MANAGED_WRITE_APPROVAL_ARCHIVE_TABLE};`);
+        }
+
+        this.#db.exec(`CREATE TABLE IF NOT EXISTS managed_write_approvals (
+        approval_id TEXT PRIMARY KEY,
+        state TEXT NOT NULL CHECK(state IN ('issued','revoked','consumed')),
+        binding_json TEXT NOT NULL,
+        issued_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        approver_id TEXT NOT NULL,
+        revoked_at TEXT,
+        consumed_at TEXT,
+        consumed_by TEXT
+      );
+      CREATE INDEX IF NOT EXISTS managed_write_approvals_project ON managed_write_approvals(approval_id, state);
+      PRAGMA user_version=${SQLITE_MANAGED_WRITE_APPROVAL_SCHEMA_VERSION};`);
+      })
+      .immediate();
+  }
+
   #row(approvalId: string): ApprovalRow | undefined {
     return this.#db.query<ApprovalRow, [string]>(`SELECT approval_id,state,binding_json,issued_at,expires_at,approver_id,revoked_at,consumed_at,consumed_by
       FROM managed_write_approvals WHERE approval_id=?`).get(requireApprovalId(approvalId)) ?? undefined;
@@ -176,6 +241,30 @@ export class SqliteManagedWriteApprovalAuthority {
   #assertOpen(): void {
     if (this.#closed) throw new Error("Managed write approval authority is closed.");
   }
+}
+
+function readSchemaVersion(db: Database): number {
+  return Number(db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0);
+}
+
+function hasTable(db: Database, table: string): boolean {
+  return (
+    db
+      .query<{ present: number }, [string]>(
+        "SELECT 1 AS present FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",
+      )
+      .get(table) !== null
+  );
+}
+
+function hasColumns(db: Database, table: string, required: readonly string[]): boolean {
+  const columns = new Set(
+    db
+      .query<{ name: string }, []>(`PRAGMA table_info(${table})`)
+      .all()
+      .map((row) => row.name),
+  );
+  return required.every((column) => columns.has(column));
 }
 
 function receipt(row: ApprovalRow): ManagedWriteApprovalReceipt {

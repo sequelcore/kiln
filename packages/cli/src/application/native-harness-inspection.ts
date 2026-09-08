@@ -7,12 +7,14 @@ import {
   type KilnConfigStatusSnapshot,
   type KilnResolvedWorkGovernancePolicy,
 } from "@kilnai/gateway-contracts";
+import { AgentTaskApplicationError, ManagedWriteApprovalSchemaError } from "@kilnai/runtime";
 import { publicEffectiveConfigValue } from "./effective-config-projection.js";
 import { readConfigStatusSnapshot, type ReadConfigStatusOptions } from "./config-status.js";
 import {
   discoverNativeHarnessProjectRoot,
   type NativeHarnessProjectRootResolution,
 } from "./native-harness-project-root.js";
+import { SqliteActionClaimStoreOwnerError } from "./sqlite-action-claim-store-owner.js";
 
 const MAX_EVIDENCE_AGE_MS = 5 * 60 * 1_000;
 const MAX_FUTURE_CLOCK_SKEW_MS = 60 * 1_000;
@@ -231,9 +233,9 @@ export function createNativeHarnessInspectionService(
       if (port.readManagedAgents) {
         try {
           managedAgents = await port.readManagedAgents();
-        } catch {
+        } catch (error: unknown) {
           managedAgents = [];
-          capabilityDiagnostics.push(diagnosticFor("KILN_MANAGED_AGENTS_READ_FAILED"));
+          capabilityDiagnostics.push(diagnosticForManagedAgentsReadFailure(error));
         }
       }
       const capability = result.snapshot.harnessCapabilities.find((entry) => entry.harness === port.harness);
@@ -347,6 +349,24 @@ function diagnosticsFor(snapshot: KilnConfigStatusSnapshot): NativeHarnessDiagno
   return diagnostics;
 }
 
+function diagnosticForManagedAgentsReadFailure(error: unknown): NativeHarnessDiagnostic {
+  if (error instanceof SqliteActionClaimStoreOwnerError && error.code === "live_owner") {
+    return diagnosticFor("KILN_MANAGED_AGENTS_ACTION_CLAIM_OWNER_LIVE");
+  }
+  if (error instanceof ManagedWriteApprovalSchemaError) {
+    return diagnosticFor("KILN_MANAGED_AGENTS_SCHEMA_UNSUPPORTED");
+  }
+  if (error instanceof AgentTaskApplicationError) {
+    if (error.code === "job_persistence_corrupt") {
+      return diagnosticFor("KILN_MANAGED_AGENTS_TASK_PERSISTENCE_CORRUPT");
+    }
+    if (error.code === "job_persistence_unavailable") {
+      return diagnosticFor("KILN_MANAGED_AGENTS_TASK_PERSISTENCE_UNAVAILABLE");
+    }
+  }
+  return diagnosticFor("KILN_MANAGED_AGENTS_RUNTIME_UNAVAILABLE");
+}
+
 function evidence(snapshot: KilnConfigStatusSnapshot, harness: HarnessIntegrationId): NativeHarnessInspectionEvidence {
   return { ...unresolvedEvidence(new Date(snapshot.generatedAt), harness), observedAt: snapshot.generatedAt };
 }
@@ -379,7 +399,11 @@ function diagnosticFor(code: string, targetId?: string): NativeHarnessDiagnostic
     KILN_PROJECTION_DRIFTED: { message: "A Kiln projection has drifted.", operatorAction: "Review the reported setup recommendation before trusting that projection." },
     KILN_BRIDGE_READ_FAILED: { message: "The native bridge declaration could not be read safely.", operatorAction: "Verify the generated project-local MCP declaration, then retry." },
     KILN_BRIDGE_PROJECTION_UNRESOLVED: { message: "Native bridge capability is not fully provable from observed projection evidence.", operatorAction: "Verify the global MCP declaration and harness capability before relying on it." },
-    KILN_MANAGED_AGENTS_READ_FAILED: { message: "Configured managed-agent capability could not be read safely.", operatorAction: "Repair canonical managed-agent route evidence, then retry the read-only inspection." },
+    KILN_MANAGED_AGENTS_SCHEMA_UNSUPPORTED: { message: "Configured managed-agent capability is unavailable because the project Runtime schema is unsupported.", operatorAction: "Use the project Runtime's supported schema migration or upgrade path, then retry the read-only inspection." },
+    KILN_MANAGED_AGENTS_ACTION_CLAIM_OWNER_LIVE: { message: "Configured managed-agent capability is unavailable because a project Runtime action-claim store has a live owner.", operatorAction: "Close the active project Runtime owner; after an abrupt exit, wait for its stale-owner interval and retry. Preserve action-claim state." },
+    KILN_MANAGED_AGENTS_TASK_PERSISTENCE_CORRUPT: { message: "Configured managed-agent capability is unavailable because persisted agent-task state is corrupt.", operatorAction: "Repair the persisted agent-task store using its owning Runtime recovery procedure, then retry the read-only inspection." },
+    KILN_MANAGED_AGENTS_TASK_PERSISTENCE_UNAVAILABLE: { message: "Configured managed-agent capability is unavailable because the persisted agent-task store cannot be opened.", operatorAction: "Inspect the project Runtime's persisted task-store availability, then retry the read-only inspection." },
+    KILN_MANAGED_AGENTS_RUNTIME_UNAVAILABLE: { message: "Configured managed-agent capability is unavailable because the project Runtime could not start or expose its capability.", operatorAction: "Inspect the project Runtime startup failure, then retry when the Runtime is ready." },
     KILN_INTERNAL_ADAPTER_FAILURE: { message: "Native-harness inspection could not initialize safely.", operatorAction: "Restart the read-only bridge after reviewing Kiln setup diagnostics." },
   };
   const base = diagnostics[code] ?? { message: "Native-harness inspection failed safely.", operatorAction: "Retry the read-only inspection after reviewing Kiln setup diagnostics." };

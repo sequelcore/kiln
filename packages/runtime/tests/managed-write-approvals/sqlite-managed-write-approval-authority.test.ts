@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import {
   ManagedWriteApprovalError,
+  ManagedWriteApprovalSchemaError,
   SqliteManagedWriteApprovalAuthority,
   type ManagedWriteApprovalBinding,
 } from "../../src/managed-write-approvals/sqlite-managed-write-approval-authority.js";
@@ -51,22 +52,183 @@ function expectErrorCode(action: () => unknown, code: ManagedWriteApprovalError[
   throw new Error(`expected ${code}`);
 }
 
+function createLegacyV1Schema(database: Database): void {
+  database.exec(`CREATE TABLE managed_write_approvals (
+    approval_id TEXT PRIMARY KEY,
+    state TEXT NOT NULL CHECK(state IN ('issued','revoked','consumed')),
+    binding_json TEXT NOT NULL,
+    issued_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    approver_id TEXT NOT NULL,
+    revoked_at TEXT,
+    consumed_at TEXT,
+    consumed_by TEXT
+  );
+  CREATE INDEX managed_write_approvals_project ON managed_write_approvals(approval_id, state);
+  PRAGMA user_version=1;`);
+}
+
 describe("SqliteManagedWriteApprovalAuthority", () => {
-  it("rejects the legacy v1 binding store without mutating it", () => {
+  it("migrates an empty legacy v1 store into an empty canonical v2 store", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-managed-write-approval-v1-"));
     roots.push(root);
     const path = join(root, "approvals.sqlite");
     const legacy = new Database(path, { create: true, strict: true });
-    legacy.exec("CREATE TABLE legacy_marker(value TEXT NOT NULL); INSERT INTO legacy_marker VALUES ('preserved'); PRAGMA user_version=1;");
+    createLegacyV1Schema(legacy);
     legacy.close();
 
-    expect(() => new SqliteManagedWriteApprovalAuthority({ path })).toThrow(
-      "Managed write approval schema version 1 is unsupported.",
-    );
+    const approvals = new SqliteManagedWriteApprovalAuthority({
+      path,
+      now: () => Date.parse("2026-08-09T20:00:00.000Z"),
+    });
+    expect(approvals.inspect("managed-write-approval:legacy-1")).toBeUndefined();
+    approvals.close();
+
+    const observed = new Database(path, { strict: true });
+    expect(observed.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(2);
+    expect(
+      observed
+        .query<{ name: string }, [string]>("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
+        .get("managed_write_approvals_v1_archive")?.name,
+    ).toBe("managed_write_approvals_v1_archive");
+    expect(
+      observed.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM managed_write_approvals").get()?.count,
+    ).toBe(0);
+    observed.close();
+  });
+
+  it("archives every v1 row without converting its obsolete binding into authority", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-managed-write-approval-v1-row-"));
+    roots.push(root);
+    const path = join(root, "approvals.sqlite");
+    const legacy = new Database(path, { create: true, strict: true });
+    createLegacyV1Schema(legacy);
+    const legacyBinding = { ...binding(), admissionProfileId: "foundation-apply-approved-writes" };
+    legacy
+      .query(
+        "INSERT INTO managed_write_approvals(approval_id,state,binding_json,issued_at,expires_at,approver_id) VALUES(?,?,?,?,?,?)",
+      )
+      .run(
+        "managed-write-approval:legacy-1",
+        "issued",
+        JSON.stringify(legacyBinding),
+        "2026-08-09T19:59:00.000Z",
+        "2026-08-09T20:05:00.000Z",
+        "operator-1",
+      );
+    legacy.close();
+
+    const approvals = new SqliteManagedWriteApprovalAuthority({
+      path,
+      now: () => Date.parse("2026-08-09T20:00:00.000Z"),
+      idGenerator: () => "legacy-1",
+    });
+    expect(approvals.inspect("managed-write-approval:legacy-1")).toBeUndefined();
+    expect(() =>
+      approvals.issue({
+        binding: binding(),
+        approverId: "operator-1",
+        expiresAt: "2026-08-09T20:05:00.000Z",
+      }),
+    ).toThrow("Managed write approval id already exists in archived evidence.");
+    approvals.close();
+
+    const observed = new Database(path, { strict: true });
+    expect(
+      observed.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM managed_write_approvals").get()?.count,
+    ).toBe(0);
+    expect(
+      observed
+        .query<{ binding_json: string }, [string]>(
+          "SELECT binding_json FROM managed_write_approvals_v1_archive WHERE approval_id=?",
+        )
+        .get("managed-write-approval:legacy-1")?.binding_json,
+    ).toBe(JSON.stringify(legacyBinding));
+    observed.close();
+  });
+
+  it("reopens a migrated store without repeating the archive", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-managed-write-approval-v1-reopen-"));
+    roots.push(root);
+    const path = join(root, "approvals.sqlite");
+    const legacy = new Database(path, { create: true, strict: true });
+    createLegacyV1Schema(legacy);
+    legacy.close();
+
+    const first = new SqliteManagedWriteApprovalAuthority({ path });
+    first.close();
+    const second = new SqliteManagedWriteApprovalAuthority({ path });
+    second.close();
+
+    const observed = new Database(path, { strict: true });
+    expect(
+      observed
+        .query<{ count: number }, [string]>("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name=?")
+        .get("managed_write_approvals_v1_archive")?.count,
+    ).toBe(1);
+    expect(observed.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(2);
+    observed.close();
+  });
+
+  it("rolls back a malformed v1 migration without mutating the legacy table", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-managed-write-approval-v1-malformed-"));
+    roots.push(root);
+    const path = join(root, "approvals.sqlite");
+    const legacy = new Database(path, { create: true, strict: true });
+    legacy.exec("CREATE TABLE managed_write_approvals(approval_id TEXT PRIMARY KEY); PRAGMA user_version=1;");
+    legacy.close();
+
+    try {
+      new SqliteManagedWriteApprovalAuthority({ path });
+      throw new Error("expected malformed schema error");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ManagedWriteApprovalSchemaError);
+      expect(error).toMatchObject({ code: "unsupported_schema" });
+      expect(error).toHaveProperty("message", "Managed write approval schema version 1 is malformed.");
+    }
 
     const observed = new Database(path, { strict: true });
     expect(observed.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(1);
-    expect(observed.query<{ value: string }, []>("SELECT value FROM legacy_marker").get()?.value).toBe("preserved");
+    expect(
+      observed
+        .query<{ name: string }, [string]>("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
+        .get("managed_write_approvals")?.name,
+    ).toBe("managed_write_approvals");
+    expect(
+      observed
+        .query<{ name: string }, [string]>("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
+        .get("managed_write_approvals_v1_archive"),
+    ).toBeNull();
+    observed.close();
+  });
+
+  it("rejects an unknown schema version without mutating the store", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-managed-write-approval-unknown-"));
+    roots.push(root);
+    const path = join(root, "approvals.sqlite");
+    const legacy = new Database(path, { create: true, strict: true });
+    legacy.exec(
+      "CREATE TABLE future_marker(value TEXT NOT NULL); INSERT INTO future_marker VALUES ('preserved'); PRAGMA user_version=99;",
+    );
+    legacy.close();
+
+    try {
+      new SqliteManagedWriteApprovalAuthority({ path });
+      throw new Error("expected unsupported schema error");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ManagedWriteApprovalSchemaError);
+      expect(error).toMatchObject({ code: "unsupported_schema" });
+      expect(error).toHaveProperty("message", "Managed write approval schema version 99 is unsupported.");
+    }
+
+    const observed = new Database(path, { strict: true });
+    expect(observed.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(99);
+    expect(observed.query<{ value: string }, []>("SELECT value FROM future_marker").get()?.value).toBe("preserved");
+    expect(
+      observed
+        .query<{ name: string }, [string]>("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
+        .get("managed_write_approvals"),
+    ).toBeNull();
     observed.close();
   });
 

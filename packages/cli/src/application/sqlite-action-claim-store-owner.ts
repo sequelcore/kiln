@@ -4,6 +4,24 @@ import { randomUUID } from "node:crypto";
 const OWNER_TABLE = "runtime_action_claim_store_owner";
 const DEFAULT_OWNER_STALE_MS = 30_000;
 
+export type SqliteActionClaimStoreOwnerErrorCode = "live_owner";
+
+/**
+ * Stable, process-local classification for action-claim startup failures.
+ *
+ * Consumers must use `code`; the error message intentionally remains an
+ * operator-facing detail and may include timing information.
+ */
+export class SqliteActionClaimStoreOwnerError extends Error {
+  readonly code: SqliteActionClaimStoreOwnerErrorCode;
+
+  constructor(code: SqliteActionClaimStoreOwnerErrorCode, message: string) {
+    super(message);
+    this.name = "SqliteActionClaimStoreOwnerError";
+    this.code = code;
+  }
+}
+
 interface OwnerRow {
   readonly singleton: number;
   readonly owner_id: string;
@@ -129,7 +147,8 @@ export class SqliteActionClaimStoreOwner {
         1,
         Math.ceil((current.heartbeat + this.#ownerStaleMs - now) / 1_000),
       );
-      throw new Error(
+      throw new SqliteActionClaimStoreOwnerError(
+        "live_owner",
         `${this.#storeName} action-claim store already has a live owner. `
         + `Close the active owner; after an abrupt exit, retry in ${retryInSeconds} seconds. `
         + "Do not delete action-claim state.",
