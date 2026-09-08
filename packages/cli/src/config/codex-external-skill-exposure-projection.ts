@@ -1,3 +1,4 @@
+import { readExternalSkillApprovals } from "./external-skill-approval-store.js";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
@@ -81,7 +82,7 @@ export async function syncCodexExternalSkillExposure(input: {
       ...(input.pluginProvider ? { pluginProvider: input.pluginProvider } : {}),
       ...(input.commandRunner ? { commandRunner: input.commandRunner } : {}),
     });
-    const projection = compileCodexExternalSkillExposure({ inventory: global.inventory, policy, absolutePathBySourceId: global.absolutePathBySourceId });
+    const projection = compileCodexExternalSkillExposure({ inventory: global.inventory, policy, approvals: readExternalSkillApprovals(policy.harnesses.codex.keepImplicit.map((decision) => decision.sourceId), input.userHome), absolutePathBySourceId: global.absolutePathBySourceId });
     const applied = asRecord(asRecord(document.kiln).external_skill_catalog);
     const nameByPath = new Map(global.inventory.candidates.flatMap((candidate) => {
       const path = global.absolutePathBySourceId.get(candidate.sourceId);
@@ -110,7 +111,7 @@ export async function syncCodexExternalSkillExposure(input: {
       ...base,
       skills: { ...skills, config: [...existing, ...owned] },
       kiln: { ...asRecord(base.kiln), external_skill_catalog: {
-        policy_version: 1, adapter_revision: CODEX_EXTERNAL_SKILL_EXPOSURE_ADAPTER_REVISION,
+        policy_version: 2, adapter_revision: CODEX_EXTERNAL_SKILL_EXPOSURE_ADAPTER_REVISION,
         inventory_fingerprint: projection.fingerprint, policy_fingerprint: projection.policyFingerprint,
         applied_at: projection.appliedAt,
       } },

@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 import type { KilnSkillSourceInventorySnapshot } from "@kilnai/gateway-contracts";
-import type { KilnExternalCatalogPolicy } from "../kiln-yaml-types.js";
+import type { KilnExternalCatalogPolicy } from "./external-skill-policy.js";
+import type { ExternalSkillApproval } from "./external-skill-approval-store.js";
 
-export const CODEX_EXTERNAL_SKILL_EXPOSURE_ADAPTER_REVISION = "codex-skills-config-path-v1";
+export const CODEX_EXTERNAL_SKILL_EXPOSURE_ADAPTER_REVISION = "codex-skills-config-path-v2";
 
 export interface ExternalSkillExposureProjection {
   readonly fingerprint: string;
@@ -14,11 +15,11 @@ export interface ExternalSkillExposureProjection {
 export function compileCodexExternalSkillExposure(input: {
   readonly inventory: KilnSkillSourceInventorySnapshot;
   readonly policy: KilnExternalCatalogPolicy;
+  readonly approvals: readonly ExternalSkillApproval[];
   readonly absolutePathBySourceId: ReadonlyMap<string, string>;
   readonly now?: Date;
 }): ExternalSkillExposureProjection {
   const codexPolicy = input.policy.harnesses.codex;
-  if (!codexPolicy) throw new Error("External catalog policy has no configured Codex adapter.");
   if (!input.inventory.complete)
     throw new Error("External catalog inventory is incomplete; exposure projection refused.");
   const external = input.inventory.candidates.filter(
@@ -34,28 +35,13 @@ export function compileCodexExternalSkillExposure(input: {
     if (byId.has(candidate.sourceId)) throw new Error(`Ambiguous external catalog sourceId: ${candidate.sourceId}`);
     byId.set(candidate.sourceId, candidate);
   }
-  if (codexPolicy.expectedFingerprint !== fingerprint) {
-    const changes = codexPolicy.keepImplicit
-      .flatMap((decision) => {
-        const candidate = byId.get(decision.sourceId);
-        if (!candidate) return [`absent: ${decision.sourceId}`];
-        return candidate.packageDigest !== decision.packageDigest ? [`changed: ${decision.sourceId}`] : [];
-      })
-      .sort();
-    const detail =
-      changes.length > 0
-        ? `Reviewed package differences: ${changes.join("; ")}. Other inventory changes may also exist.`
-        : "Reviewed packages are unchanged; the saved fingerprint alone cannot identify other inventory changes.";
-    throw new Error(
-      `External catalog inventory fingerprint drifted: expected ${codexPolicy.expectedFingerprint}, current ${fingerprint}. ${detail} Review the current inventory before updating catalog approval.`,
-    );
-  }
+  const approvals = new Map(input.approvals.filter((approval) => approval.harness === "codex").map((approval) => [approval.sourceId, approval.packageDigest]));
   const keep = new Set<string>();
   for (const decision of codexPolicy.keepImplicit) {
     const candidate = byId.get(decision.sourceId);
     if (!candidate) throw new Error(`Reviewed external catalog source is absent: ${decision.sourceId}`);
-    if (candidate.packageDigest !== decision.packageDigest)
-      throw new Error(`Reviewed external catalog digest drifted: ${decision.sourceId}`);
+    if (candidate.packageDigest !== approvals.get(decision.sourceId))
+      throw new Error(`Needs review: ${candidate.name} (${decision.sourceId}) is new or changed since approval. Run kiln skill review "${decision.sourceId}".`);
     if (candidate.health.status === "blocked") {
       throw new Error(`Reviewed external catalog source is blocked by package health: ${decision.sourceId}`);
     }

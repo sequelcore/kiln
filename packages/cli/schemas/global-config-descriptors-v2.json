@@ -442,7 +442,79 @@
       "semanticOwner": "skill-catalog",
       "sensitivity": "public",
       "structuralOwner": "global-configuration",
-      "valueType": "semantic"
+      "valueType": "object"
+    },
+    {
+      "activation": "reconcile",
+      "authorityImpact": "authority-bearing",
+      "defaultPosture": "required",
+      "identity": "/skills/externalCatalog/harnesses",
+      "schemaRevision": 2,
+      "scope": "global",
+      "semanticOwner": "skill-catalog",
+      "sensitivity": "public",
+      "structuralOwner": "global-configuration",
+      "valueType": "object"
+    },
+    {
+      "activation": "reconcile",
+      "authorityImpact": "authority-bearing",
+      "defaultPosture": "required",
+      "identity": "/skills/externalCatalog/harnesses/codex",
+      "schemaRevision": 2,
+      "scope": "global",
+      "semanticOwner": "skill-catalog",
+      "sensitivity": "public",
+      "structuralOwner": "global-configuration",
+      "valueType": "object"
+    },
+    {
+      "activation": "reconcile",
+      "authorityImpact": "authority-bearing",
+      "defaultPosture": "required",
+      "identity": "/skills/externalCatalog/harnesses/codex/keepImplicit",
+      "schemaRevision": 2,
+      "scope": "global",
+      "semanticOwner": "skill-catalog",
+      "sensitivity": "public",
+      "structuralOwner": "global-configuration",
+      "valueType": "array"
+    },
+    {
+      "activation": "reconcile",
+      "authorityImpact": "authority-bearing",
+      "defaultPosture": "required",
+      "identity": "/skills/externalCatalog/harnesses/codex/keepImplicit/*",
+      "schemaRevision": 2,
+      "scope": "global",
+      "semanticOwner": "skill-catalog",
+      "sensitivity": "public",
+      "structuralOwner": "global-configuration",
+      "valueType": "object"
+    },
+    {
+      "activation": "reconcile",
+      "authorityImpact": "authority-bearing",
+      "defaultPosture": "required",
+      "identity": "/skills/externalCatalog/harnesses/codex/keepImplicit/*/sourceId",
+      "schemaRevision": 2,
+      "scope": "global",
+      "semanticOwner": "skill-catalog",
+      "sensitivity": "public",
+      "structuralOwner": "global-configuration",
+      "valueType": "string"
+    },
+    {
+      "activation": "reconcile",
+      "authorityImpact": "authority-bearing",
+      "defaultPosture": "required",
+      "identity": "/skills/externalCatalog/version",
+      "schemaRevision": 2,
+      "scope": "global",
+      "semanticOwner": "skill-catalog",
+      "sensitivity": "public",
+      "structuralOwner": "global-configuration",
+      "valueType": "literal"
     },
     {
       "activation": "next-session",

@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { KilnSkillSourceInventorySnapshot } from "@kilnai/gateway-contracts";
 import {
   compileCodexExternalSkillExposure,
-  computeCodexExternalInventoryFingerprint,
 } from "../../src/config/external-skill-exposure.js";
 
 const digest = (char: string) => `sha256:${char.repeat(64)}`;
@@ -82,143 +81,49 @@ function inventory(complete = true): KilnSkillSourceInventorySnapshot {
 }
 
 describe("external skill exposure", () => {
-  const expectedFingerprint = computeCodexExternalInventoryFingerprint([
-    { sourceId: "shared:one", packageDigest: digest("a") },
-    { sourceId: "plugin:two", packageDigest: digest("b") },
-  ]);
-  it("compiles the reviewed keep-set complement into exact disabled paths", () => {
-    const result = compileCodexExternalSkillExposure({
-      inventory: inventory(),
-      policy: {
-        version: 1,
-        harnesses: {
-          codex: { expectedFingerprint, keepImplicit: [{ sourceId: "shared:one", packageDigest: digest("a") }] },
-        },
-      },
-      absolutePathBySourceId: new Map([
-        ["shared:one", "C:/shared/one/SKILL.md"],
-        ["plugin:two", "C:/plugin/two/SKILL.md"],
-      ]),
-      now: new Date("2026-08-12T00:00:00Z"),
-    });
+  const policy = { version: 2 as const, harnesses: { codex: { keepImplicit: [{ sourceId: "shared:one" }] } } };
+  const approvals = [{ version: 1 as const, harness: "codex" as const, sourceId: "shared:one", packageDigest: digest("a") }];
+  const paths = new Map([["shared:one", "C:/shared/one/SKILL.md"], ["plugin:two", "C:/plugin/two/SKILL.md"]]);
+  const compile = (snapshot = inventory(), evidence = approvals) => compileCodexExternalSkillExposure({
+    inventory: snapshot, policy, approvals: evidence, absolutePathBySourceId: paths,
+  });
+
+  it("keeps only exact approved contents and suppresses the remaining implicit candidates", () => {
+    const result = compile();
     expect(result.disabledItems).toEqual([{ path: "C:/plugin/two/SKILL.md", enabled: false }]);
-    expect(result.disabledItems.some((item) => item.path.includes("manual"))).toBe(false);
     expect(result.fingerprint).toMatch(/^sha256:[a-f0-9]{64}$/);
   });
-  it("fails closed for incomplete inventory, digest drift, and absent absolute paths", () => {
-    expect(() =>
-      compileCodexExternalSkillExposure({
-        inventory: inventory(false),
-        policy: { version: 1, harnesses: { codex: { expectedFingerprint, keepImplicit: [] } } },
-        absolutePathBySourceId: new Map(),
-      }),
-    ).toThrow("incomplete");
-    expect(() =>
-      compileCodexExternalSkillExposure({
-        inventory: inventory(),
-        policy: {
-          version: 1,
-          harnesses: {
-            codex: { expectedFingerprint, keepImplicit: [{ sourceId: "shared:one", packageDigest: digest("c") }] },
-          },
-        },
-        absolutePathBySourceId: new Map(),
-      }),
-    ).toThrow("digest drifted");
-    expect(() =>
-      compileCodexExternalSkillExposure({
-        inventory: inventory(),
-        policy: { version: 1, harnesses: { codex: { expectedFingerprint, keepImplicit: [] } } },
-        absolutePathBySourceId: new Map(),
-      }),
-    ).toThrow("Absolute external catalog path");
+
+  it("requires review for missing evidence or changed selected contents", () => {
+    expect(() => compile(inventory(), [])).toThrow("Needs review: one");
+    expect(() => compile(inventory(), [{ ...approvals[0]!, packageDigest: digest("b") }])).toThrow("Needs review: one");
   });
 
-  it("refuses to keep a digest-reviewed package that currently has blocked health", () => {
+  it("does not invalidate approval when unrelated inventory changes", () => {
     const base = inventory();
-    const candidates = base.candidates.map((candidate) =>
-      candidate.sourceId === "shared:one"
-        ? {
-            ...candidate,
-            health: {
-              ...healthy,
-              status: "blocked" as const,
-              diagnostics: [{ code: "broken-resource", message: "Missing referenced file." }],
-            },
-          }
-        : candidate,
-    );
-    expect(() =>
-      compileCodexExternalSkillExposure({
-        inventory: { ...base, candidates },
-        policy: {
-          version: 1,
-          harnesses: {
-            codex: { expectedFingerprint, keepImplicit: [{ sourceId: "shared:one", packageDigest: digest("a") }] },
-          },
-        },
-        absolutePathBySourceId: new Map(),
-      }),
-    ).toThrow("blocked by package health");
+    const changed = { ...base, candidates: base.candidates.map((candidate) => candidate.sourceId === "plugin:two"
+      ? { ...candidate, packageDigest: digest("d") } : candidate) };
+    expect(compile(changed).disabledItems).toEqual(compile(base).disabledItems);
+    expect(compile(changed).fingerprint).not.toBe(compile(base).fingerprint);
+    const added = { ...base.candidates[1]!, sourceId: "plugin:new" };
+    const result = compileCodexExternalSkillExposure({ inventory: { ...base, candidates: [...base.candidates, added] },
+      policy, approvals, absolutePathBySourceId: new Map([...paths, [added.sourceId, "C:/new/SKILL.md"]]) });
+    expect(result.disabledItems).toContainEqual({ path: "C:/new/SKILL.md", enabled: false });
   });
 
-  it("identifies changed and absent reviewed packages despite an inventory fingerprint mismatch", () => {
-    expect(() =>
-      compileCodexExternalSkillExposure({
-        inventory: inventory(),
-        policy: {
-          version: 1,
-          harnesses: {
-            codex: {
-              expectedFingerprint: digest("d"),
-              keepImplicit: [
-                { sourceId: "shared:one", packageDigest: digest("c") },
-                { sourceId: "plugin:missing", packageDigest: digest("b") },
-              ],
-            },
-          },
-        },
-        absolutePathBySourceId: new Map(),
-      }),
-    ).toThrow("Reviewed package differences: absent: plugin:missing; changed: shared:one");
-  });
-
-  it("does not invent package differences when only the aggregate fingerprint is stale", () => {
-    expect(() =>
-      compileCodexExternalSkillExposure({
-        inventory: inventory(),
-        policy: {
-          version: 1,
-          harnesses: {
-            codex: {
-              expectedFingerprint: digest("d"),
-              keepImplicit: [{ sourceId: "shared:one", packageDigest: digest("a") }],
-            },
-          },
-        },
-        absolutePathBySourceId: new Map(),
-      }),
-    ).toThrow("Reviewed packages are unchanged; the saved fingerprint alone cannot identify other inventory changes.");
-  });
-
-  it("excludes project-scoped candidates from global rules and fingerprints", () => {
+  it("fails closed for incomplete discovery, absent selections, ambiguity, blocked health, and missing paths", () => {
+    expect(() => compile(inventory(false))).toThrow("incomplete");
     const base = inventory();
-    const projectCandidate = {
-      ...base.candidates[0]!,
-      sourceId: "shared:project:one",
-      exposureScope: "project" as const,
-    };
-    const withProject = { ...base, candidates: [...base.candidates, projectCandidate] };
-    const policy = { version: 1 as const, harnesses: { codex: { expectedFingerprint, keepImplicit: [] } } };
-    const paths = new Map([
-      ["shared:one", "C:/user/one/SKILL.md"],
-      ["plugin:two", "C:/plugin/two/SKILL.md"],
-      [projectCandidate.sourceId, "D:/project/.agents/skills/one/SKILL.md"],
-    ]);
-    const first = compileCodexExternalSkillExposure({ inventory: base, policy, absolutePathBySourceId: paths });
-    const second = compileCodexExternalSkillExposure({ inventory: withProject, policy, absolutePathBySourceId: paths });
-    expect(second.fingerprint).toBe(first.fingerprint);
-    expect(second.disabledItems).toEqual(first.disabledItems);
-    expect(second.disabledItems.some((item) => item.path.startsWith("D:/project"))).toBe(false);
+    expect(() => compile({ ...base, candidates: base.candidates.slice(1) })).toThrow("source is absent");
+    expect(() => compile({ ...base, candidates: [...base.candidates, base.candidates[0]!] })).toThrow("Ambiguous");
+    expect(() => compile({ ...base, candidates: base.candidates.map((candidate) => ({ ...candidate, health: { ...healthy, status: "blocked" as const } })) })).toThrow("blocked by package health");
+    expect(() => compileCodexExternalSkillExposure({ inventory: base, policy, approvals, absolutePathBySourceId: new Map() })).toThrow("Absolute external catalog path");
+  });
+
+  it("excludes project candidates from global approval and projection", () => {
+    const base = inventory();
+    const withProject = { ...base, candidates: [...base.candidates, { ...base.candidates[0]!, sourceId: "project:one", exposureScope: "project" as const }] };
+    expect(compile(withProject).fingerprint).toBe(compile(base).fingerprint);
+    expect(compile(withProject).disabledItems).toEqual(compile(base).disabledItems);
   });
 });

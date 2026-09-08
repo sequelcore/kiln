@@ -1,3 +1,4 @@
+import type { KilnExternalCatalogPolicy } from "./config/external-skill-policy.js";
 import type {
   KilnWorkGovernanceEvidence,
   ManagedAgentAccess,
@@ -125,20 +126,6 @@ export type KilnYamlSkillVisibility = "implicit" | "explicit-only" | "disabled";
 export interface KilnYamlSkillVisibilityConfig {
   readonly default?: KilnYamlSkillVisibility;
   readonly overrides?: Readonly<Record<string, KilnYamlSkillVisibility>>;
-}
-
-export interface KilnExternalCatalogKeepImplicitDecision {
-  readonly sourceId: string;
-  readonly packageDigest: string;
-}
-
-export interface KilnExternalCatalogPolicy {
-  readonly version: 1;
-  readonly harnesses: {
-    readonly codex?: { readonly expectedFingerprint: string; readonly keepImplicit: readonly KilnExternalCatalogKeepImplicitDecision[] };
-    readonly claude?: { readonly expectedFingerprint: string; readonly keepImplicit: readonly KilnExternalCatalogKeepImplicitDecision[] };
-    readonly opencode?: { readonly expectedFingerprint: string; readonly keepImplicit: readonly KilnExternalCatalogKeepImplicitDecision[] };
-  };
 }
 
 export interface KilnYamlSkillsConfig {

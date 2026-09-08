@@ -1,3 +1,4 @@
+import { readExternalSkillApprovals } from "./external-skill-approval-store.js";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, relative, sep } from "node:path";
@@ -43,9 +44,10 @@ import {
   defaultCodexPluginProvider,
   normalizeSkillInventoryPath,
   type SkillInventoryCommandRunner,
+  type SkillCandidateResolved,
   type SkillPluginProvider,
 } from "./skill-source-inventory.js";
-import { compileCodexExternalSkillExposure, computeCodexExternalInventoryFingerprint } from "./external-skill-exposure.js";
+import { compileCodexExternalSkillExposure, computeCodexExternalInventoryFingerprint, CODEX_EXTERNAL_SKILL_EXPOSURE_ADAPTER_REVISION } from "./external-skill-exposure.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
 import { resolveProjectStateBinding, type ProjectStateBinding } from "../application/project-state-root.js";
 import { resolveKilnHomePath } from "./global-config/path.js";
@@ -62,7 +64,7 @@ export interface ReadSkillCatalogStatusOptions {
   readonly commandRunner?: SkillInventoryCommandRunner;
   readonly cwd?: string;
   /** Internal evidence hook; absolute paths are deliberately excluded from the status contract. */
-  readonly onCandidateResolved?: (sourceId: string, absoluteSkillFilePath: string) => void;
+  readonly onCandidateResolved?: SkillCandidateResolved;
 }
 
 /**
@@ -104,9 +106,9 @@ export function readGlobalExternalSkillInventory(options: Pick<ReadSkillCatalogS
     pluginProvider: options.pluginProvider ?? (() => defaultCodexPluginProvider(options.commandRunner, undefined, join(userHome, ".codex"))),
     ...(options.commandRunner ? { commandRunner: options.commandRunner } : {}),
     trustedRealRoots: [join(userHome, ".agents", "skills")],
-    onCandidateResolved: (sourceId, absolutePath) => {
+    onCandidateResolved: (sourceId, absolutePath, files) => {
       absolutePathBySourceId.set(sourceId, absolutePath);
-      options.onCandidateResolved?.(sourceId, absolutePath);
+      options.onCandidateResolved?.(sourceId, absolutePath, files);
     },
   });
   return { inventory, absolutePathBySourceId };
@@ -193,9 +195,9 @@ export function readSkillCatalogStatus(
       join(userHome, ".agents", "skills"),
       ...codexProjectAgentRoots,
     ],
-    onCandidateResolved: (sourceId, absolutePath) => {
+    onCandidateResolved: (sourceId, absolutePath, files) => {
       absolutePathBySourceId.set(sourceId, absolutePath);
-      options.onCandidateResolved?.(sourceId, absolutePath);
+      options.onCandidateResolved?.(sourceId, absolutePath, files);
     },
   });
   const candidates = collectedInventory.candidates.map((candidate) => candidate.relationship === "canonical"
@@ -228,7 +230,7 @@ export function readSkillCatalogStatus(
   const inventory = {
     ...inventoryBase,
     externalExposure: externalExposureEvidence(globalExposureInventory.inventory, options.skillConfig,
-      globalExposureInventory.absolutePathBySourceId, userHome),
+      globalExposureInventory.absolutePathBySourceId, userHome, options.userHome),
   };
 
   return {
@@ -244,6 +246,7 @@ function externalExposureEvidence(
   skillConfig: KilnYamlSkillsConfig | null | undefined,
   absolutePathBySourceId: ReadonlyMap<string, string>,
   userHome: string,
+  approvalUserHome: string | undefined,
 ): readonly {
   readonly harness: "claude" | "codex" | "opencode";
   readonly status: "not-configured" | "current" | "stale" | "blocked" | "unsupported";
@@ -256,14 +259,12 @@ function externalExposureEvidence(
   const policy = skillConfig?.externalCatalog;
   const unsupported = (["claude", "opencode"] as const).map((harness) => ({
     harness,
-    status: policy?.harnesses[harness] ? "unsupported" as const : "not-configured" as const,
+    status: "not-configured" as const,
     realizedImplicit: inventory.candidates.filter((candidate) => candidate.relationship === "external"
       && candidate.applicableHarnesses.includes(harness) && candidate.effectiveVisibility === "implicit").length,
     suppressed: 0,
     freshness: "unknown" as const,
-    reason: policy?.harnesses[harness]
-      ? "This build has no exact external exposure adapter for this harness."
-      : "No reviewed external exposure policy is configured for this harness.",
+    reason: "This build has no external exposure adapter for this harness.",
   }));
   if (!policy?.harnesses.codex) return [{
     harness: "codex", status: "not-configured", realizedImplicit: inventory.candidates.filter((candidate) =>
@@ -272,10 +273,10 @@ function externalExposureEvidence(
     ...(inventory.complete ? { fingerprint: computeCodexExternalInventoryFingerprint(inventory.candidates.filter((candidate) =>
       candidate.relationship === "external" && candidate.applicableHarnesses.includes("codex")
       && candidate.exposureScope !== "project" && candidate.effectiveVisibility === "implicit")) } : {}),
-    freshness: "unknown", reason: "No reviewed external exposure policy is configured for Codex; use this current complete inventory fingerprint when creating a reviewed policy.",
+    freshness: "unknown", reason: "No external exposure policy is configured for Codex. Select skills in global configuration and use kiln skill review to approve their contents.",
   }, ...unsupported];
   try {
-    const compiled = compileCodexExternalSkillExposure({ inventory, policy, absolutePathBySourceId });
+    const compiled = compileCodexExternalSkillExposure({ inventory, policy, approvals: readExternalSkillApprovals(policy.harnesses.codex.keepImplicit.map((decision) => decision.sourceId), approvalUserHome), absolutePathBySourceId });
     const configPath = join(userHome, ".codex", "config.toml");
     let persistedInventoryFingerprint: string | undefined;
     let persistedPolicyFingerprint: string | undefined;
@@ -307,7 +308,7 @@ function externalExposureEvidence(
     const actualHasAllDisabledItems = compiled.disabledItems.every((desired) => effectiveEnabled(desired.path) === false);
     const current = persistedInventoryFingerprint === compiled.fingerprint
       && persistedPolicyFingerprint === compiled.policyFingerprint
-      && persistedAdapterRevision === "codex-skills-config-path-v1"
+      && persistedAdapterRevision === CODEX_EXTERNAL_SKILL_EXPOSURE_ADAPTER_REVISION
       && actualHasAllDisabledItems;
     const keptPaths = policy.harnesses.codex.keepImplicit.map((decision) => absolutePathBySourceId.get(decision.sourceId)).filter((path): path is string => path !== undefined);
     const realizedImplicit = keptPaths.filter((path) => effectiveEnabled(path) !== false).length;
@@ -319,18 +320,11 @@ function externalExposureEvidence(
       suppressed, fingerprint: compiled.fingerprint,
       freshness: current ? "current" : "stale",
       reason: current ? "Native Codex exposure matches the reviewed inventory, policy, adapter, and actual disabled paths."
-        : `Native Codex exposure is stale or unproven (expected inventory ${policy.harnesses.codex.expectedFingerprint}, current ${compiled.fingerprint}).`,
+        : "Native Codex exposure needs reconciliation; run kiln sync.",
     }, ...unsupported];
   } catch (error) {
-    const currentFingerprint = computeCodexExternalInventoryFingerprint(inventory.candidates.filter((candidate) =>
-      candidate.relationship === "external" && candidate.applicableHarnesses.includes("codex")
-      && candidate.exposureScope !== "project" && candidate.effectiveVisibility === "implicit"));
-    const fingerprintDrift = policy.harnesses.codex.expectedFingerprint !== currentFingerprint;
     return [{ harness: "codex", status: "blocked", realizedImplicit: 0, suppressed: 0, freshness: "unknown",
-      ...(fingerprintDrift ? { status: "stale" as const, freshness: "stale" as const, fingerprint: currentFingerprint } : {}),
-      reason: fingerprintDrift
-        ? `Reviewed inventory fingerprint is stale (expected ${policy.harnesses.codex.expectedFingerprint}, current ${currentFingerprint}).`
-        : error instanceof Error ? error.message : String(error) }, ...unsupported];
+      reason: error instanceof Error ? error.message : String(error) }, ...unsupported];
   }
 }
 

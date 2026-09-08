@@ -185,6 +185,55 @@
           "x-kiln-semantic-owner": "skill-catalog"
         },
         "externalCatalog": {
+          "additionalProperties": false,
+          "description": "External skill selections. Use kiln skill review to approve their contents, then kiln sync to apply.",
+          "properties": {
+            "harnesses": {
+              "additionalProperties": false,
+              "properties": {
+                "codex": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "keepImplicit": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "sourceId": {
+                            "description": "Exact source ID from kiln skill review. Package approval is stored separately.",
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "sourceId"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "keepImplicit"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "codex"
+              ],
+              "type": "object"
+            },
+            "version": {
+              "const": 2,
+              "type": "number"
+            }
+          },
+          "required": [
+            "version",
+            "harnesses"
+          ],
+          "type": "object",
           "x-kiln-activation": "reconcile",
           "x-kiln-authority-impact": "authority-bearing",
           "x-kiln-semantic-owner": "skill-catalog"

@@ -227,13 +227,34 @@ Catalog visibility is not runtime admission. The existing
 remain advisory or enter governed managed-task context.
 
 External catalogs are governed separately by global `skills.externalCatalog`.
-Each keep decision binds an exact portable source id to its complete package
-digest. Codex sync disables only the remaining implicit external candidates by
-absolute skill path, preserves unrelated `[[skills.config]]` entries, and
-removes its owned entries when the policy is removed. Sync fails closed when
-inventory is incomplete or reviewed content has drifted. `config read skills`
-reports realized and suppressed counts plus fingerprint freshness; Claude and
-OpenCode remain explicitly unsupported until an exact adapter is admitted.
+Configuration contains desired source selections only:
+
+```yaml
+skills:
+  externalCatalog:
+    version: 2
+    harnesses:
+      codex:
+        keepImplicit:
+          - sourceId: shared-agents:user:research:research
+```
+
+Run `kiln skill review` to list available names and source IDs, then
+`kiln skill review <name-or-source-id>` to inspect a configured package and
+confirm approval in an interactive terminal. Short names must resolve uniquely.
+Kiln records the exact reviewed contents in its managed evidence store; users
+never copy package digests or inventory fingerprints into YAML. Run `kiln sync`
+to apply the exposure rules after approval. Editing the selection alone does
+not approve package contents.
+
+Codex sync disables the remaining implicit external candidates by absolute
+skill path, preserves unrelated `[[skills.config]]` entries, and removes its
+owned entries when the policy is removed. Missing approval or changed selected
+contents reports **Needs review**. Incomplete inventory, absent selected sources,
+invalid evidence, and blocked package health prevent projection. Unrelated
+inventory changes are reconciled without invalidating unchanged approvals.
+`kiln config read skills` reports realized and suppressed counts and projection
+freshness. Claude and OpenCode external catalog adapters remain unsupported.
 After applying or changing exposure rules, verify behavior in a fresh Codex
 session. Persisted config and status prove the configured rule order, but an
 already-running harness may retain catalog state loaded before the change.
@@ -474,6 +495,7 @@ export interface SkillConfig extends SkillIndex {
 | `kiln skill update <name> [path] [--force]` | Update an owned package with drift protection and backup |
 | `kiln skill remove <name> [--force]` | Remove an owned package with drift protection and recoverable backup |
 | `kiln skill publish` | Validate SKILL.md for npm publishing |
+| `kiln skill review [name-or-source-id]` | List external sources or review and approve a selected package for Codex |
 
 Use `kiln config read skills` when you need origin, projection, unmanaged
 native, or admission diagnostics. Use `kiln skill list` for the shorter

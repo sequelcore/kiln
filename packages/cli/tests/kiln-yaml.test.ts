@@ -245,8 +245,8 @@ describe("mergeKilnYaml", () => {
 
   it("preserves global external catalog authority when project skills override other fields", () => {
     const externalCatalog = {
-      version: 1 as const,
-      harnesses: { codex: { expectedFingerprint: `sha256:${"a".repeat(64)}`, keepImplicit: [] } },
+      version: 2 as const,
+      harnesses: { codex: { keepImplicit: [] } },
     };
     const result = mergeKilnYaml(
       { version: "1", skills: { externalCatalog, visibility: { default: "explicit-only" } } } as ResolvedKilnConfig,

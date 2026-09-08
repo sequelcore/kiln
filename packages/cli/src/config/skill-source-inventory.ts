@@ -37,6 +37,9 @@ export type SkillInventoryCommandRunner = (
   command: string, args: readonly string[], timeoutMs: number,
 ) => { readonly status: number | null; readonly stdout: string; readonly stderr: string };
 
+export type SkillPackageFiles = readonly { readonly path: string; readonly content: Uint8Array }[];
+export type SkillCandidateResolved = (sourceId: string, absoluteSkillFilePath: string, files: SkillPackageFiles) => void;
+
 export interface CollectSkillSourceInventoryOptions {
   readonly roots: readonly SkillInventoryRoot[];
   readonly pluginProvider?: SkillPluginProvider;
@@ -48,7 +51,7 @@ export interface CollectSkillSourceInventoryOptions {
   readonly virtualCandidates?: readonly KilnSkillSourceCandidateSnapshot[];
   readonly trustedRealRoots?: readonly string[];
   /** Internal evidence hook. Absolute paths are never added to the public snapshot. */
-  readonly onCandidateResolved?: (sourceId: string, absoluteSkillFilePath: string) => void;
+  readonly onCandidateResolved?: SkillCandidateResolved;
 }
 
 export function collectSkillSourceInventory(
@@ -203,7 +206,7 @@ function collectRoot(
   diagnostics: KilnSkillInventoryDiagnosticSnapshot[],
   trustedRealRoots: readonly string[],
   packageCache: Map<string, ReturnType<typeof collectPackage>>,
-  onCandidateResolved?: (sourceId: string, absoluteSkillFilePath: string) => void,
+  onCandidateResolved?: SkillCandidateResolved,
 ): KilnSkillSourceCandidateSnapshot[] {
   const candidates: KilnSkillSourceCandidateSnapshot[] = [];
   try { readdirSync(root.root); } catch {
@@ -263,7 +266,7 @@ function collectRoot(
         applicableHarnesses: root.applicableHarnesses ?? applicableHarnesses(root.sourceKind),
         effectiveVisibility: readCandidateVisibility(root, candidate.physicalPath, result.skillFile.path),
       });
-      onCandidateResolved?.(sourceId, result.skillFile.path);
+      onCandidateResolved?.(sourceId, result.skillFile.path, result.files);
     } catch {
       diagnostics.push({ code: "inventory-invalid-skill", message: "Invalid SKILL.md excluded from inventory.", sourceId: root.sourceKind });
     }

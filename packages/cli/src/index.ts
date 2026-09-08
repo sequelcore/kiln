@@ -93,7 +93,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     feedback: "Create local-only redacted session feedback bundles and issue drafts",
     benchmark: "Inspect benchmark-facing profiles, external tracks, and readiness baselines",
     "external-engagement": "Inspect and report governed external evidence sources",
-    skill: "Manage skills (list, install, publish)",
+    skill: "Manage skills (list, install, update, remove, publish, review)",
     auth: "Authenticate subscription-backed providers (codex login/status/logout)",
     trust: "Explicitly accept or revoke a documented native-harness limitation",
     cron: "Manage scheduled jobs (list, add, remove, run)",

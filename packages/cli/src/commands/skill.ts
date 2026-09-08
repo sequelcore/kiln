@@ -1,3 +1,4 @@
+import { reviewExternalSkill } from "./skill-review.js";
 import {
   cpSync, existsSync, lstatSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync,
 } from "node:fs";
@@ -30,6 +31,7 @@ interface SkillCommandContext {
 }
 
 export async function skillCommand(config: KilnAppConfig, subcommand: string, args: readonly string[]): Promise<void> {
+  if (subcommand === "review") return reviewExternalSkill(args[0]);
   const projectPath = resolveProjectRoot({ cwd: process.cwd() }).rootPath;
   const projectStateBinding = resolveProjectStateBinding(projectPath);
   const context: SkillCommandContext = { projectPath, projectStateBinding };
@@ -40,13 +42,14 @@ export async function skillCommand(config: KilnAppConfig, subcommand: string, ar
     case "remove": return removeSkill(args[0], args.includes("--force"), context);
     case "publish": return publishSkill(config, context);
     default:
-      console.log("Usage: kiln skill <list|install|update|remove|publish>");
+      console.log("Usage: kiln skill <list|install|update|remove|publish|review>");
       console.log("");
       console.log("Subcommands:");
       console.log("  list                       List all available skills");
       console.log("  install <path>             Install a complete local skill package");
       console.log("  update <name> [path]       Replace an owned package after drift checks");
       console.log("  remove <name> [--force]    Remove an owned package with recoverable backup");
+      console.log("  review [name-or-source-id] Review and approve an external skill for Codex");
       console.log("  publish                    Validate SKILL.md for publishing");
   }
 }

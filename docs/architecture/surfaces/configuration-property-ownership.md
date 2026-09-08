@@ -47,6 +47,16 @@ unknown and transferred to the Slice 4 CLI mutation owner or Slice 9 Core
 app/gateway owner. Disposition is `supported`, `managed-evidence`,
 `projection`, `obsolete`, or `unreachable`.
 
+External skill approval evidence is owned by the CLI skill catalog and stored
+under `~/.kiln/evidence/external-skills/codex/<source-id-sha256>.json`
+(or the configured Kiln home).
+The strict versioned record binds a harness, source ID, and reviewed package
+digest. The skill policy schema owns the version 2 selection contract and its
+inferred type; global config embeds that same schema for editor completion. `kiln skill review` publishes one approval atomically after operator
+confirmation and a fresh inventory check. Configuration mutation never grants
+package approval. Sync and status read this same evidence owner; inventory and
+native projection fingerprints are derived, never operator configuration.
+
 ## Global Configuration
 
 Structural evidence:
@@ -283,10 +293,8 @@ contract named by the profile.
 | `skills.selection.mode` | G | I | M | project override | session | supported |
 | `skills.visibility.default` | G | I | H | global only | reconcile | supported |
 | `skills.visibility.overrides.<id>` | G | I | H | global only | reconcile | supported |
-| `skills.externalCatalog.version` | G | I | H | global only | reconcile | supported |
-| `skills.externalCatalog.harnesses.<id>.expectedFingerprint` | G | E | H | exact native evidence | reconcile | managed-evidence |
-| `skills.externalCatalog.harnesses.<id>.keepImplicit[].sourceId` | G | I | H | reviewed allow decision | reconcile | supported |
-| `skills.externalCatalog.harnesses.<id>.keepImplicit[].packageDigest` | G | E | H | exact package evidence | reconcile | managed-evidence |
+| `skills.externalCatalog.version` | G | I | H | global only; version 2 | reconcile | supported |
+| `skills.externalCatalog.harnesses.<id>.keepImplicit[].sourceId` | G | I | H | desired exposure; separate approval required | reconcile | supported |
 | `mcp.servers.<id>.enabled` | GM | I | H | project may disable | reconcile | supported |
 | `mcp.servers.<id>.transport` | GM | I | C | stdio or HTTP | reconcile | supported |
 | `mcp.servers.<id>.command` | GM | I | C | stdio only | reconcile | supported |

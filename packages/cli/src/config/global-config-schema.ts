@@ -1,3 +1,5 @@
+import type { DeepReadonly } from "./deep-readonly.js";
+import { externalSkillCatalogPolicySchema } from "./external-skill-policy.js";
 import type { CommunicationIntent } from "@kilnai/core/agents";
 import type { ModelGatewayConfig, VoiceConfig } from "@kilnai/core/engine";
 import { QUALITY_PROFILE_ORDER } from "@kilnai/core/verification";
@@ -7,7 +9,6 @@ import { describeRunningCliBuild } from "../build-identity.js";
 import type {
   KilnAuthorityProfileConfig,
   KilnDeliberationPolicyConfig,
-  KilnExternalCatalogPolicy,
   KilnHooksConfig,
   KilnManagedAgentsConfig,
   KilnModelTaskSuitabilityOverride,
@@ -218,11 +219,7 @@ const skills = strictObject(
     builtin: Type.ReadonlyOptional(builtinSkills),
     selection: Type.ReadonlyOptional(skillSelection),
     visibility: Type.ReadonlyOptional(skillVisibilityConfig),
-    externalCatalog: Type.ReadonlyOptional(
-      governedExternal<KilnExternalCatalogPolicy>("skill-catalog", {
-        "x-kiln-activation": "reconcile",
-      }),
-    ),
+    externalCatalog: Type.ReadonlyOptional(externalSkillCatalogPolicySchema),
   },
   {
     "x-kiln-semantic-owner": "skill-catalog",
@@ -300,12 +297,6 @@ export const GLOBAL_CONFIG_SCHEMA = strictObject(
     "x-kiln-default-posture": "omitted",
   },
 );
-
-type DeepReadonly<T> = T extends readonly unknown[]
-  ? ReadonlyArray<DeepReadonly<T[number]>>
-  : T extends Readonly<Record<PropertyKey, unknown>>
-    ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
-    : T;
 
 export type KilnGlobalConfig = DeepReadonly<Static<typeof GLOBAL_CONFIG_SCHEMA>>;
 export type KilnGlobalIdentity = DeepReadonly<Static<typeof identity>>;

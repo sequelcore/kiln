@@ -71,7 +71,7 @@ describe("skill catalog status path safety", () => {
     const snapshot = readSkillCatalogStatus({ projectPath, userHome,
       skillConfig: {
         builtin: { enabled: false }, visibility: { overrides: { explicit: "explicit-only" } },
-        externalCatalog: { version: 1, harnesses: { codex: { expectedFingerprint: `sha256:${"0".repeat(64)}`, keepImplicit: [] } } },
+        externalCatalog: { version: 2, harnesses: { codex: { keepImplicit: [] } } },
       },
       pluginProvider: () => ({ roots: [], diagnostics: [] }),
     });

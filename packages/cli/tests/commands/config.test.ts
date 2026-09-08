@@ -170,8 +170,8 @@ describe("configCommand", () => {
     seedGlobalConfig(globalHome);
     const globalDir = join(globalHome, "kiln");
     const external = {
-      version: 1,
-      harnesses: { codex: { expectedFingerprint: `sha256:${"b".repeat(64)}`, keepImplicit: [{ sourceId: "plugin:docs:pdf:.", packageDigest: `sha256:${"a".repeat(64)}` }] } },
+      version: 2,
+      harnesses: { codex: { keepImplicit: [{ sourceId: "plugin:docs:pdf:." }] } },
     };
     const builtin = { enabled: true, include: ["research", "orchestration-workflow"] };
     await configCommand(MOCK_APP_CONFIG, "set", ["--global", "skills.builtin", JSON.stringify(builtin), "--approve"], tempDir);
