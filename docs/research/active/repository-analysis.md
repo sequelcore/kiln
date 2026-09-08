@@ -22,6 +22,14 @@ A favorable experiment does not authorize production integration. It supports
 only a proposal that names the current consumer, minimum contract, measured
 benefit, complexity, recovery path, and affected owners.
 
+The separate [indexed text search hypothesis](harness-efficiency.md#indexed-text-search-hypothesis)
+considers tgrep as an unverified candidate for accelerating textual retrieval.
+Text search can locate candidates for structural analysis, but does not establish
+symbol identity or replace this evaluation. Backend acceleration and analyzer
+assistance must be measured separately. This proposal admits no integration,
+durable analyzer index, or additional prerequisite for the current experiment,
+and does not settle the Criba replacement obligation.
+
 ## Ownership Boundary
 
 Repository Analysis means revision-bound acquisition of facts about the current

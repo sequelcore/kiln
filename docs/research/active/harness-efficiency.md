@@ -283,6 +283,59 @@ Decision consequence: Roadmap 06.5 owns the benchmark and attribution plane.
 It consumes Roadmap 06 cache evidence but does not own prompt composition or
 provider cache semantics.
 
+## Indexed Text Search Hypothesis
+
+Recorded: 2026-09-08. Status: unverified research candidate; no integration or
+live execution is admitted by this note. Owner: Roadmap 06.5 for bottleneck
+measurement and optimization promotion. This addition does not extend the
+external evidence cutoff above.
+
+Would indexed textual retrieval reduce repeated search work enough to improve
+complete Kiln tasks after index construction, maintenance, and recovery costs?
+tgrep is a candidate for this experiment. The supplied social post and research
+summary are discovery leads only: their release, adoption, compatibility, and
+speedup claims have not been verified here against primary sources or a pinned
+implementation. They establish no Kiln performance result.
+
+The proposed boundary keeps `grep` as the shared textual-search capability,
+with Core owning its contract and Runtime owning backend effects and any index
+lifecycle. An optional indexed backend could serve eligible queries while
+ripgrep remains the direct-search path. Selection would be deterministic and
+preserve authorization; a denied query must not be retried through another
+backend to bypass policy. This is a design hypothesis, not a description of
+implemented components. Measure the existing search bottleneck before admitting
+a backend-neutral refactor or persistent service.
+
+[Repository Analysis](repository-analysis.md) investigates structural and
+symbol evidence. Textual retrieval may supply candidates for that investigation,
+but matching a name does not establish symbol identity or affected tests.
+An index would be derived, disposable search state with separately admitted
+storage, resource limits, isolation, and lifecycle. It would not change the
+current analyzer experiment's prohibition on a durable index or memory mutation.
+
+Any indexed backend must establish query semantics, authorized scope, exclusions,
+coverage, and freshness before replacing direct search. Incomplete or unknown
+coverage cannot prove absence. Verify immediate visibility of edits, new files,
+deletions, renames, external changes, and separate worktrees. Rechecking returned
+matches cannot detect files omitted by the index. Unsupported queries or
+unproven freshness require an authorized direct-search path or an explicit
+limitation. Neither path implies an atomic snapshot of a changing worktree.
+
+Evaluation should first compare result parity and failure behavior, then measure
+cold construction, warm and tail query latency, maintenance, peak memory, disk,
+and recovery. Task comparisons must retain the same model, instructions, tool
+contract, budgets, and fixtures while changing only the search backend. Measure
+task success, total time, tokens, and repeated searches; faster queries alone
+do not establish task or token savings. Evaluate analyzer assistance separately
+so its effect is not confounded with backend acceleration.
+
+This candidate adds no prerequisite to the current control or analyzer
+evaluation and does not settle Criba replacement. Live task comparison still
+requires a valid Runtime control and an authorized execution manifest. Close
+this question with an evidence-backed promote, defer, or reject disposition;
+retain useful results in evaluations and admit any implementation separately
+through the owning roadmap and contracts.
+
 ## External Evidence
 
 ### Provider guidance converges on stable prefixes, with different contracts
