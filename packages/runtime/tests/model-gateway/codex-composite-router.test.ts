@@ -21,7 +21,7 @@ const config: ModelGatewayConfig = {
     callerId: "caller",
     capabilityId: "invoke",
     scopes: ["model.invoke"],
-    budgetEvidenceId: "budget",
+
     virtualModelIds: ["virtual"],
   }],
   virtualModels: [{

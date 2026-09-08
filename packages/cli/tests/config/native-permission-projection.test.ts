@@ -89,9 +89,9 @@ modelGateway:
     openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 2 }
     anthropicMessages: { maxBodyBytes: 1024, maxConcurrentRequests: 2 }
   principals:
-      - { tokenEnv: CODEX_GATEWAY_TOKEN, ingress: openai-responses, tenantId: tenant, applicationId: codex-app, callerId: codex, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget-codex, virtualModelIds: [model-a], nativeHarness: codex }
-      - { tokenEnv: OPENCODE_GATEWAY_TOKEN, ingress: openai-responses, tenantId: tenant, applicationId: opencode-app, callerId: opencode, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget-opencode, virtualModelIds: [model-a], nativeHarness: opencode }
-      - { tokenEnv: ANTHROPIC_AUTH_TOKEN, ingress: anthropic-messages, tenantId: tenant, applicationId: claude-app, callerId: claude, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget-claude, virtualModelIds: [claude-kiln-a], nativeHarness: claude }
+      - { tokenEnv: CODEX_GATEWAY_TOKEN, ingress: openai-responses, tenantId: tenant, applicationId: codex-app, callerId: codex, capabilityId: invoke, scopes: [model.invoke], virtualModelIds: [model-a], nativeHarness: codex }
+      - { tokenEnv: OPENCODE_GATEWAY_TOKEN, ingress: openai-responses, tenantId: tenant, applicationId: opencode-app, callerId: opencode, capabilityId: invoke, scopes: [model.invoke], virtualModelIds: [model-a], nativeHarness: opencode }
+      - { tokenEnv: ANTHROPIC_AUTH_TOKEN, ingress: anthropic-messages, tenantId: tenant, applicationId: claude-app, callerId: claude, capabilityId: invoke, scopes: [model.invoke], virtualModelIds: [claude-kiln-a], nativeHarness: claude }
   virtualModels:
       - id: model-a
         displayName: Kiln Model A

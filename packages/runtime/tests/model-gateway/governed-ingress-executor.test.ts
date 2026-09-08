@@ -60,7 +60,7 @@ function fixture(overrides: { readonly guard?: ModelGatewayReplayGuard; readonly
     dispatch,
     input: {
       protocol: "openai-responses" as const, rawBody: '{"x":1}', identity: { tenantId: "tenant", applicationId: "app", callerId: "caller", sessionId: "session", turnId: "turn" }, route,
-      affinity: { continuity: "none" as const }, authority: { status: "admitted" as const, capabilityId: "capability", scopes: ["model.invoke"] }, budget: { status: "admitted" as const, evidenceId: "budget" }, toolExecutionMode: "caller-owned" as const,
+      affinity: { continuity: "none" as const }, authority: { status: "admitted" as const, capabilityId: "capability", scopes: ["model.invoke"] }, toolExecutionMode: "caller-owned" as const,
       turn: { history: [{ role: "user" as const, parts: [{ type: "text" as const, text: "hello" }] }] }, signal: new AbortController().signal, invocationPorts: ports,
       createResponseId: () => "response", replayGuard,
       projectSuccess: () => overrides.project?.() ?? "projected",

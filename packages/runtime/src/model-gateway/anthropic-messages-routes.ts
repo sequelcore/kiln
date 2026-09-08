@@ -5,7 +5,6 @@ import {
   GovernedOneRoundCommittedError,
   GovernedOneRoundInvocationError,
   type GovernedOneRoundAffinityPolicy,
-  type GovernedOneRoundBudgetEvidence,
 } from "../execution-kernel/governed-one-round-invocation.js";
 import { executeGovernedIngress, GovernedIngressCommittedExecutionError, type GovernedIngressInvocationPorts, type ModelGatewayCompatibilityEvidence } from "./governed-ingress-executor.js";
 import type { ModelGatewayReplayGuard } from "./replay-guard.js";
@@ -15,7 +14,7 @@ import { AnthropicMessagesModelTurnError, inspectAnthropicMessagesCapabilities, 
 
 export interface AnthropicMessagesTrustedPrincipal {
   readonly tenantId: string; readonly applicationId: string; readonly callerId: string; readonly capabilityId: string;
-  readonly scopes: readonly string[]; readonly budgetEvidence: GovernedOneRoundBudgetEvidence;
+  readonly scopes: readonly string[];
 }
 export interface AnthropicMessagesResolvedVirtualModel {
   readonly route: ProviderModelRouteIdentity & { readonly routeId: string };
@@ -87,7 +86,7 @@ export function createAnthropicMessagesRoutes(config: AnthropicMessagesIngressCo
       const execution = await executeGovernedIngress({
         protocol: "anthropic-messages", rawBody: bounded.text,
         identity: { tenantId: principal.tenantId, applicationId: principal.applicationId, callerId: principal.callerId, sessionId: namespaced.sessionId, turnId: namespaced.turnId },
-        route: resolved.route, affinity: deriveAffinity(resolved.affinity, namespaced), authority: { status: "admitted", capabilityId: principal.capabilityId, scopes: principal.scopes }, budget: principal.budgetEvidence,
+        route: resolved.route, affinity: deriveAffinity(resolved.affinity, namespaced), authority: { status: "admitted", capabilityId: principal.capabilityId, scopes: principal.scopes },
         toolExecutionMode: "caller-owned", turn, signal: context.req.raw.signal,
          invocationPorts: config.invocationPorts, createResponseId: config.createMessageId, replayGuard: config.replayGuard,
         projectSuccess: ({ responseId, result, replayed }) => sse(responseId, request.model, result, replayed),
@@ -118,10 +117,10 @@ async function authenticate(headers: Headers, config: AnthropicMessagesIngressCo
 }
 
 function validatePrincipal(principal: AnthropicMessagesTrustedPrincipal): void {
-  if (typeof principal !== "object" || principal === null || typeof principal.budgetEvidence !== "object" || principal.budgetEvidence === null) throw new MessagesIngressError(500, "api_error", "Authentication evidence is invalid.");
-  for (const value of [principal.tenantId, principal.applicationId, principal.callerId, principal.capabilityId, principal.budgetEvidence.evidenceId]) if (typeof value !== "string" || value.length === 0 || value.length > 256 || !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value)) throw new MessagesIngressError(500, "api_error", "Authentication evidence is invalid.");
+  if (typeof principal !== "object" || principal === null) throw new MessagesIngressError(500, "api_error", "Authentication evidence is invalid.");
+  for (const value of [principal.tenantId, principal.applicationId, principal.callerId, principal.capabilityId]) if (typeof value !== "string" || value.length === 0 || value.length > 256 || !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value)) throw new MessagesIngressError(500, "api_error", "Authentication evidence is invalid.");
   if (!Array.isArray(principal.scopes) || principal.scopes.length === 0 || new Set(principal.scopes).size !== principal.scopes.length || principal.scopes.some((scope) => typeof scope !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(scope))) throw new MessagesIngressError(500, "api_error", "Authentication evidence is invalid.");
-  if (!principal.scopes.includes("model.invoke") || principal.budgetEvidence.status !== "admitted") throw new MessagesIngressError(403, "permission_error", "The request was not admitted.");
+  if (!principal.scopes.includes("model.invoke")) throw new MessagesIngressError(403, "permission_error", "The request was not admitted.");
 }
 
 function correlation(headers: Headers, rawBodyDigest: string): AnthropicMessagesObservedCorrelation {

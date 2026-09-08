@@ -458,7 +458,6 @@ export type {
   GovernedOneRoundAuthorityAdmissionPort,
   GovernedOneRoundAuthorityEvidence,
   GovernedOneRoundBudgetAdmissionPort,
-  GovernedOneRoundBudgetEvidence,
   GovernedOneRoundCandidate,
   GovernedOneRoundCandidateCatalog,
   GovernedOneRoundCloseout,

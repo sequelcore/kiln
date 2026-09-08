@@ -28,7 +28,7 @@ const principal = {
   callerId: "codex-fixture",
   capabilityId: "capability-1",
   scopes: ["model.invoke"],
-  budgetEvidence: { status: "admitted" as const, evidenceId: "budget-1" },
+
 };
 const textResult: ModelTurnResult = {
   parts: [{ type: "text", text: "done" }],

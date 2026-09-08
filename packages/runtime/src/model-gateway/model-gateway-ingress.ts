@@ -407,7 +407,6 @@ function trustedPrincipal(config: ModelGatewayConfig["principals"][number]): Ope
     callerId: config.callerId,
     capabilityId: config.capabilityId,
     scopes: config.scopes,
-    budgetEvidence: { status: "admitted", evidenceId: config.budgetEvidenceId },
   };
 }
 function lengthPrefixed(values: readonly string[]): string {

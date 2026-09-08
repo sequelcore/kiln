@@ -3,8 +3,8 @@ import { Type, type ObjectOptions, type Static, type TObject, type TProperties, 
 import { Value } from "@sinclair/typebox/value";
 import pkg from "../../../package.json" with { type: "json" };
 
-export const GATEWAY_CONFIG_SCHEMA_REVISION = 1;
-export const GATEWAY_CONFIG_SCHEMA_ID = "https://kiln.dev/schemas/gateway-config-v1.json";
+export const GATEWAY_CONFIG_SCHEMA_REVISION = 2;
+export const GATEWAY_CONFIG_SCHEMA_ID = "https://kiln.dev/schemas/gateway-config-v2.json";
 
 export type GatewayConfigActivation = "restart-required";
 export type GatewayConfigSensitivity = "public" | "secret-reference";
@@ -133,7 +133,6 @@ const modelGatewayPrincipal = strictObject({
   callerId: Type.Readonly(canonicalId),
   capabilityId: Type.Readonly(canonicalId),
   scopes: Type.Readonly(Type.Array(canonicalId, { minItems: 1, uniqueItems: true })),
-  budgetEvidenceId: Type.Readonly(canonicalId),
   virtualModelIds: Type.Readonly(Type.Array(canonicalId, { minItems: 1, uniqueItems: true })),
   nativeHarness: Type.ReadonlyOptional(Type.Union([
     Type.Literal("codex"),

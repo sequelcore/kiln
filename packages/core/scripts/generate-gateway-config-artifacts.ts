@@ -14,9 +14,9 @@ const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const outputDirectory = join(packageRoot, "schemas");
 
 mkdirSync(outputDirectory, { recursive: true });
-writeFileSync(join(outputDirectory, "gateway-config-v1.json"), serializeGatewayConfigEditorSchema(), "utf8");
+writeFileSync(join(outputDirectory, "gateway-config-v2.json"), serializeGatewayConfigEditorSchema(), "utf8");
 writeFileSync(
-  join(outputDirectory, "gateway-config-descriptors-v1.json"),
+  join(outputDirectory, "gateway-config-descriptors-v2.json"),
   serializeGatewayConfigDescriptors(),
   "utf8",
 );

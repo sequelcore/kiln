@@ -33,7 +33,7 @@ modelGateway:
   surfaces:
     openAIResponses: { maxBodyBytes: 1048576, maxConcurrentRequests: 4 }
   principals:
-    - { tokenEnv: TOKEN_ENV, ingress: openai-responses, tenantId: tenant, applicationId: app, callerId: caller, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget, virtualModelIds: [codex] }
+    - { tokenEnv: TOKEN_ENV, ingress: openai-responses, tenantId: tenant, applicationId: app, callerId: caller, capabilityId: invoke, scopes: [model.invoke], virtualModelIds: [codex] }
   virtualModels:
     - id: codex
       displayName: Kiln Codex
@@ -46,6 +46,10 @@ modelGateway:
 `;
 
 describe("GatewayConfig model gateway overlay", () => {
+  it("rejects configuration-authored budget evidence", () => {
+    expect(() => parseGatewayYaml(overlayGatewayYaml.replace("scopes: [model.invoke]", "scopes: [model.invoke], budgetEvidenceId: claimed-admission"))).toThrow();
+  });
+
   it("keeps the virtual-model ingress alias separate from its canonical physical target", () => {
     const parsed = parseGatewayYaml(overlayGatewayYaml).modelGateway;
 

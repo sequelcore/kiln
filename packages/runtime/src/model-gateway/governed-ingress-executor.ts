@@ -3,7 +3,6 @@ import {
   GovernedOneRoundInvocationError,
   type GovernedOneRoundAffinityPolicy,
   type GovernedOneRoundAuthorityEvidence,
-  type GovernedOneRoundBudgetEvidence,
   type GovernedOneRoundInvocationPorts,
   invokeGovernedOneRound,
 } from "../execution-kernel/governed-one-round-invocation.js";
@@ -51,7 +50,6 @@ export interface GovernedIngressExecutorInput<T> {
   readonly route: ProviderModelRouteIdentity & { readonly routeId: string };
   readonly affinity: GovernedOneRoundAffinityPolicy;
   readonly authority: GovernedOneRoundAuthorityEvidence;
-  readonly budget: GovernedOneRoundBudgetEvidence;
   readonly toolExecutionMode: "caller-owned";
   readonly turn: ModelTurn;
   readonly signal: AbortSignal;
@@ -108,7 +106,7 @@ export async function executeGovernedIngress<T>(input: GovernedIngressExecutorIn
     };
     const result = await invokeGovernedOneRound({
       attemptId: dispatch.attemptId, identity: input.identity, route: input.route,
-      authority: input.authority, budget: input.budget, affinity: input.affinity,
+      authority: input.authority, affinity: input.affinity,
       toolExecutionMode: input.toolExecutionMode, turn: input.turn, signal: input.signal,
     }, invocationPorts);
     dispatched = true;

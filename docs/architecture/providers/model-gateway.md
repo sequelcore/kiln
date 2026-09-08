@@ -300,3 +300,8 @@ owner's local capacity can be released without fabricating a terminal provider
 result. The exact invocation remains replay-fenced, and the projection preserves
 the residual risk that the remote request may have been accepted, billed, or
 completed.
+
+Model Gateway principals configure identity and invocation scopes. Runtime reads
+the live session budget before selecting an account or acquiring capacity.
+Attempt evidence records that admission decision and its usage observation;
+operator configuration cannot declare budget admission.

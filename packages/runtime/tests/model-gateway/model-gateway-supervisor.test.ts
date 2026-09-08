@@ -15,7 +15,7 @@ const config: ModelGatewayConfig = {
   port: 4819,
   replay: { ttlMs: 60_000, maxEntries: 10, hmacKeyEnv: "REPLAY_SECRET" },
   surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } },
-  principals: [{ tokenEnv: "BEARER_TOKEN", ingress: "openai-responses", tenantId: "tenant", applicationId: "app", callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget", virtualModelIds: ["codex"] }],
+  principals: [{ tokenEnv: "BEARER_TOKEN", ingress: "openai-responses", tenantId: "tenant", applicationId: "app", callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"], virtualModelIds: ["codex"] }],
   virtualModels: [{ id: "codex", targetId: "route", capabilities: ["text"], affinity: { continuity: "none" } }],
 };
 

@@ -46,10 +46,6 @@ export interface GovernedOneRoundAuthorityEvidence {
   readonly capabilityId: string;
   readonly scopes: readonly string[];
 }
-export interface GovernedOneRoundBudgetEvidence {
-  readonly status: "admitted" | "denied";
-  readonly evidenceId: string;
-}
 export type GovernedOneRoundAffinityPolicy =
   | { readonly continuity: "none" }
   | {
@@ -62,7 +58,6 @@ export interface GovernedOneRoundInvocationInput {
   readonly identity: GovernedOneRoundIdentity;
   readonly route: ProviderModelRouteIdentity & { readonly routeId: string };
   readonly authority: GovernedOneRoundAuthorityEvidence;
-  readonly budget: GovernedOneRoundBudgetEvidence;
   readonly affinity: GovernedOneRoundAffinityPolicy;
   readonly toolExecutionMode: GovernedOneRoundToolExecutionMode;
   readonly turn: ModelTurn;
@@ -93,7 +88,7 @@ export interface GovernedOneRoundAttemptEvidence {
   readonly phase: GovernedOneRoundAttemptPhase;
   readonly selectionReason: "existing-affinity" | "least-pressure" | "affinity-rebind";
   readonly authorityCapabilityId: string;
-  readonly budgetEvidenceId: string;
+  readonly budget: Extract<TurnBudgetAdmission, { readonly status: "admitted" }>;
   readonly settlement?: "settled" | "pending" | "failed";
 }
 export interface GovernedOneRoundAttemptEvidenceSink {
@@ -319,7 +314,7 @@ export async function invokeGovernedOneRound(
         phase: attempt.phase,
         selectionReason: capacity.selectionReason,
         authorityCapabilityId: input.authority.capabilityId,
-        budgetEvidenceId: input.budget.evidenceId,
+        budget,
       });
     } catch (error) {
       if (terminal)
@@ -485,7 +480,7 @@ export async function invokeGovernedOneRound(
         phase: attempt.phase,
         selectionReason: capacity.selectionReason,
         authorityCapabilityId: input.authority.capabilityId,
-        budgetEvidenceId: input.budget.evidenceId,
+        budget,
         settlement: "failed",
       });
     } catch {
@@ -564,7 +559,6 @@ function validateAdmission(input: GovernedOneRoundInvocationInput): void {
     attemptId: input.attemptId,
     ...input.identity,
     capabilityId: input.authority.capabilityId,
-    budgetEvidenceId: input.budget.evidenceId,
     providerId: input.route.providerId,
     providerModelId: input.route.providerModelId,
     routeScope: input.route.scope,

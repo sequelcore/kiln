@@ -1,5 +1,5 @@
 {
-  "$id": "https://kiln.dev/schemas/gateway-config-v1.json",
+  "$id": "https://kiln.dev/schemas/gateway-config-v2.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "Canonical schema for gateway.yaml.",
@@ -224,10 +224,6 @@
                 "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$",
                 "type": "string"
               },
-              "budgetEvidenceId": {
-                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$",
-                "type": "string"
-              },
               "callerId": {
                 "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$",
                 "type": "string"
@@ -300,7 +296,6 @@
               "callerId",
               "capabilityId",
               "scopes",
-              "budgetEvidenceId",
               "virtualModelIds"
             ],
             "type": "object",
@@ -618,7 +613,7 @@
   "x-kiln-activation": "restart-required",
   "x-kiln-authority-impact": "authority-bearing",
   "x-kiln-default-posture": "omitted",
-  "x-kiln-schema-revision": 1,
+  "x-kiln-schema-revision": 2,
   "x-kiln-scope": "gateway",
   "x-kiln-semantic-owner": "app-gateway-runtime",
   "x-kiln-sensitivity": "public",

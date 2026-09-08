@@ -104,7 +104,7 @@ function validateModelGateway(value: ModelGatewayConfig, gatewayPort: number, er
   const nativeHarnesses = new Set<string>();
   for (const [index, principal] of (value.principals ?? []).entries()) {
     const path = `modelGateway.principals[${index}]`;
-    for (const [field, id] of Object.entries({ tenantId: principal.tenantId, applicationId: principal.applicationId, callerId: principal.callerId, capabilityId: principal.capabilityId, budgetEvidenceId: principal.budgetEvidenceId })) if (!ID.test(id ?? "")) errors.push({ field: `${path}.${field}`, message: "must be a canonical id" });
+    for (const [field, id] of Object.entries({ tenantId: principal.tenantId, applicationId: principal.applicationId, callerId: principal.callerId, capabilityId: principal.capabilityId })) if (!ID.test(id ?? "")) errors.push({ field: `${path}.${field}`, message: "must be a canonical id" });
     if (!ENV.test(principal.tokenEnv ?? "")) errors.push({ field: `${path}.tokenEnv`, message: "must be a canonical environment variable name" });
     else if (tokens.has(principal.tokenEnv)) errors.push({ field: `${path}.tokenEnv`, message: "must be unique" }); else tokens.add(principal.tokenEnv);
     if (!Array.isArray(principal.scopes) || !principal.scopes.includes("model.invoke") || new Set(principal.scopes).size !== principal.scopes.length || principal.scopes.some((scope) => !ID.test(scope))) errors.push({ field: `${path}.scopes`, message: "must contain unique canonical scopes including model.invoke" });

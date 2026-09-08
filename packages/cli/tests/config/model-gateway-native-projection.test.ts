@@ -36,13 +36,13 @@ function config(principals: ModelGatewayConfig["principals"]): ModelGatewayConfi
 
 const principal = (nativeHarness: "codex" | "opencode", models = ["model-a"]): ModelGatewayConfig["principals"][number] => ({
   tokenEnv: `${nativeHarness.toUpperCase()}_TOKEN`, ingress: "openai-responses", tenantId: "tenant", applicationId: nativeHarness,
-  callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget",
+  callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"],
   virtualModelIds: models, nativeHarness,
 });
 
 const claudePrincipal = (tokenEnv = "ANTHROPIC_AUTH_TOKEN", models = ["model-a"]): ModelGatewayConfig["principals"][number] => ({
   tokenEnv, ingress: "anthropic-messages", tenantId: "tenant", applicationId: "claude",
-  callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget",
+  callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"],
   virtualModelIds: models, nativeHarness: "claude",
 });
 

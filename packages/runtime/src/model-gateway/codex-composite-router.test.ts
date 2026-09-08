@@ -22,7 +22,7 @@ function config(): ModelGatewayConfig {
       callerId: "native",
       capabilityId: "invoke",
       scopes: ["model.invoke"],
-      budgetEvidenceId: "budget",
+
       virtualModelIds: ["kiln/model-a"],
       nativeHarness: "codex",
     }],

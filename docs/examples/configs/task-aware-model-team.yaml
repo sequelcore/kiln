@@ -87,7 +87,6 @@ modelGateway:
       callerId: example-operator
       capabilityId: model-invoke
       scopes: [model.invoke]
-      budgetEvidenceId: example-subscription-budget
       virtualModelIds: [managed-codex-terra, managed-codex-sol, managed-codex-luna, managed-opencode-go-glm]
   virtualModels:
     - { id: managed-codex-terra, displayName: Codex Terra through Kiln, contextTokens: 200000, outputTokens: 8192, baseInstructions: Use caller instructions and tools., targetId: codex-terra, capabilities: [text], affinity: { continuity: none } }

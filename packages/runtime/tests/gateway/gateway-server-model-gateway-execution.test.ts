@@ -70,7 +70,6 @@ modelGateway:
       callerId: caller
       capabilityId: invoke
       scopes: [model.invoke]
-      budgetEvidenceId: budget
       virtualModelIds: [codex]
   virtualModels:
     - id: codex

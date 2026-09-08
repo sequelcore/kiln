@@ -10,7 +10,7 @@ import type { GovernedIngressInvocationPorts } from "../../src/model-gateway/gov
 import { InMemoryModelGatewayReplayGuard } from "../../src/model-gateway/replay-guard.js";
 import { defineEffectiveAuthorityAdmissionBundle, type EffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 
-const principal = { tenantId: "tenant", applicationId: "app", callerId: "claude", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidence: { status: "admitted" as const, evidenceId: "budget" } };
+const principal = { tenantId: "tenant", applicationId: "app", callerId: "claude", capabilityId: "invoke", scopes: ["model.invoke"], };
 const route = { routeId: "claude-route", providerId: "codex-oauth", providerModelId: "upstream", scope: "virtual:claude-kiln" } as const;
 const admission = { targetId: "claude-route", providerId: route.providerId, providerModelId: route.providerModelId, accountSelection: { kind: "operator-override" as const, accountPolicyId: "policy", accountId: "account" } };
 const result: ModelTurnResult = { parts: [{ type: "text", text: "PROBE_OK" }], usage: { inputTokens: 4, outputTokens: 2, cacheReadTokens: 1, cacheWriteTokens: 0 }, stopReason: "completed" };

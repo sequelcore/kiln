@@ -312,7 +312,7 @@ function serverOrigin(port: number): string { return `http://127.0.0.1:${port}`;
 function gatewayConfig(port: number): ModelGatewayConfig {
   const principal = (nativeHarness: "codex" | "opencode", tokenEnv: string) => ({
     tokenEnv, ingress: "openai-responses" as const, tenantId: "probe", applicationId: nativeHarness, callerId: "live", capabilityId: "invoke",
-    scopes: ["model.invoke"], budgetEvidenceId: "synthetic", virtualModelIds: ["model-a"], nativeHarness,
+    scopes: ["model.invoke"], virtualModelIds: ["model-a"], nativeHarness,
   } as const);
   return {
     port,
@@ -326,7 +326,7 @@ function gatewayConfig(port: number): ModelGatewayConfig {
       principal("opencode", "OPENCODE_GATEWAY_TOKEN"),
       {
         tokenEnv: "ANTHROPIC_AUTH_TOKEN", ingress: "anthropic-messages", tenantId: "probe", applicationId: "claude", callerId: "live", capabilityId: "invoke",
-        scopes: ["model.invoke"], budgetEvidenceId: "synthetic", virtualModelIds: ["claude-kiln-probe"], nativeHarness: "claude",
+        scopes: ["model.invoke"], virtualModelIds: ["claude-kiln-probe"], nativeHarness: "claude",
       },
     ],
     virtualModels: [

@@ -5,7 +5,6 @@ import {
   GovernedOneRoundCommittedError,
   GovernedOneRoundInvocationError,
   type GovernedOneRoundAffinityPolicy,
-  type GovernedOneRoundBudgetEvidence,
 } from "../execution-kernel/governed-one-round-invocation.js";
 import { executeGovernedIngress, GovernedIngressCommittedExecutionError, type GovernedIngressInvocationPorts, type ModelGatewayCompatibilityEvidence } from "../model-gateway/governed-ingress-executor.js";
 import type { ModelGatewayReplayGuard } from "../model-gateway/replay-guard.js";
@@ -35,7 +34,6 @@ export interface OpenAIResponsesTrustedPrincipal {
   readonly callerId: string;
   readonly capabilityId: string;
   readonly scopes: readonly string[];
-  readonly budgetEvidence: GovernedOneRoundBudgetEvidence;
 }
 
 export interface OpenAIResponsesResolvedVirtualModel {
@@ -132,7 +130,7 @@ export function createOpenAIResponsesRoutes(config: OpenAIResponsesIngressConfig
         identity: { tenantId: principal.tenantId, applicationId: principal.applicationId, callerId: principal.callerId, sessionId: namespaced.sessionId, turnId: namespaced.turnId },
         route: resolved.route, affinity,
         authority: { status: "admitted", capabilityId: principal.capabilityId, scopes: principal.scopes },
-        budget: principal.budgetEvidence, toolExecutionMode: "caller-owned", turn, signal: context.req.raw.signal,
+        toolExecutionMode: "caller-owned", turn, signal: context.req.raw.signal,
         invocationPorts: config.invocationPorts,
          createResponseId: () => requireServerId(config.createResponseId(), "responseId"),
         replayGuard: config.replayGuard,
@@ -287,11 +285,9 @@ function validateNamespacedCorrelation(value: { readonly sessionId: string; read
 function validatePrincipal(principal: OpenAIResponsesTrustedPrincipal): void {
   requireServerId(principal.tenantId, "tenantId"); requireServerId(principal.applicationId, "applicationId");
   requireServerId(principal.callerId, "callerId"); requireServerId(principal.capabilityId, "capabilityId");
-  requireServerId(principal.budgetEvidence.evidenceId, "budgetEvidenceId");
   if (!Array.isArray(principal.scopes)) throw new ResponsesIngressError(500, "invalid_principal", "Authentication evidence is invalid.");
   for (const scope of principal.scopes) requireServerId(scope, "scope");
   if (!principal.scopes.includes("model.invoke")) throw new ResponsesIngressError(403, "insufficient_scope", "The model.invoke scope is required.");
-  if (principal.budgetEvidence.status !== "admitted") throw new ResponsesIngressError(403, "budget_denied", "The request budget was not admitted.");
 }
 
 function createConcurrencyLimiter(configured: number | undefined): { acquire(): (() => void) | undefined } {

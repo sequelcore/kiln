@@ -74,7 +74,7 @@ function config(targetId = "route"): ModelGatewayConfig {
       callerId: "caller",
       capabilityId: "invoke",
       scopes: ["model.invoke"],
-      budgetEvidenceId: "budget",
+
       virtualModelIds: ["model"],
     }],
     virtualModels: [{
@@ -152,7 +152,7 @@ describe("createModelGatewayIngress", () => {
     });
     try {
       const response = await handle.openAIResponses!.resolveVirtualModel({
-        principal: { tenantId: "tenant", applicationId: "app", callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidence: { status: "admitted", evidenceId: "budget" } },
+        principal: { tenantId: "tenant", applicationId: "app", callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"], },
         requestedModel: "model",
       });
       expect(response?.route).toEqual({ routeId: "route", providerId: "codex-oauth", providerModelId: "gpt-test", scope: "virtual:model" });
@@ -184,7 +184,7 @@ describe("createModelGatewayIngress", () => {
     });
     try {
       const resolved = await handle.openAIResponses!.resolveVirtualModel({
-        principal: { tenantId: "tenant", applicationId: "app", callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidence: { status: "admitted", evidenceId: "budget" } },
+        principal: { tenantId: "tenant", applicationId: "app", callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"], },
         requestedModel: "model",
       });
       await expect(handle.openAIResponses!.invocationPorts.candidateCatalog.list({

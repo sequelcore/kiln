@@ -62,13 +62,29 @@ function input() {
   return {
     attemptId: "attempt",
     identity: { tenantId: "tenant", applicationId: "app", callerId: "caller", sessionId: "session", turnId: "turn" },
-    route, authority: { status: "admitted" as const, capabilityId: "cap", scopes: ["model.invoke"] }, budget: { status: "admitted" as const, evidenceId: "budget" },
+    route, authority: { status: "admitted" as const, capabilityId: "cap", scopes: ["model.invoke"] },
     affinity: { continuity: "prefer" as const, key: "session" }, toolExecutionMode: "caller-owned" as const,
     turn: { history: [{ role: "user" as const, parts: [{ type: "text" as const, text: "hello" }] }] },
   };
 }
 
 describe("governed one-round capacity and dispatch", () => {
+  it("records the actual live budget decision on every attempt phase", async () => {
+    const value = fixture();
+    const record = vi.fn<GovernedOneRoundInvocationPorts["attemptEvidence"]["record"]>(async () => {});
+    const budget = { status: "admitted" as const, reason: "observed-below-limit" as const, observation: { observedTokens: 731, source: "live-session" } };
+    await invokeGovernedOneRound(input(), {
+      ...value.ports,
+      budgetAdmission: { admit: async () => budget },
+      attemptEvidence: { record },
+    });
+    expect(record).toHaveBeenCalled();
+    for (const [evidence] of record.mock.calls) {
+      expect(evidence.budget).toEqual(budget);
+    }
+    value.authority.close();
+  });
+
   it("reads live budget before candidate or capacity admission", async () => {
     const value = fixture();
     const order: string[] = [];

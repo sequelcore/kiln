@@ -21,9 +21,9 @@ Use this page to understand the current deployment and wiring surface for:
 
 Core owns one strict TypeBox schema and derives the admitted TypeScript type,
 editor JSON Schema, and field descriptors from it. The committed artifacts are
-[`gateway-config-v1.json`](../../packages/core/schemas/gateway-config-v1.json)
+[`gateway-config-v2.json`](../../packages/core/schemas/gateway-config-v2.json)
 and
-[`gateway-config-descriptors-v1.json`](../../packages/core/schemas/gateway-config-descriptors-v1.json).
+[`gateway-config-descriptors-v2.json`](../../packages/core/schemas/gateway-config-descriptors-v2.json).
 Run `bun run --cwd packages/core config:schema:generate` after changing the
 schema owner.
 

@@ -23,7 +23,7 @@ apps:
 
 describe("gateway configuration schema", () => {
   it("owns a strict restart-required gateway document contract", () => {
-    expect(GATEWAY_CONFIG_SCHEMA.$id).toBe("https://kiln.dev/schemas/gateway-config-v1.json");
+    expect(GATEWAY_CONFIG_SCHEMA.$id).toBe("https://kiln.dev/schemas/gateway-config-v2.json");
     expect(GATEWAY_CONFIG_SCHEMA.additionalProperties).toBe(false);
     expect(GATEWAY_CONFIG_SCHEMA.properties.apps.items.additionalProperties).toBe(false);
     expect(GATEWAY_CONFIG_SCHEMA.properties.apps.items.properties.channels.items.additionalProperties).toBe(false);
@@ -36,7 +36,7 @@ describe("gateway configuration schema", () => {
       sensitivity: "secret-reference",
       authorityImpact: "authority-bearing",
       activation: "restart-required",
-      schemaRevision: 1,
+      schemaRevision: 2,
     }));
     expect(GATEWAY_CONFIG_FIELD_DESCRIPTORS).toContainEqual(expect.objectContaining({
       identity: "/port",
@@ -90,7 +90,7 @@ describe("gateway configuration schema", () => {
         field: "apps[0].channels[0].botToken",
       }));
       expect((error as Error).message).toContain("fixtures/gateway.yaml");
-      expect((error as Error).message).toContain("gateway-config-v1");
+      expect((error as Error).message).toContain("gateway-config-v2");
     }
   });
 
@@ -102,9 +102,9 @@ describe("gateway configuration schema", () => {
   });
 
   it("keeps committed editor-schema and descriptor projections current", () => {
-    expect(readFileSync(join(packageRoot, "schemas", "gateway-config-v1.json"), "utf8"))
+    expect(readFileSync(join(packageRoot, "schemas", "gateway-config-v2.json"), "utf8"))
       .toBe(serializeGatewayConfigEditorSchema());
-    expect(readFileSync(join(packageRoot, "schemas", "gateway-config-descriptors-v1.json"), "utf8"))
+    expect(readFileSync(join(packageRoot, "schemas", "gateway-config-descriptors-v2.json"), "utf8"))
       .toBe(serializeGatewayConfigDescriptors());
   });
 

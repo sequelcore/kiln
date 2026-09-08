@@ -336,7 +336,6 @@ contract named by the profile.
 | `modelGateway.principals[].callerId` | GC | I | C | required | restart | supported |
 | `modelGateway.principals[].capabilityId` | GC | I | C | required | restart | supported |
 | `modelGateway.principals[].scopes[]` | GC | I | C | authority set | restart | supported |
-| `modelGateway.principals[].budgetEvidenceId` | GC | E | H | evidence reference | restart | managed-evidence |
 | `modelGateway.principals[].virtualModelIds[]` | GC | I | C | admitted model set | restart | supported |
 | `modelGateway.principals[].nativeHarness` | GC | I | C | optional harness binding | restart | supported |
 | `modelGateway.virtualModels[].id` | GC | I | H | unique | restart | supported |
@@ -650,7 +649,6 @@ schema and descriptor artifact are committed under `packages/core/schemas`.
 | `modelGateway.principals[].callerId` | W | I | C | required | restart | supported |
 | `modelGateway.principals[].capabilityId` | W | I | C | required | restart | supported |
 | `modelGateway.principals[].scopes[]` | W | I | C | authority set | restart | supported |
-| `modelGateway.principals[].budgetEvidenceId` | W | E | H | evidence reference | restart | managed-evidence |
 | `modelGateway.principals[].virtualModelIds[]` | W | I | C | admitted set | restart | supported |
 | `modelGateway.principals[].nativeHarness` | W | I | C | optional | restart | supported |
 | `modelGateway.virtualModels[].id` | W | I | H | unique | restart | supported |
