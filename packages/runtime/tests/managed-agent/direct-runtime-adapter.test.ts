@@ -14,6 +14,7 @@ import {
 } from "@kilnai/core/agents";
 import { textParts, type AuthorityDescriptor, type Capability } from "@kilnai/core/engine";
 import { createSessionBuiltinToolOptions } from "@kilnai/core/tools";
+import { createBoundHostToolSandbox, SandboxPolicy } from "@kilnai/core/sandbox";
 import {
   ManagedRuntimeSandboxLeaseManager,
   ManagedRuntimeCredentialRouteLeaseManager,
@@ -43,6 +44,7 @@ import type {
 } from "../../src/execution-kernel/runtime-model-round-action-claim.js";
 import type { ManagedAgentRuntimeInvocationInput } from "../../src/agents/managed-invocation/index.js";
 import { createFixtureToolActionStore } from "../session/runtime-claim-fixture.js";
+import { createRuntimeHostToolEnforcement } from "../../src/session/runtime-host-tool-enforcement.js";
 
 function makeDirectTestExecutionEnvelope(toolRounds: number) {
   return {
@@ -80,10 +82,10 @@ function directTestModelRoundStore(): RuntimeModelRoundActionClaimStore {
       if (!state || !claim || !state.consumed) throw new Error("direct test model-round permit was not consumed");
       claims.set(permit.claimId, {
         ...claim,
-        status: settlement.kind === "success" ? "settled" : "unknown",
-        ...(settlement.kind === "success"
-          ? { outcome: "success" as const }
-          : { outcome: "unknown" as const, unknownReason: settlement.reason }),
+        status: settlement.kind === "unknown" ? "unknown" : "settled",
+        ...(settlement.kind === "unknown"
+          ? { outcome: "unknown" as const, unknownReason: settlement.reason }
+          : { outcome: settlement.kind }),
       });
       permitStates.delete(permit);
     },
@@ -189,6 +191,54 @@ function directTestAdmission(
       },
     },
   });
+}
+
+function directTestHostAdmission(request: ManagedAgentInvocationRequest): {
+  readonly bundle: EffectiveAuthorityAdmissionBundle;
+  readonly runtimeHostToolEnforcement: ReturnType<typeof createRuntimeHostToolEnforcement>;
+} {
+  const base = directTestAdmission(request, undefined);
+  const sandbox = createBoundHostToolSandbox({
+    policy: new SandboxPolicy({
+      projectPath: request.authority.workingDirectory.path,
+      config: {
+        fsPolicy: "read-only",
+        netPolicy: "none",
+        allowedPaths: [request.authority.workingDirectory.path],
+        deniedPaths: [],
+        allowedDomains: [],
+      },
+    }),
+    leaseId: `direct-test:${request.invocationId}`,
+    configurationRevisionId: `sha256:${"1".repeat(64)}`,
+    permissionPolicyDigest: `sha256:${"2".repeat(64)}`,
+  });
+  const bundle = defineEffectiveAuthorityAdmissionBundle({
+    ...base,
+    configuration: {
+      ...base.configuration,
+      turnRevision: {
+        revisionSetId: `sha256:${"1".repeat(64)}`,
+        revisions: { tests: `sha256:${"1".repeat(64)}` },
+      },
+    },
+    turn: {
+      ...base.turn,
+      tools: { ...base.turn.tools, hostEnforcement: sandbox.admission },
+    },
+  });
+  const invocationAdmission = {
+    authorize: () => ({
+      level: 1 as const,
+      allowed: true as const,
+      requiresApproval: false as const,
+      reason: "host-bound test",
+    }),
+  };
+  return {
+    bundle,
+    runtimeHostToolEnforcement: createRuntimeHostToolEnforcement({ bundle, sandbox, invocationAdmission }),
+  };
 }
 
 type DirectTestAdapterConfig = Omit<ManagedDirectProviderRuntimeAdapterConfig, "readAuthorityAdmission" | "runtimeModelRoundActionClaims" | "runtimeToolActionClaims">
@@ -492,6 +542,54 @@ function startManaged(
 }
 
 describe("ManagedDirectProviderRuntimeAdapter", () => {
+  it("executes an admitted builtin through the exact derived host capability", async () => {
+    const childRequest = request();
+    const hostAdmission = directTestHostAdmission(childRequest);
+    const provider = providerWithResponses([
+      response("read", [{ id: "host-read", name: "read", input: {} }]),
+      response("host-bound tool completed"),
+    ]);
+    const read = vi.fn(async () => "host-bound fixture");
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [READ_TOOL],
+      builtinTools: new Map([["read", read]]),
+    });
+    const service = new RuntimeManagedAgentInvocationService();
+
+    const result = await invokeManaged(service, childRequest, adapter, {
+      childAuthorityAdmission: { bundle: hostAdmission.bundle },
+      runtimeHostToolEnforcement: hostAdmission.runtimeHostToolEnforcement,
+    });
+
+    expect(result.status).toBe("completed");
+    expect(read).toHaveBeenCalledOnce();
+    expect(provider.createMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects a host-bound child before its provider is called when the capability is missing", async () => {
+    const childRequest = request();
+    const hostAdmission = directTestHostAdmission(childRequest);
+    const provider = providerWithResponses([response("must not execute")]);
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [READ_TOOL],
+      builtinTools: new Map([["read", vi.fn(async () => "must not execute")]]),
+    });
+    const service = new RuntimeManagedAgentInvocationService();
+
+    await invokeManaged(service, childRequest, adapter, {
+      childAuthorityAdmission: { bundle: hostAdmission.bundle },
+    });
+
+    expect(service.status(childRequest.invocationId)?.record?.lifecycleState).toBe("failed");
+    expect(provider.createMessage).not.toHaveBeenCalled();
+  });
+
   it("requires the canonical AgentTask identity for a consumed write approval", async () => {
     const provider = providerWithResponses([response("must not execute")]);
     const childRequest = approvedWriteRequest();

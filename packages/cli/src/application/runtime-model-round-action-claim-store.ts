@@ -45,9 +45,37 @@ type ClaimRow = {
   status: "claimed" | "settled" | "unknown";
   claimed_at: string;
   settled_at: string | null;
-  outcome: "success" | "unknown" | null;
+  outcome: "success" | "not_dispatched" | "unknown" | null;
   unknown_reason: string | null;
 };
+
+const MODEL_ROUND_CLAIM_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS runtime_model_round_action_claims (
+    claim_id TEXT PRIMARY KEY,
+    admission_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    turn_id TEXT NOT NULL,
+    attempt_id TEXT NOT NULL,
+    round INTEGER NOT NULL CHECK(round >= 0),
+    intent_fingerprint TEXT NOT NULL,
+    effect_identity TEXT NOT NULL,
+    provider_request_id TEXT NOT NULL,
+    route_id TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    credential_revision TEXT NOT NULL,
+    permit_id TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL CHECK(status IN ('claimed','settled','unknown')),
+    claimed_at TEXT NOT NULL,
+    settled_at TEXT,
+    outcome TEXT CHECK(outcome IS NULL OR outcome IN ('success','not_dispatched','unknown')),
+    unknown_reason TEXT,
+    UNIQUE(admission_id, attempt_id, round, intent_fingerprint, effect_identity)
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS runtime_model_round_action_claims_slot
+    ON runtime_model_round_action_claims(admission_id, attempt_id, round);
+  CREATE INDEX IF NOT EXISTS runtime_model_round_action_claims_permit
+    ON runtime_model_round_action_claims(permit_id);
+`;
 
 /**
  * Durable owner for one workload's direct-provider model-round action boundary.
@@ -83,34 +111,9 @@ export class SqliteRuntimeModelRoundActionClaimStore implements RuntimeModelRoun
     try {
       assertWritablePath?.();
       this.#db.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;");
-      this.#db.exec(`
-        CREATE TABLE IF NOT EXISTS runtime_model_round_action_claims (
-          claim_id TEXT PRIMARY KEY,
-          admission_id TEXT NOT NULL,
-          session_id TEXT NOT NULL,
-          turn_id TEXT NOT NULL,
-          attempt_id TEXT NOT NULL,
-          round INTEGER NOT NULL CHECK(round >= 0),
-          intent_fingerprint TEXT NOT NULL,
-          effect_identity TEXT NOT NULL,
-          provider_request_id TEXT NOT NULL,
-          route_id TEXT NOT NULL,
-          account_id TEXT NOT NULL,
-          credential_revision TEXT NOT NULL,
-          permit_id TEXT NOT NULL UNIQUE,
-          status TEXT NOT NULL CHECK(status IN ('claimed','settled','unknown')),
-          claimed_at TEXT NOT NULL,
-          settled_at TEXT,
-          outcome TEXT CHECK(outcome IS NULL OR outcome IN ('success','unknown')),
-          unknown_reason TEXT,
-          UNIQUE(admission_id, attempt_id, round, intent_fingerprint, effect_identity)
-        );
-        CREATE UNIQUE INDEX IF NOT EXISTS runtime_model_round_action_claims_slot
-          ON runtime_model_round_action_claims(admission_id, attempt_id, round);
-        CREATE INDEX IF NOT EXISTS runtime_model_round_action_claims_permit
-          ON runtime_model_round_action_claims(permit_id);
-      `);
       this.#owner.claimAndRunStartupRecovery(() => {
+        this.#db.exec(MODEL_ROUND_CLAIM_SCHEMA);
+        migrateRuntimeModelRoundActionClaimOutcome(this.#db);
         // A process can die after the provider call and before settlement. The
         // successor must own the fixed path before preserving that uncertainty.
         this.#db.query(`
@@ -210,12 +213,12 @@ export class SqliteRuntimeModelRoundActionClaimStore implements RuntimeModelRoun
       }
 
       const settledAt = settlement.settledAt ?? this.#now();
-      if (settlement.kind === "success") {
+      if (settlement.kind === "success" || settlement.kind === "not_dispatched") {
         this.#db.query(`
           UPDATE runtime_model_round_action_claims
-          SET status='settled',settled_at=?,outcome='success',unknown_reason=NULL
+          SET status='settled',settled_at=?,outcome=?,unknown_reason=NULL
           WHERE permit_id=? AND claim_id=? AND status='claimed'
-        `).run(settledAt, permit.permitId, permit.claimId);
+        `).run(settledAt, settlement.kind, permit.permitId, permit.claimId);
       } else {
         if (!settlement.reason.trim()) throw new TypeError("Unknown Runtime model-round settlement requires a reason.");
         this.#db.query(`
@@ -257,6 +260,35 @@ export class SqliteRuntimeModelRoundActionClaimStore implements RuntimeModelRoun
   #assertOpen(): void {
     if (this.#closed) throw new Error("Runtime model-round claim store is closed.");
   }
+}
+
+function migrateRuntimeModelRoundActionClaimOutcome(db: Database): void {
+  const schema = db.query<{ sql: string | null }, []>(`
+    SELECT sql
+    FROM sqlite_master
+    WHERE type='table' AND name='runtime_model_round_action_claims'
+  `).get();
+  if (schema?.sql?.toLowerCase().includes("'not_dispatched'")) return;
+
+  // SQLite cannot alter a CHECK constraint in place. Rebuild the table inside
+  // the owner startup transaction so existing claims, permits, and replay
+  // tombstones remain intact while admitting the new outcome.
+  db.exec(`
+      DROP INDEX IF EXISTS runtime_model_round_action_claims_slot;
+      DROP INDEX IF EXISTS runtime_model_round_action_claims_permit;
+      ALTER TABLE runtime_model_round_action_claims RENAME TO runtime_model_round_action_claims_legacy;
+      ${MODEL_ROUND_CLAIM_SCHEMA}
+      INSERT INTO runtime_model_round_action_claims(
+        claim_id,admission_id,session_id,turn_id,attempt_id,round,intent_fingerprint,effect_identity,
+        provider_request_id,route_id,account_id,credential_revision,permit_id,status,claimed_at,
+        settled_at,outcome,unknown_reason
+      )
+      SELECT claim_id,admission_id,session_id,turn_id,attempt_id,round,intent_fingerprint,effect_identity,
+        provider_request_id,route_id,account_id,credential_revision,permit_id,status,claimed_at,
+        settled_at,outcome,unknown_reason
+      FROM runtime_model_round_action_claims_legacy;
+      DROP TABLE runtime_model_round_action_claims_legacy;
+  `);
 }
 
 function assertClaim(input: RuntimeModelRoundActionClaim): void {

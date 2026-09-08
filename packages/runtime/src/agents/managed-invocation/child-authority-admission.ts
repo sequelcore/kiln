@@ -45,7 +45,8 @@ export function assertManagedChildAuthorityAdmissionBoundary(input: {
   /** Parent admission identity carried by the economic action claim. */
   readonly admissionId: string;
 }): EffectiveAuthorityAdmissionBundle {
-  const bundle = assertPersistableAuthorityAdmissionBundle(input.bundle);
+  assertPersistableAuthorityAdmissionBundle(input.bundle);
+  const bundle = input.bundle;
   if (bundle.sessionId !== input.request.parentSessionId) {
     throw new Error("Managed child authority admission session does not match its parent session.");
   }
@@ -75,7 +76,8 @@ export function assertManagedChildAuthorityAdmissionBoundary(input: {
 export function admitManagedChildAuthority(
   input: ManagedChildAuthorityAdmissionInput,
 ): ManagedChildAuthorityAdmission {
-  const bundle = assertPersistableAuthorityAdmissionBundle(input.bundle);
+  assertPersistableAuthorityAdmissionBundle(input.bundle);
+  const bundle = input.bundle;
   if (bundle.sessionId !== input.request.parentSessionId) {
     throw new Error("Managed child authority admission session does not match its parent session.");
   }

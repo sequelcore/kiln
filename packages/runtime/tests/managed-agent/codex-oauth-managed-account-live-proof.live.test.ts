@@ -242,10 +242,10 @@ function createLiveModelRoundStore(): RuntimeModelRoundActionClaimStore {
       if (!state || !claim || !state.consumed) throw new Error("Live model-round permit was not consumed.");
       claims.set(permit.claimId, {
         ...claim,
-        status: settlement.kind === "success" ? "settled" : "unknown",
-        ...(settlement.kind === "success"
-          ? { outcome: "success" as const }
-          : { outcome: "unknown" as const, unknownReason: settlement.reason }),
+        status: settlement.kind === "unknown" ? "unknown" : "settled",
+        ...(settlement.kind === "unknown"
+          ? { outcome: "unknown" as const, unknownReason: settlement.reason }
+          : { outcome: settlement.kind }),
         ...(settlement.settledAt ? { settledAt: settlement.settledAt } : {}),
       });
       states.delete(permit);

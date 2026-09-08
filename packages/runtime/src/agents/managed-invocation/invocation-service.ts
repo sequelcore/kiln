@@ -22,6 +22,7 @@ import {
   evaluateManagedAgentAdmission,
 } from "@kilnai/core";
 import type { EffectiveAuthorityAdmissionBundle } from "../../session/effective-authority-admission-bundle.js";
+import type { RuntimeHostToolEnforcement } from "../../session/runtime-host-tool-enforcement.js";
 import type { ManagedAgentArtifactDirectoryLeaseManager } from "./artifact-directory-lease-manager.js";
 import {
   type ManagedAttendedTrustedExecutionContext,
@@ -180,6 +181,8 @@ export interface ManagedAgentRuntimeInvocationInput {
   readonly childAuthorityAdmission?: ManagedChildAuthorityAdmissionContract;
   /** Process-local attended destructive authority; never persisted or cloned. */
   readonly attendedTrustedExecution?: ManagedAttendedTrustedExecutionContext;
+  /** Process-local parent host binding; never persisted or cloned. */
+  readonly runtimeHostToolEnforcement?: RuntimeHostToolEnforcement;
   /** Composition-owned claim boundary required by every external harness adapter. */
   readonly externalActionClaim?: ManagedExternalInvocationActionClaimContext;
   readonly environment?: ManagedAgentEnvironmentVariables;
@@ -241,6 +244,8 @@ export interface ManagedAgentRuntimeInvocationLifecycleOptions {
   readonly childAuthorityAdmission?: ManagedChildAuthorityAdmissionContract;
   /** Process-local attended destructive authority; never persisted or cloned. */
   readonly attendedTrustedExecution?: ManagedAttendedTrustedExecutionContext;
+  /** Process-local parent host binding; never persisted or cloned. */
+  readonly runtimeHostToolEnforcement?: RuntimeHostToolEnforcement;
   /** Runtime-only identity for the attached surface that owns child cleanup. */
   readonly owner?: object;
   readonly economicDispatch?: {
@@ -814,6 +819,8 @@ export class RuntimeManagedAgentInvocationService {
               ? { childAuthorityAdmission: { bundle: committedAuthorityAdmission } }
               : {}),
             ...(attendedTrustedExecution !== undefined ? { attendedTrustedExecution } : {}),
+            ...(lifecycleOptions.runtimeHostToolEnforcement !== undefined
+              ? { runtimeHostToolEnforcement: lifecycleOptions.runtimeHostToolEnforcement } : {}),
             ...(this.externalActionClaim !== undefined ? { externalActionClaim: this.externalActionClaim } : {}),
             registerAdapterCompletion: (completion) => {
               registerAdapterCompletionOnEntry(entry, completion);
@@ -1372,6 +1379,7 @@ export class RuntimeManagedAgentInvocationService {
     readonly consumedWriteApproval?: ManagedAgentRuntimeConsumedWriteApproval;
     readonly childAuthorityAdmission?: ManagedChildAuthorityAdmissionContract;
     readonly attendedTrustedExecution?: ManagedAttendedTrustedExecutionContext;
+    readonly runtimeHostToolEnforcement?: RuntimeHostToolEnforcement;
     readonly environment?: ManagedAgentEnvironmentVariables;
     readonly registerAdapterCompletion?: (completion: PromiseLike<unknown>) => void;
     readonly registerExternalActionClaim?: (claim: ManagedExternalInvocationActionClaim) => Promise<void>;
@@ -1403,6 +1411,8 @@ export class RuntimeManagedAgentInvocationService {
         ? { childAuthorityAdmission: input.childAuthorityAdmission }
         : {}),
       ...(attendedTrustedExecution !== undefined ? { attendedTrustedExecution } : {}),
+      ...(input.runtimeHostToolEnforcement !== undefined
+        ? { runtimeHostToolEnforcement: input.runtimeHostToolEnforcement } : {}),
       ...(this.externalActionClaim !== undefined ? { externalActionClaim: this.externalActionClaim } : {}),
       ...(environment !== undefined ? { environment: cloneJson(environment) } : {}),
       registerAdapterCompletion: input.registerAdapterCompletion ?? (() => undefined),

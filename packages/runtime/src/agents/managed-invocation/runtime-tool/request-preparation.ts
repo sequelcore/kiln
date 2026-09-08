@@ -648,6 +648,8 @@ async function resolveManagedInvocationEconomicCommitment(input: {
         ...preFencePrepared.lifecycleOptions,
         abortSignal: economicPreparation.abortSignal,
         ...(attachment.childAuthorityAdmission ? { childAuthorityAdmission: attachment.childAuthorityAdmission } : {}),
+        ...(context.runtimeHostToolEnforcement
+          ? { runtimeHostToolEnforcement: context.runtimeHostToolEnforcement } : {}),
         ...(agentProfile.workLimits ? { workLimits: agentProfile.workLimits } : {}),
         ...(options.workspaceRoot && agentProfile.workLimits
           ? {
@@ -1486,13 +1488,15 @@ async function buildManagedInvocationRequestRecord(input: {
         },
       },
       ...(boundedWorkAdmission ? { boundedWorkLifecycle: boundedWorkAdmission.lifecycle } : {}),
-      ...(agentProfile?.workLimits || attachment.childAuthorityAdmission
+      ...(agentProfile?.workLimits || attachment.childAuthorityAdmission || context.runtimeHostToolEnforcement
         ? {
             lifecycleOptions: {
               ...(attachment.childAuthorityAdmission
                 ? { childAuthorityAdmission: attachment.childAuthorityAdmission }
                 : {}),
               ...(agentProfile?.workLimits ? { workLimits: agentProfile.workLimits } : {}),
+              ...(context.runtimeHostToolEnforcement
+                ? { runtimeHostToolEnforcement: context.runtimeHostToolEnforcement } : {}),
             },
           }
         : {}),

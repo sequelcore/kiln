@@ -3,6 +3,7 @@ import {
   buildContextEfficiencySchedule,
   buildCliRunCommand,
   buildInternalBenchmarkCommand,
+  bindContextEfficiencyReport,
   collectContextEfficiencyTrials,
   createProductionContextEfficiencyDispatcher,
   dispatchContextEfficiencyPredispatchProbe,
@@ -1503,6 +1504,78 @@ describe("context efficiency diagnostic collector", () => {
       ...runEnvelope(),
       telemetry: { ...runEnvelope().telemetry, providerRequests: [] },
     })).toThrow("Canonical provider-request observations are required");
+  });
+
+  it("closes an exhausted shared parent-child budget at observed physical count", () => {
+    const base = runEnvelope();
+    const parent = base.telemetry.providerRequests[0]!;
+    const providerRequests = Array.from({ length: 8 }, (_, requestIndex) => ({
+      ...parent,
+      requestIndex,
+      ...(requestIndex >= 5
+        ? {
+            managedInvocation: {
+              invocationId: `child-${requestIndex - 4}`,
+              childSessionId: "child-session",
+              childTurnId: "child-turn",
+            },
+          }
+        : {}),
+    }));
+    const output = {
+      ...base,
+      telemetry: { ...base.telemetry, sessionSucceeded: false, providerRequests },
+      diagnostics: { lastError: "provider request budget exhausted", attempts: [] },
+    };
+    const manifest = {
+      schemaVersion: "kiln-context-efficiency-post-fix-manifest-v1",
+      identity: {
+        startingCommit: "a".repeat(40),
+        frozenManifestDigest: "unused",
+        sourceContractDigest: `sha256:${"a".repeat(64)}`,
+        inputContractDigest: `sha256:${"b".repeat(64)}`,
+        protocolContractDigest: `sha256:${"c".repeat(64)}`,
+        configurationRevisionId: `sha256:${"d".repeat(64)}`,
+        toolProjectionRecipeDigest: `sha256:${"e".repeat(64)}`,
+        targetId: "codex-luna",
+        providerId: "codex-oauth",
+        modelId: "gpt-5.6-luna",
+        deliberationLevel: "low",
+      },
+      design: {
+        repetitionsPerCell: 1,
+        invalidRetriesPerCell: 0,
+        timeoutMs: 1_000,
+        budgetsPerTrial: {
+          maximumProviderRequests: 8,
+          maximumToolCalls: 1,
+          maximumManagedChildren: 1,
+          maximumCumulativeInputTokens: 100,
+          maximumCumulativeOutputTokens: 50,
+        },
+      },
+      tasks: [{ id: "managed", executionStrategy: "cli_run", conditions: ["cold"] }],
+    };
+    const report = bindContextEfficiencyReport(manifest, [
+      {
+        taskId: "managed",
+        condition: "cold",
+        repetition: 1,
+        output,
+      },
+    ]);
+
+    expect(report.integrity.reconciliation.status).toBe("complete");
+    expect(report.integrity.physicalRequestAccounting).toMatchObject({
+      status: "complete",
+      observedPhysicalRequestCount: 8,
+      unknownAttemptCount: 0,
+      maximumPhysicalRequestCount: 8,
+    });
+    expect(report.trials[0]).toMatchObject({
+      validity: "valid",
+      run: { telemetry: { providerRequests: expect.any(Array) } },
+    });
   });
 
   it.each([

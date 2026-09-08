@@ -1329,6 +1329,8 @@ export {
   createRuntimeModelRoundPermitId,
   createRuntimeToolActionPermitId,
   createRuntimeHostToolEnforcement,
+  deriveRuntimeHostToolEnforcement,
+  resolveRuntimeHostToolEnforcement,
   DefaultAgentHandoffSummarizer,
   DefaultContextSummarizer,
   DefaultEscalationDetector,

@@ -37,10 +37,7 @@ export function createBoundHostToolSandbox(input: {
   const configurationRevisionId = digest(input.configurationRevisionId, "configurationRevisionId");
   const permissionPolicyDigest = digest(input.permissionPolicyDigest, "permissionPolicyDigest");
   const config = input.policy.config;
-  const policyDigest = hash({
-    projectPath: input.policy.projectPath,
-    config,
-  });
+  const policyDigest = hash(input.policy.admissionFingerprint);
   const body = {
     schemaRevision: 1 as const,
     leaseId,
@@ -68,10 +65,7 @@ export function assertBoundHostToolSandbox(value: unknown): BoundHostToolSandbox
   if (sandbox.admission !== admission || !(sandbox.policy instanceof SandboxPolicy)) {
     throw new TypeError("Bound host tool sandbox evidence does not match its process-local capability.");
   }
-  const currentPolicyDigest = hash({
-    projectPath: sandbox.policy.projectPath,
-    config: sandbox.policy.config,
-  });
+  const currentPolicyDigest = hash(sandbox.policy.admissionFingerprint);
   if (currentPolicyDigest !== admission.policyDigest) {
     throw new TypeError("Bound host tool sandbox policy changed after admission.");
   }

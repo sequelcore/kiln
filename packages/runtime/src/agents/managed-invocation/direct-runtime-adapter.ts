@@ -66,6 +66,10 @@ import type {
   ToolExecutionSummary,
 } from "../../session/runtime-session-orchestrator.types.js";
 import { deriveRuntimeConvergencePolicyInput } from "../../session/runtime-execution-envelope.js";
+import {
+  deriveRuntimeHostToolEnforcement,
+  resolveRuntimeHostToolEnforcement,
+} from "../../session/runtime-host-tool-enforcement.js";
 import { admitManagedChildAuthority } from "./child-authority-admission.js";
 import { ManagedEconomicLifecycleTimeoutError } from "./economic-dispatch-coordinator.js";
 import { appendManagedResultHandoffContract } from "./handoff-prompt.js";
@@ -477,7 +481,30 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
             }),
           )
         : capabilityMap;
-      const builtinTools = withManagedToolSandbox(runtimeBuiltinTools, createManagedToolSandbox(request));
+      const requestedSandbox = createManagedToolSandbox(request);
+      const hostEnforcement = childAuthority?.bundle.turn.tools.hostEnforcement
+        ? deriveRuntimeHostToolEnforcement({
+            parent: input.runtimeHostToolEnforcement,
+            bundle: childAuthority.bundle,
+            childPolicy: requestedSandbox.policy,
+            ...(this.config.toolInvocationAdmission
+              ? { childInvocationAdmission: this.config.toolInvocationAdmission }
+              : {}),
+          })
+        : undefined;
+      const hostBinding = hostEnforcement && childAuthority
+        ? resolveRuntimeHostToolEnforcement(hostEnforcement, { bundle: childAuthority.bundle })
+        : undefined;
+      const builtinTools = withManagedToolSandbox(
+        runtimeBuiltinTools,
+        hostBinding
+          ? {
+              cwd: request.authority.workingDirectory.path,
+              policy: hostBinding.sandbox.policy,
+              physicalPathResolver: nodePhysicalPathResolver,
+            }
+          : requestedSandbox,
+      );
       const eventBus = new EventBus();
       const completedProviderRequestSegments: ProviderRequestEvidence[] = [];
       let activeProviderRequestSnapshot: readonly ProviderRequestEvidence[] = [];
@@ -540,10 +567,14 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       const perCallConfig: PerCallToolConfig = {
         tenantId: request.authority.memoryScope.scope.id,
         workingDirectory: request.authority.workingDirectory.path,
+        sandbox: hostBinding?.sandbox ?? requestedSandbox,
         ...(childAuthority ? { authorityAdmission: childAuthority.bundle } : {}),
-        ...(this.config.toolInvocationAdmission
-          ? { toolInvocationAdmission: this.config.toolInvocationAdmission }
-          : {}),
+        ...(hostBinding?.invocationAdmission
+          ? { toolInvocationAdmission: hostBinding.invocationAdmission }
+          : this.config.toolInvocationAdmission
+            ? { toolInvocationAdmission: this.config.toolInvocationAdmission }
+            : {}),
+        ...(hostEnforcement ? { runtimeHostToolEnforcement: hostEnforcement } : {}),
         ...(input.attendedTrustedExecution !== undefined
           ? { attendedTrustedExecution: input.attendedTrustedExecution }
           : {}),

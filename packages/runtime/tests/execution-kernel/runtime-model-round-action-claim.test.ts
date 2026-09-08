@@ -4,11 +4,14 @@ import { canonicalTurnId, createOperatorAdoptionDecisionAuthority } from "@kilna
 import { defineEffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 import {
   RuntimeModelRoundCommittedError,
+  RuntimeModelRoundPreDispatchBudgetExceededError,
   RuntimeModelRoundDispatchService,
   type RuntimeModelRoundActionClaim,
   type RuntimeModelRoundActionClaimPermit,
+  type RuntimeModelRoundActionClaimStore,
   type RuntimeModelRoundAdmissionReceipt,
 } from "../../src/execution-kernel/runtime-model-round-action-claim.js";
+import { RuntimeProviderTransportBudgetExceededError } from "../../src/session/provider-transport-admission.js";
 
 function admission(): RuntimeModelRoundAdmissionReceipt {
   const revision = { revisionSetId: "runtime-model-round-test", revisions: { test: "runtime-model-round-test" } } as const;
@@ -84,11 +87,15 @@ function memoryStore() {
       events.push("claim");
       return permit;
     }),
-    settle: vi.fn((permit: RuntimeModelRoundActionClaimPermit, settlement: { kind: "success" | "unknown"; reason?: string }) => {
+    settle: vi.fn((permit: RuntimeModelRoundActionClaimPermit, settlement: Parameters<RuntimeModelRoundActionClaimStore["settle"]>[1]) => {
       const claim = claims.get(permit.claimId);
       const state = permits.get(permit.permitId);
       if (!claim || !state || state.permit !== permit || !state.consumed) throw new Error("permit must be consumed");
-      claims.set(permit.claimId, { ...claim, status: settlement.kind === "success" ? "settled" : "unknown", unknownReason: settlement.reason });
+      claims.set(permit.claimId, {
+        ...claim,
+        status: settlement.kind === "unknown" ? "unknown" : "settled",
+        ...(settlement.kind === "unknown" ? { unknownReason: settlement.reason } : { outcome: settlement.kind }),
+      });
       permits.delete(permit.permitId);
       events.push("settle");
     }),
@@ -147,6 +154,151 @@ describe("RuntimeModelRoundDispatchService", () => {
     expect(createMessage).toHaveBeenCalledOnce();
     expect(store.settle).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ kind: "unknown" }));
     expect(store.events).toEqual(["claim", "consume", "provider", "settle"]);
+  });
+
+  it("settles a transport-budget denial as fenced not-dispatched evidence", async () => {
+    const store = memoryStore();
+    const persisted = admission();
+    const service = new RuntimeModelRoundDispatchService(store, () => "2026-01-01T00:00:00.000Z");
+    const state = { claimed: false };
+    const error = new RuntimeProviderTransportBudgetExceededError("budget exhausted");
+
+    await expect(
+      service.dispatch({
+        admission: persisted,
+        sessionId: "session-1",
+        turnId: persisted.turnId,
+        attemptId: "attempt-budget-denied",
+        round: 0,
+        intentFingerprint: `sha256:${"b".repeat(64)}` as `sha256:${string}`,
+        effectIdentity: `sha256:${"c".repeat(64)}` as `sha256:${string}`,
+        providerRequestId: "request-budget-denied",
+        routeId: "route-1",
+        accountId: "account-1",
+        credentialRevision: "revision-1",
+        readAdmission: async () => persisted,
+        provider: provider(
+          vi.fn(async (options) => {
+            options.transportAdmission?.admit();
+            throw error;
+          }),
+        ),
+        request: {
+          ...request(),
+          transportAdmission: {
+            admit: vi.fn(() => {
+              throw error;
+            }),
+          },
+        },
+        state,
+      }),
+    ).rejects.toBeInstanceOf(RuntimeModelRoundPreDispatchBudgetExceededError);
+
+    const claim = [...store.claims.values()][0];
+    expect(claim).toMatchObject({ status: "settled", outcome: "not_dispatched" });
+    expect(state).toEqual({ claimed: true, outcome: "not_dispatched" });
+    expect(store.settle).toHaveBeenCalledWith(expect.anything(), {
+      kind: "not_dispatched",
+      settledAt: "2026-01-01T00:00:00.000Z",
+    });
+  });
+
+  it("keeps a same-named provider failure unknown without canonical denial evidence", async () => {
+    const store = memoryStore();
+    const persisted = admission();
+    const service = new RuntimeModelRoundDispatchService(store, () => "2026-01-01T00:00:00.000Z");
+    const error = new RuntimeProviderTransportBudgetExceededError("provider supplied an untrusted budget error");
+
+    await expect(
+      service.dispatch({
+        admission: persisted,
+        sessionId: "session-1",
+        turnId: persisted.turnId,
+        attemptId: "attempt-untrusted-budget-error",
+        round: 0,
+        intentFingerprint: `sha256:${"d".repeat(64)}` as `sha256:${string}`,
+        effectIdentity: `sha256:${"e".repeat(64)}` as `sha256:${string}`,
+        providerRequestId: "request-untrusted-budget-error",
+        routeId: "route-1",
+        accountId: "account-1",
+        credentialRevision: "revision-1",
+        readAdmission: async () => persisted,
+        provider: provider(
+          vi.fn(async () => {
+            throw error;
+          }),
+        ),
+        request: request(),
+      })).rejects.toBeInstanceOf(RuntimeModelRoundCommittedError);
+
+    expect([...store.claims.values()][0]).toMatchObject({
+      status: "unknown",
+      unknownReason: "provider-dispatch-failed",
+    });
+  });
+
+  it.each([
+    { stream: true, admitted: false, emitted: false, settlementFails: false, outcome: "not_dispatched" },
+    { stream: false, admitted: true, emitted: false, settlementFails: false, outcome: "unknown" },
+    { stream: true, admitted: true, emitted: false, settlementFails: false, outcome: "unknown" },
+    { stream: true, admitted: false, emitted: true, settlementFails: false, outcome: "unknown" },
+    { stream: false, admitted: false, emitted: false, settlementFails: true, outcome: "unknown" },
+    { stream: true, admitted: false, emitted: false, settlementFails: true, outcome: "unknown" },
+  ])("requires proven no-dispatch and durable settlement: %j", async (scenario) => {
+    const store = memoryStore();
+    if (scenario.settlementFails) store.settle.mockImplementation(() => { throw new Error("disk unavailable"); });
+    const persisted = admission();
+    const service = new RuntimeModelRoundDispatchService(store);
+    let admissions = 0;
+    const transportAdmission = {
+      admit() {
+        admissions += 1;
+        if (scenario.admitted && admissions === 1) return;
+        throw new RuntimeProviderTransportBudgetExceededError("shared budget exhausted");
+      },
+    };
+    const deny = (options: CreateMessageOptions): never => {
+      if (scenario.admitted) options.transportAdmission?.admit();
+      options.transportAdmission?.admit();
+      throw new Error("transport admission should deny");
+    };
+    const adapter: ProviderAdapter = {
+      name: "provider-1",
+      createMessage: vi.fn(async (options) => deny(options)),
+      streamMessage: vi.fn(async function* (options): AsyncGenerator<AgentStreamEvent> {
+        if (scenario.emitted) yield { type: "text", content: "already received" };
+        deny(options);
+      }),
+    };
+    const input = {
+      admission: persisted,
+      sessionId: "session-1",
+      turnId: persisted.turnId,
+      attemptId: "attempt-budget-proof",
+      round: 0,
+      intentFingerprint: `sha256:${"b".repeat(64)}` as const,
+      effectIdentity: `sha256:${"c".repeat(64)}` as const,
+      providerRequestId: "request-budget-proof",
+      routeId: "route-1",
+      accountId: "account-1",
+      credentialRevision: "revision-1",
+      readAdmission: async () => persisted,
+      provider: adapter,
+      request: { ...request(), transportAdmission },
+    };
+    const execution = scenario.stream
+      ? (async () => { for await (const event of service.dispatchStream(input)) void event; })()
+      : service.dispatch(input);
+    await expect(execution).rejects.toBeInstanceOf(scenario.outcome === "not_dispatched"
+      ? RuntimeModelRoundPreDispatchBudgetExceededError
+      : RuntimeModelRoundCommittedError);
+    expect(store.settle).toHaveBeenCalledOnce();
+    expect([...store.claims.values()][0]).toMatchObject(scenario.settlementFails
+      ? { status: "claimed" }
+      : scenario.outcome === "not_dispatched"
+        ? { status: "settled", outcome: "not_dispatched" }
+        : { status: "unknown" });
   });
 
   it("claims and settles one admitted provider stream, with no retry after a stream failure", async () => {

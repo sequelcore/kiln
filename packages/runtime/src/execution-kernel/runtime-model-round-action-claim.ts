@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { AgentResponse, AgentStreamEvent, CreateMessageOptions, ProviderAdapter } from "@kilnai/core";
 import type { EffectiveAuthorityAdmissionBundle } from "../session/effective-authority-admission-bundle.js";
 import { assertPersistableAuthorityAdmissionBundle } from "../session/authority-admission-evidence.js";
+import { RuntimeProviderTransportBudgetExceededError } from "../session/provider-transport-admission.js";
 
 export type RuntimeModelRoundActionClaimId = `sha256:${string}`;
 export type RuntimeModelRoundAdmissionId = `sha256:${string}`;
@@ -39,7 +40,7 @@ export interface RuntimeModelRoundActionClaim {
   readonly status: "claimed" | "settled" | "unknown";
   readonly claimedAt?: string;
   readonly settledAt?: string;
-  readonly outcome?: "success" | "unknown";
+  readonly outcome?: "success" | "not_dispatched" | "unknown";
   readonly unknownReason?: string;
 }
 
@@ -55,7 +56,7 @@ export interface RuntimeModelRoundActionClaimPermit {
 
 export interface RuntimeModelRoundDispatchState {
   claimed: boolean;
-  outcome?: "success" | "unknown";
+  outcome?: "success" | "not_dispatched" | "unknown";
 }
 
 export interface RuntimeModelRoundActionClaimStore {
@@ -66,6 +67,7 @@ export interface RuntimeModelRoundActionClaimStore {
     permit: RuntimeModelRoundActionClaimPermit,
     settlement:
       | { readonly kind: "success"; readonly settledAt?: string }
+      | { readonly kind: "not_dispatched"; readonly settledAt?: string }
       | { readonly kind: "unknown"; readonly reason: string; readonly settledAt?: string },
   ): void;
 }
@@ -134,6 +136,18 @@ export class RuntimeModelRoundPreDispatchCancellationError extends Error {
   override readonly name = "RuntimeModelRoundPreDispatchCancellationError";
 }
 
+/** A fenced model round was denied before the provider transport entered. */
+export class RuntimeModelRoundPreDispatchBudgetExceededError extends Error {
+  override readonly name = "RuntimeModelRoundPreDispatchBudgetExceededError";
+  readonly retryable = false;
+  readonly claimId: RuntimeModelRoundActionClaimId;
+
+  constructor(cause: unknown, claimId: RuntimeModelRoundActionClaimId) {
+    super("The Runtime model round was fenced but not dispatched because the provider request budget was exhausted.", { cause });
+    this.claimId = claimId;
+  }
+}
+
 /** Runtime owner for one direct-provider model round inside any workload. */
 export class RuntimeModelRoundDispatchService {
   constructor(
@@ -158,6 +172,7 @@ export class RuntimeModelRoundDispatchService {
     }
     const permit = this.store.claim(claim);
     if (input.state) input.state.claimed = true;
+    const transport = observeProviderTransportAdmission(input.request);
 
     try {
       // Consumption is the final process-local step immediately before the
@@ -174,8 +189,14 @@ export class RuntimeModelRoundDispatchService {
     try {
       // The permit is intentionally consumed by exactly this one call. Do not
       // retry here, even when the adapter reports a transport-looking error.
-      response = await input.provider.createMessage(input.request);
+      response = await input.provider.createMessage(transport.request);
     } catch (error) {
+      if (transport.isPreDispatchBudgetDenial(error)) {
+        if (input.state) input.state.outcome = "unknown";
+        this.settleNotDispatched(permit, claim.claimId);
+        if (input.state) input.state.outcome = "not_dispatched";
+        throw new RuntimeModelRoundPreDispatchBudgetExceededError(error, claim.claimId);
+      }
       this.settleUnknown(permit, claim.claimId, error);
       if (input.state) input.state.outcome = "unknown";
       throw new RuntimeModelRoundCommittedError(error, claim.claimId);
@@ -208,18 +229,21 @@ export class RuntimeModelRoundDispatchService {
     }
     const permit = this.store.claim(claim);
     if (input.state) input.state.claimed = true;
+    const transport = observeProviderTransportAdmission(input.request);
     let settled = false;
     let settlementAttempted = false;
     let sawDone = false;
+    let sawProviderEvent = false;
 
     try {
       // Consumption is the final process-local step immediately before the
       // sole provider stream effect. No fallible work belongs between these calls.
       permit.consume();
-      for await (const event of input.provider.streamMessage(input.request)) {
+      for await (const event of input.provider.streamMessage(transport.request)) {
         if (input.abortSignal?.aborted) {
           throw new Error("The Runtime model round stream was cancelled after its action claim.");
         }
+        sawProviderEvent = true;
         if (event.type === "done") sawDone = true;
         yield event;
       }
@@ -231,6 +255,16 @@ export class RuntimeModelRoundDispatchService {
       settled = true;
       if (input.state) input.state.outcome = "success";
     } catch (error) {
+      if (transport.isPreDispatchBudgetDenial(error) && !sawProviderEvent) {
+        if (!settled && !settlementAttempted) {
+          settlementAttempted = true;
+          if (input.state) input.state.outcome = "unknown";
+          this.settleNotDispatched(permit, claim.claimId);
+          settled = true;
+          if (input.state) input.state.outcome = "not_dispatched";
+        }
+        throw new RuntimeModelRoundPreDispatchBudgetExceededError(error, claim.claimId);
+      }
       if (!settled && !settlementAttempted) {
         settlementAttempted = true;
         this.settleUnknown(permit, claim.claimId, error);
@@ -276,6 +310,53 @@ export class RuntimeModelRoundDispatchService {
     }
     void cause;
   }
+
+  private settleNotDispatched(
+    permit: RuntimeModelRoundActionClaimPermit,
+    claimId: RuntimeModelRoundActionClaimId,
+  ): void {
+    try {
+      this.store.settle(permit, { kind: "not_dispatched", settledAt: this.now() });
+    } catch (settlementError) {
+      throw new RuntimeModelRoundCommittedError(settlementError, claimId);
+    }
+  }
+}
+
+function observeProviderTransportAdmission(input: CreateMessageOptions): {
+  readonly request: CreateMessageOptions;
+  readonly isPreDispatchBudgetDenial: (error: unknown) => error is RuntimeProviderTransportBudgetExceededError;
+} {
+  const admission = input.transportAdmission;
+  if (!admission) {
+    return {
+      request: input,
+      isPreDispatchBudgetDenial: (_error): _error is RuntimeProviderTransportBudgetExceededError => false,
+    };
+  }
+  let successfulAdmission = false;
+  let denied: RuntimeProviderTransportBudgetExceededError | undefined;
+  const request: CreateMessageOptions = {
+    ...input,
+    transportAdmission: {
+      admit(identity) {
+        try {
+          admission.admit(identity);
+          successfulAdmission = true;
+        } catch (error) {
+          if (error instanceof RuntimeProviderTransportBudgetExceededError && !successfulAdmission) {
+            denied = error;
+          }
+          throw error;
+        }
+      },
+    },
+  };
+  return {
+    request,
+    isPreDispatchBudgetDenial: (error): error is RuntimeProviderTransportBudgetExceededError =>
+      error instanceof RuntimeProviderTransportBudgetExceededError && error === denied && !successfulAdmission,
+  };
 }
 
 export function defineRuntimeModelRoundActionClaim(

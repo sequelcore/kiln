@@ -172,7 +172,14 @@ launch blockers. The configured invocation admission enforces data-firewall
 denies immediately before effects. A matching `redact` decision is also denied
 at that boundary until a preventive transformation redactor owns the
 destination; it is never treated as an allow, prompt instruction, or post-hoc
-cleanup.
+cleanup. A managed child derives one new process-local capability from the real
+parent capability by intersecting the parent and child sandbox policy and
+composing their invocation admissions conjunctively. The derived capability
+retains its parent lineage and is the only capability eligible for that child;
+grandchildren derive from the child capability, so an ancestor restriction
+cannot be replaced by a broader serialized request. Derived sandbox identity
+includes the effective policy lineage, while the persisted parent projection
+remains the root evidence checked at the boundary.
 
 ### 5. Prepare Dispatch
 
@@ -226,7 +233,11 @@ replacement dispatch.
 A process crash in the unavoidable fence-to-effect gap produces an unknown
 outcome after restart. Live code that proves the dispatch call was not entered
 may record `known-not-dispatched`, but the fenced attempt remains closed and
-still cannot be retried under the same identity.
+still cannot be retried under the same identity. A Runtime transport-budget
+denial establishes no physical dispatch only when that exact round's admission
+was denied and no physical admission succeeded or stream event was observed.
+The model-round store settles this as `not_dispatched`; Runtime reports an
+outer authority denial without fabricating a provider request observation.
 
 ### 8. Observe, Settle, And Reconcile
 

@@ -1,6 +1,6 @@
 # Managed-child startup diagnosis
 
-Status: repair implemented and verified offline; live benchmark not rerun.
+Status: startup, host-enforcement, and budget-settlement repairs verified offline; live diagnostic authorization exhausted.
 
 ## Primary finding
 
@@ -145,3 +145,57 @@ change or live model call was needed for that environment repair.
 Six benchmark requests remain
 within the cumulative authorization, below the next trial's allocation. No new
 live benchmark trial was run for this repair.
+
+
+## Follow-up diagnostic: host enforcement and request settlement
+
+A single cold managed-child diagnostic on 2026-09-08 used the frozen source
+`493ea5adccbbbd599fd87aa5a54aa6a717080c02`. The child passed startup and
+made provider requests. Its `grep` calls failed because the direct adapter did
+not carry the process-local Runtime host enforcement capability into the child
+orchestrator. The persisted parent bundle included host-enforcement evidence;
+that projection could not replace the missing executable capability.
+
+The existing direct-adapter fixtures omitted host-enforcement evidence, so their
+successful tool calls did not exercise the production guard. The repair carries
+the actual process-local capability through request preparation and invocation
+lifecycle, preserves the persisted parent identity, and intersects each child's
+sandbox restrictions and invocation admission with its ancestors. Copied or
+missing capabilities still fail before execution.
+
+The diagnostic confirmed five parent and three child physical requests. The
+shared eight-request fence then denied further transport admission. Model-round
+settlement treated those local denials as unknown provider outcomes. The merged
+collector evidence consequently included additional unknown rows and could not
+close the report within its reserved maximum. This does not establish additional
+physical requests: the transport evidence records eight completed requests, and
+the budget owner reports exhaustion at eight.
+
+A proven transport-admission denial now settles the consumed action claim as
+`not_dispatched`, retains its replay fence, and ends the turn with
+`outer_authority_denied`. It produces no physical provider observation. A denial
+after an admitted physical attempt, an emitted stream event, or a settlement
+failure preserves uncertainty. SQLite upgrades the outcome constraint inside the
+exclusive owner startup transaction and preserves existing claims and permits.
+A live owner prevents both migration and restart reconciliation.
+
+Offline regression coverage includes an actual child builtin execution with a
+host-bound parent, missing and copied capabilities, ancestor restrictions,
+conjunctive invocation admission, streaming and non-streaming budget denials,
+settlement failure, and old-schema recovery. The composed orchestrator test
+executes one physical request and its tool, then closes the exhausted next round
+without a second provider observation. The report consumer reconciles the
+eight-request parent-child fixture at eight, with no unknown requests.
+
+The child resource lease was released and cleanup completed. The exact previous
+operator configuration was restored. The original failed report, transport
+observations, and terminal review remain in private benchmark evidence; they are
+not rewritten into a passing result. This diagnostic exhausted its authorization
+and establishes no comparative performance or promotion claim.
+
+Verification for the follow-up repair passed the full workspace typecheck, 107
+Runtime session/managed-agent/execution-kernel files (1,175 tests), six Core
+sandbox files (53 tests), two CLI claim-store/direct-adapter files (20 tests),
+and two diagnostic/report-integrity files (51 tests). Focused post-integration
+checks and `bun run docs:check` also passed. No live provider call was made for
+this repair.

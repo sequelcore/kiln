@@ -58,10 +58,10 @@ function cliTestModelRoundStore(): RuntimeModelRoundActionClaimStore {
       if (!state || !claim || !state.consumed) throw new Error("CLI test model-round permit was not consumed");
       claims.set(permit.claimId, {
         ...claim,
-        status: settlement.kind === "success" ? "settled" : "unknown",
-        ...(settlement.kind === "success"
-          ? { outcome: "success" as const }
-          : { outcome: "unknown" as const, unknownReason: settlement.reason }),
+        status: settlement.kind === "unknown" ? "unknown" : "settled",
+        ...(settlement.kind === "unknown"
+          ? { outcome: "unknown" as const, unknownReason: settlement.reason }
+          : { outcome: settlement.kind }),
       });
       permitStates.delete(permit);
     },

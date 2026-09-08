@@ -129,6 +129,14 @@ export class SandboxPolicy {
     return this._projectPath;
   }
 
+  /** Stable policy identity input used when a host sandbox is capability-bound. */
+  get admissionFingerprint(): unknown {
+    return {
+      projectPath: this._projectPath,
+      config: this._config,
+    };
+  }
+
   toJSON(): {
     config: SandboxConfig;
     projectPath: string;

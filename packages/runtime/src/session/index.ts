@@ -167,6 +167,7 @@ export { RuntimeTurnProgressClassifier } from "./runtime-turn-progress-classifie
 export type { RuntimeTurnProgressBatch } from "./runtime-turn-progress-classifier.js";
 export {
   RuntimeModelRoundCommittedError,
+  RuntimeModelRoundPreDispatchBudgetExceededError,
   RuntimeModelRoundPreDispatchCancellationError,
   RuntimeModelRoundDispatchService,
   defineRuntimeModelRoundActionClaim,
@@ -230,8 +231,13 @@ export type {
 export {
   assertRuntimeHostToolEnforcement,
   createRuntimeHostToolEnforcement,
+  deriveRuntimeHostToolEnforcement,
+  resolveRuntimeHostToolEnforcement,
 } from "./runtime-host-tool-enforcement.js";
-export type { RuntimeHostToolEnforcement } from "./runtime-host-tool-enforcement.js";
+export type {
+  RuntimeHostToolEnforcement,
+  RuntimeHostToolEnforcementBinding,
+} from "./runtime-host-tool-enforcement.js";
 export { collectRuntimeFeedbackEvidence } from "./session-feedback-evidence.js";
 export {
   deriveGovernedTurnOutcome,

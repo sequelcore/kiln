@@ -119,6 +119,7 @@ import {
 } from "./runtime-turn-progress-classifier.js";
 import {
   RuntimeModelRoundDispatchService,
+  RuntimeModelRoundPreDispatchBudgetExceededError,
   runtimeModelRoundEffectIdentity,
 } from "../execution-kernel/runtime-model-round-action-claim.js";
 import {
@@ -837,6 +838,17 @@ export class RuntimeSessionOrchestrator {
         });
       } catch (error) {
         const providerCompletion = turnObservation.recordProviderRequestCompleted(providerStartedAt, undefined);
+        if (error instanceof RuntimeModelRoundPreDispatchBudgetExceededError) {
+          return this.finalizeSessionTurnBudgetDenial({
+            session,
+            denial: new SessionTurnBudgetDenied(error.message),
+            toolExecutions,
+            convergence: buildConvergenceEvidence(executionEnvelope.convergence, progressClassifier.chronologicalEvidence),
+            routingDecision: toPublicRoutingDecision(routing.routingDecision),
+            communicationResolution: routing.communicationResolution,
+            preLlmEscalation: escalation,
+          });
+        }
         this.telemetry.recordFailedRequest(
           session.id,
           measureCurrentRequest(),

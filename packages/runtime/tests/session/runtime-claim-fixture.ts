@@ -58,10 +58,10 @@ export function createFixtureModelRoundStore(): RuntimeModelRoundActionClaimStor
       if (!claim || !consumed.has(permit)) throw new Error("Fixture model-round permit was not consumed.");
       rows.set(permit.claimId, {
         ...claim,
-        status: settlement.kind === "success" ? "settled" : "unknown",
-        ...(settlement.kind === "success"
-          ? { outcome: "success" as const }
-          : { outcome: "unknown" as const, unknownReason: settlement.reason }),
+        status: settlement.kind === "unknown" ? "unknown" : "settled",
+        ...(settlement.kind === "unknown"
+          ? { outcome: "unknown" as const, unknownReason: settlement.reason }
+          : { outcome: settlement.kind }),
         ...(settlement.settledAt ? { settledAt: settlement.settledAt } : {}),
       });
     },

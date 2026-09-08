@@ -2007,6 +2007,9 @@ export class RuntimeSessionToolExecutor {
           ...(perCallConfig?.workingDirectory || perCallConfig?.sandbox !== undefined
             ? { sandbox: mergePerCallSandbox(perCallConfig.sandbox, perCallConfig.workingDirectory) }
             : {}),
+          ...(perCallConfig?.runtimeHostToolEnforcement !== undefined
+            ? { runtimeHostToolEnforcement: perCallConfig.runtimeHostToolEnforcement }
+            : {}),
           ...(readExecutionToolAllowlist(perCallConfig)
             ? { allowedToolNames: [...readExecutionToolAllowlist(perCallConfig)!] }
             : {}),
