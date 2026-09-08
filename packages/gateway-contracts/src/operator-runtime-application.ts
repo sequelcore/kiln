@@ -120,6 +120,14 @@ export const OperatorRuntimeApplicationRequestSchema = z.discriminatedUnion("ope
     dispatchFenceId: identifier,
     reason: z.string().trim().min(1).max(512),
   }).strict(),
+  z.object({
+    schemaVersion: z.literal(1),
+    operation: z.literal("managed-economic.record-not-dispatched"),
+    jobId: identifier,
+    economicAttemptId: identifier,
+    dispatchFenceId: identifier,
+    reason: z.string().trim().min(1).max(512),
+  }).strict(),
 ]);
 
 export type OperatorRuntimeApplicationRequest = z.infer<typeof OperatorRuntimeApplicationRequestSchema>;

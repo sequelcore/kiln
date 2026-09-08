@@ -1,6 +1,6 @@
 # Managed-child startup diagnosis
 
-Status: diagnosis confirmed by bounded offline reproduction; repair not implemented.
+Status: repair implemented and verified offline; live benchmark not rerun.
 
 ## Primary finding
 
@@ -112,6 +112,36 @@ Separate capability-discovery/approval failures also appear in this cohort.
 They are not justification to bypass ask/deny or add a benchmark-only approval
 handler. Their evidence and any unresolved cause must remain separate.
 
-Two live reservations remain pending. Recovery and implementation are not
-claimed complete by this diagnostic artifact. Six benchmark requests remain
-within the cumulative authorization, below the next trial's allocation.
+Both live reservations were reconciled on 2026-09-07 through the canonical
+operator command using the reviewed source and denial evidence. Read-only ledger
+verification confirmed `released` commitments and leases, `not-dispatched`
+settlements, retained reconciliation evidence, and preserved dispatch fences.
+There were zero remaining pending commitments or held economic leases.
+The repair binds each child economic action claim to the parent admission ID,
+without equating parent and child economic commitments. Request realization and
+parent authority checks run before fencing. A dedicated, owner-generation-fenced
+Runtime operation records local no-dispatch evidence after fencing; ambiguous
+adapter execution remains pending.
+
+The composed regression uses the real lifecycle executor, economic coordinator,
+SQLite authority, request preparation, invocation service, and direct adapter
+with a synthetic provider. Both parent commitment variants now invoke the provider
+once and release the child reservation. Cancellation and missing canonical tools
+are covered. A temporary reintroduction of the former commitment comparison made
+both success cases fail; removing that probe restored all four passing cases.
+
+Verification passed the full workspace typecheck, foundation suites, all 345
+Runtime test files (4,216 passed; five skipped), and the native Bun listener and
+SQLite durability checks. Runtime's credential-absence test ran with
+`OPENAI_API_KEY` removed only from the test process environment. The operator's
+configured credentials were unchanged.
+
+The full CLI run passed 2,820 tests with one skipped and two failures in the
+container verifier while Docker Desktop's Linux engine was unavailable. After
+starting the engine, all 22 tests in that verifier file passed, including both
+failures. The native CLI projection-lock check also passed. No implementation
+change or live model call was needed for that environment repair.
+
+Six benchmark requests remain
+within the cumulative authorization, below the next trial's allocation. No new
+live benchmark trial was run for this repair.

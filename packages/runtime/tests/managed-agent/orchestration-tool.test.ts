@@ -10,6 +10,7 @@ import {
   RuntimeManagedAgentInvocationService,
   digestManagedEconomicCandidateProfileAuthority,
   type ManagedAgentRuntimeInvocationInput,
+  type ManagedEconomicDispatchPreparation,
   type ManagedInvocationToolAttachment,
   type ManagedInvocationToolOptions,
   type ManagedInvocationToolRoute,
@@ -102,11 +103,16 @@ describe("managed_agent.orchestrate", () => {
     const invoked = vi.fn<(invocationId: string) => void>();
     const adapter = economicAdapter(invoked);
     type EconomicPrepare = NonNullable<ManagedInvocationToolOptions["economicDispatch"]>["prepare"];
-    type EconomicPrepareInput = Parameters<EconomicPrepare>[0];
-    const prepareCalls: Array<Pick<EconomicPrepareInput,
+    type EconomicPrepareInputBase = Parameters<EconomicPrepare>[0];
+    type EconomicPrepareInput<PreparedExecution> = Omit<EconomicPrepareInputBase, "realizeExecutionBeforeFence"> & {
+      readonly realizeExecutionBeforeFence?: (input: Parameters<NonNullable<EconomicPrepareInputBase["realizeExecutionBeforeFence"]>>[0]) => PreparedExecution | Promise<PreparedExecution>;
+    };
+    const prepareCalls: Array<Pick<EconomicPrepareInputBase,
       "adoptedDecisionAt" | "authorityProfileId" | "candidateSet" | "economicAttemptId" | "invocationId" | "jobId"
     >> = [];
-    const prepare: EconomicPrepare = async (input) => {
+    const prepare: EconomicPrepare = async <PreparedExecution>(
+      input: EconomicPrepareInput<PreparedExecution>,
+    ): Promise<ManagedEconomicDispatchPreparation<PreparedExecution>> => {
       prepareCalls.push({
         adoptedDecisionAt: input.adoptedDecisionAt,
         authorityProfileId: input.authorityProfileId,
@@ -115,28 +121,9 @@ describe("managed_agent.orchestrate", () => {
         invocationId: input.invocationId,
         jobId: input.jobId,
       });
-      return {
-      ...(() => {
-        const admissionBundle = managedEconomicAdmissionContract({
-          sessionId: "session-test",
-          turnId: "turn-test",
-        }).bundle;
-        return {
-          dispatchFenceId: "dispatch-fence:orchestration-tool",
-          actionClaim: {
-            version: 1 as const,
-            attemptId: "economic-attempt:orchestration-tool",
-            admissionId: admissionBundle.admissionId,
-            admissionBundle,
-            intentFingerprint: input.intentFingerprint,
-            ownerGeneration: "managed-economic-owner:orchestration-tool",
-            effectIdentity: "managed-economic:orchestration-tool",
-          },
-          abortSignal: new AbortController().signal,
-        };
-      })(),
-      status: "prepared" as const,
-      commitment: {
+      const admissionBundle = input.admissionBundle;
+      const dispatchFenceId = "dispatch-fence:orchestration-tool";
+      const commitment = {
         reservation: {
           selectedIdentity: {
             route: {
@@ -148,13 +135,35 @@ describe("managed_agent.orchestrate", () => {
             account: { kind: "accountless" },
           },
         },
-      } as never,
-      adapter,
-      recordExecutionSettlementPending: vi.fn(),
-      createExecutionSettlement: () => ({} as never),
-      registerEconomicSettlement: (settlement: PromiseLike<ManagedEconomicSettlement>) => void Promise.resolve(settlement),
-      realization: { kind: "none" },
-    };
+      } as never;
+      const abortSignal = input.abortSignal ?? new AbortController().signal;
+      const realizeExecutionBeforeFence = input.realizeExecutionBeforeFence;
+      return {
+        status: "prepared" as const,
+        commitment,
+        adapter,
+        dispatchFenceId,
+        actionClaim: {
+          version: 1 as const,
+          attemptId: input.economicAttemptId,
+          admissionId: admissionBundle.admissionId,
+          admissionBundle,
+          intentFingerprint: input.intentFingerprint,
+          ownerGeneration: "managed-economic-owner:orchestration-tool",
+          effectIdentity: "managed-economic:orchestration-tool",
+        },
+        abortSignal,
+        recordExecutionSettlementPending: vi.fn(),
+        recordExecutionNotDispatched: vi.fn(),
+        createExecutionSettlement: () => ({} as never),
+        registerEconomicSettlement: (settlement: PromiseLike<ManagedEconomicSettlement>) => void Promise.resolve(settlement),
+        realization: realizeExecutionBeforeFence
+          ? {
+              kind: "realized" as const,
+              execution: await realizeExecutionBeforeFence({ commitment, dispatchFenceId, adapter, abortSignal }),
+            }
+          : { kind: "none" as const },
+      };
     };
     const input = {
       access: "read-only",

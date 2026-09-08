@@ -849,6 +849,8 @@ export function createManagedEconomicDispatchComposition(
       composition.authority.settleExecution(jobId, economicAttemptId, dispatchFenceId, settlement),
     recordExecutionSettlementPending: (jobId, economicAttemptId, dispatchFenceId, reason) =>
       composition.authority.recordExecutionSettlementPending(jobId, economicAttemptId, dispatchFenceId, reason),
+    recordExecutionNotDispatched: (jobId, economicAttemptId, dispatchFenceId, reason) =>
+      composition.authority.recordExecutionNotDispatched(jobId, economicAttemptId, dispatchFenceId, reason),
   });
 }
 

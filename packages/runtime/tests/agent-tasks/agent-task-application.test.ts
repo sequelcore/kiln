@@ -1501,6 +1501,7 @@ describe("AgentTaskApplicationService V16 AgentTask/AgentRun record", () => {
       adapter: {} as never,
       abortSignal: new AbortController().signal,
       recordExecutionSettlementPending,
+      recordExecutionNotDispatched: recordExecutionSettlementPending,
       createExecutionSettlement: () => ({} as never),
       registerEconomicSettlement: () => undefined,
     }));
@@ -2216,6 +2217,7 @@ describe("AgentTaskApplicationService V16 AgentTask/AgentRun record", () => {
         readDispatch: () => undefined,
         settleExecution,
         recordExecutionSettlementPending: vi.fn(),
+        recordExecutionNotDispatched: vi.fn(),
       },
       resolveLifecycleTimeoutMs: () => 1_000,
       createAdapter: async () => ({ descriptor: {} }) as never,

@@ -136,7 +136,7 @@ function committedRequestFor(
   } as ManagedCommittedInvocationRequest;
 }
 
-function economicDispatchFor(routeId: string, providerId: string, modelId: string) {
+function economicDispatchFor(routeId: string, providerId: string, modelId: string, admissionId: string) {
   const selectedIdentity = {
     route: { routeId, providerId, modelId, accountPolicyId: null },
     account: { kind: "accountless" as const },
@@ -159,7 +159,9 @@ function economicDispatchFor(routeId: string, providerId: string, modelId: strin
       notSelected: [],
     } as never,
     dispatchFenceId: "dispatch-fence-cli-direct-test",
+    admissionId,
     recordExecutionSettlementPending: () => undefined,
+    recordExecutionNotDispatched: () => undefined,
     createExecutionSettlement: () => ({} as never),
     registerEconomicSettlement: () => undefined,
   };
@@ -554,7 +556,6 @@ describe("createManagedDirectProviderAdapterFactory", () => {
       },
     });
     const credentialBinding = credentialBindingFor("openai-readonly");
-    const economicDispatch = economicDispatchFor("openai-readonly", "openai", "gpt-5.4-mini");
     const admission = cliTestAdmission({
       parentSessionId: invocationRequest.parentSessionId,
       parentTurnId: invocationRequest.parentTurnId,
@@ -565,6 +566,7 @@ describe("createManagedDirectProviderAdapterFactory", () => {
       economicCommitmentId: "commitment-cli-direct-test",
     });
     CLI_TEST_ADMISSIONS.set(admission.admissionId, admission);
+    const economicDispatch = economicDispatchFor("openai-readonly", "openai", "gpt-5.4-mini", admission.admissionId);
 
     const result = await service.invoke(invocationRequest, adapter!, {
       routeId: "openai-readonly",

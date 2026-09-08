@@ -46,6 +46,8 @@ export function createOperatorSurfaceEconomicAuthority(
         resolveAuthority().settleExecution(jobId, economicAttemptId, dispatchFenceId, settlement),
       recordExecutionSettlementPending: (jobId, economicAttemptId, dispatchFenceId, reason) =>
         resolveAuthority().recordExecutionSettlementPending(jobId, economicAttemptId, dispatchFenceId, reason),
+      recordExecutionNotDispatched: (jobId, economicAttemptId, dispatchFenceId, reason) =>
+        resolveAuthority().recordExecutionNotDispatched(jobId, economicAttemptId, dispatchFenceId, reason),
     },
     close: () => session?.close(),
   };

@@ -322,6 +322,27 @@ describe("managed economic candidate admission", () => {
     ]);
   });
 
+  it("retains missing required tool names for a pre-acquisition capability denial", () => {
+    const result = collectManagedEconomicCandidates({ ...command, requiredToolNames: ["read", "grep", "glob"] }, [
+      route({
+        routeId: "read-only-route",
+        providerId: "codex-oauth",
+        policy: true,
+        capability: "verified",
+      }),
+    ]);
+
+    expect(result.candidates).toEqual([]);
+    expect(result.rejections).toEqual([
+      {
+        stage: "managed-candidate-admission",
+        routeId: "read-only-route",
+        reason: "non-economic-admission-failed",
+        missingRequiredTools: ["grep", "glob"],
+      },
+    ]);
+  });
+
   it("rejects unhealthy policy routes before economic capability evaluation", () => {
     const result = collectManagedEconomicCandidates(
       command,

@@ -61,6 +61,22 @@ describe("operator runtime application protocol", () => {
     }).success).toBe(false);
   });
 
+  it("accepts the strict Runtime no-dispatch operation and rejects caller extras", () => {
+    const request = {
+      schemaVersion: 1,
+      operation: "managed-economic.record-not-dispatched",
+      jobId: "job-1",
+      economicAttemptId: "attempt-1",
+      dispatchFenceId: "fence-1",
+      reason: "adapter-materialization-failed-before-invocation",
+    } as const;
+    expect(OperatorRuntimeApplicationRequestSchema.parse(request)).toEqual(request);
+    expect(OperatorRuntimeApplicationRequestSchema.safeParse({
+      ...request,
+      ownerId: "caller-controlled",
+    }).success).toBe(false);
+  });
+
   it("accepts the closed Agent Task operation set without caller-controlled identity or routing", () => {
     expect(OperatorRuntimeApplicationRequestSchema.parse({
       schemaVersion: 1,

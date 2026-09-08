@@ -86,6 +86,8 @@ export async function proveEconomicRouteLifecycle(input: EconomicRouteProofInput
         },
         recordExecutionSettlementPending: (jobId2, economicAttemptId2, dispatchFenceId, reason) =>
           authority.recordExecutionSettlementPending(jobId2, economicAttemptId2, dispatchFenceId, reason),
+        recordExecutionNotDispatched: (jobId2, economicAttemptId2, dispatchFenceId, reason) =>
+          authority.recordExecutionNotDispatched(jobId2, economicAttemptId2, dispatchFenceId, reason),
       },
       resolveLifecycleTimeoutMs: () => 5_000,
       createAdapter: async ({ commitment }) => {

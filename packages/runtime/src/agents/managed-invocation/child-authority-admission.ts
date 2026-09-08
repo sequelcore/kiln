@@ -42,7 +42,8 @@ export interface ManagedChildAuthorityAdmissionInput {
 export function assertManagedChildAuthorityAdmissionBoundary(input: {
   readonly bundle: EffectiveAuthorityAdmissionBundle;
   readonly request: ManagedAgentInvocationRequest;
-  readonly economicCommitmentId?: string;
+  /** Parent admission identity carried by the economic action claim. */
+  readonly admissionId: string;
 }): EffectiveAuthorityAdmissionBundle {
   const bundle = assertPersistableAuthorityAdmissionBundle(input.bundle);
   if (bundle.sessionId !== input.request.parentSessionId) {
@@ -60,14 +61,8 @@ export function assertManagedChildAuthorityAdmissionBoundary(input: {
   if (requestedRank > parentRank) {
     throw new Error("Managed child requested authority exceeds the parent authority admission.");
   }
-  const bundleCommitment = bundle.turn.execution.status === "routed"
-    ? bundle.turn.execution.economicCommitment
-    : undefined;
-  if (bundleCommitment && input.economicCommitmentId !== bundleCommitment.commitmentId) {
-    throw new Error("Managed child economic commitment does not match the parent authority admission.");
-  }
-  if (!bundleCommitment && input.economicCommitmentId !== undefined) {
-    throw new Error("Managed child economic commitment is not admitted by the parent authority bundle.");
+  if (input.admissionId !== bundle.admissionId) {
+    throw new Error("Managed child action claim is not bound to the parent authority admission.");
   }
   return bundle;
 }

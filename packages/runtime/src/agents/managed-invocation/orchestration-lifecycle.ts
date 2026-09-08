@@ -33,6 +33,8 @@ import type { ManagedAgentRuntimeInvocationLifecycleOptions } from "./index.js";
 import type { ManagedInvocationExecutableRoute } from "./runtime-tool/types.js";
 import { resolveManagedInvocationRouteProfile } from "./runtime-tool/profile-resolution.js";
 import type { EffectiveAuthorityAdmissionBundle } from "../../session/effective-authority-admission-bundle.js";
+import { assertManagedChildAuthorityAdmissionBoundary } from "./child-authority-admission.js";
+import { assertManagedEconomicCommitmentMatchesRequest } from "./invocation-authority-guard.js";
 
 const ORCHESTRATION_CONTEXT_MODE = "isolated";
 
@@ -223,36 +225,34 @@ export async function runManagedAgentOrchestrationLifecycle(
           const dependencyRecords = entry.child.dependsOn
             .map((key) => recordsByKey.get(key)?.record)
             .filter((record): record is ManagedAgentInvocationRecord => record !== undefined);
-          const dispatched = await prepareOrchestrationEconomicDispatch(input, entry);
-          executable.push({
-            ...dispatched,
-            request: buildOrchestrationChildInvocationRequest({
-              orchestrationRequest: input.orchestrationRequest,
-              childId: entry.child.childId,
-              ordinal: entry.child.ordinal,
-              task: entry.child.task,
-              roleIntent: entry.child.roleIntent,
-              ...(entry.agentProfile ? { agentProfile: entry.agentProfile } : {}),
-              ...(entry.deliberationIntent ? { deliberationIntent: entry.deliberationIntent } : {}),
-              ...(entry.communicationIntent ? { communicationIntent: entry.communicationIntent } : {}),
-              ...(dispatched.deliberationResolution
-                ? { deliberationResolution: dispatched.deliberationResolution }
-                : {}),
-              dependencyRecords,
-              route: dispatched.route,
-              profile: dispatched.profile,
-              requestedBy: input.managedInvocation.requestedBy ?? input.orchestrationRequest.requestedBy,
-              requestSource: input.managedInvocation.requestSource ?? input.orchestrationRequest.requestSource,
-              requestedAuthority: input.requestedAuthority ?? (input.callerIdentity ? "audited" : "read_only"),
-              access: input.access,
-            }),
+          const dispatched = await prepareOrchestrationEconomicDispatch(input, entry, dependencyRecords);
+          const request = dispatched.request ?? buildOrchestrationChildInvocationRequest({
+            orchestrationRequest: input.orchestrationRequest,
+            childId: entry.child.childId,
+            ordinal: entry.child.ordinal,
+            task: entry.child.task,
+            roleIntent: entry.child.roleIntent,
+            ...(entry.agentProfile ? { agentProfile: entry.agentProfile } : {}),
+            ...(entry.deliberationIntent ? { deliberationIntent: entry.deliberationIntent } : {}),
+            ...(entry.communicationIntent ? { communicationIntent: entry.communicationIntent } : {}),
+            ...(dispatched.deliberationResolution
+              ? { deliberationResolution: dispatched.deliberationResolution }
+              : {}),
+            dependencyRecords,
+            route: dispatched.route,
+            profile: dispatched.profile,
+            requestedBy: input.managedInvocation.requestedBy ?? input.orchestrationRequest.requestedBy,
+            requestSource: input.managedInvocation.requestSource ?? input.orchestrationRequest.requestSource,
+            requestedAuthority: input.requestedAuthority ?? (input.callerIdentity ? "audited" : "read_only"),
+            access: input.access,
           });
+          executable.push({ ...dispatched, request });
         }
       } catch (error) {
         const releaseErrors: unknown[] = [];
         for (const prepared of executable) {
           try {
-            await prepared.economicDispatch?.recordExecutionSettlementPending(
+            await prepared.economicDispatch?.recordExecutionNotDispatched(
               "orchestration-wave-preparation-failed",
             );
           } catch (releaseError) {
@@ -260,13 +260,14 @@ export async function runManagedAgentOrchestrationLifecycle(
           }
         }
         if (releaseErrors.length > 0) {
-          throw new AggregateError([error, ...releaseErrors], "Managed orchestration post-fence pending recording failed.");
+          throw new AggregateError([error, ...releaseErrors], "Managed orchestration post-fence no-dispatch recording failed.");
         }
         throw error;
       }
       const completed = await runOrchestrationBatch({
         service,
         entries: executable,
+        ...(input.authorityAdmission ? { authorityAdmission: input.authorityAdmission } : {}),
         ...(input.managedInvocation.invocationOwner
           ? { invocationOwner: input.managedInvocation.invocationOwner }
           : {}),
@@ -318,8 +319,10 @@ export async function runManagedAgentOrchestrationLifecycle(
 async function prepareOrchestrationEconomicDispatch(
   input: ManagedAgentOrchestrationLifecycleInput,
   entry: PreparedOrchestrationChild,
+  dependencyRecords: readonly ManagedAgentInvocationRecord[],
 ): Promise<PreparedOrchestrationChild & {
   readonly route: ManagedInvocationExecutableRoute;
+  readonly request?: ManagedAgentInvocationRequest;
   readonly economicDispatch?: NonNullable<ManagedAgentRuntimeInvocationLifecycleOptions["economicDispatch"]>;
   readonly abortSignal?: AbortSignal;
 }> {
@@ -342,6 +345,7 @@ async function prepareOrchestrationEconomicDispatch(
   if (!input.authorityAdmission) {
     throw new ManagedEconomicCommitmentUnavailableError(entry.economicCandidateSet);
   }
+  const parentAuthorityAdmission = input.authorityAdmission;
   const economicIdentity = digestManagedEconomicValue({
     parentSessionId: input.orchestrationRequest.parentSessionId,
     parentTurnId: input.orchestrationRequest.parentTurnId,
@@ -368,6 +372,40 @@ async function prepareOrchestrationEconomicDispatch(
     authorityProfileId: entry.profile.authorityProfileId,
     invocationId: sanitizeInvocationId(entry.child.childId),
     ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
+    realizeExecutionBeforeFence: async ({ commitment, adapter }) => {
+      const committedRoute = commitment.reservation.selectedIdentity.route;
+      const committedCandidate = entry.economicCandidateSet?.candidates.find((candidate) =>
+        candidate.routeId === committedRoute.routeId
+        && candidate.providerId === committedRoute.providerId
+        && candidate.model === committedRoute.modelId);
+      const request = buildOrchestrationChildInvocationRequest({
+        orchestrationRequest: input.orchestrationRequest,
+        childId: entry.child.childId,
+        ordinal: entry.child.ordinal,
+        task: entry.child.task,
+        roleIntent: entry.child.roleIntent,
+        ...(entry.agentProfile ? { agentProfile: entry.agentProfile } : {}),
+        ...(entry.deliberationIntent ? { deliberationIntent: entry.deliberationIntent } : {}),
+        ...(entry.communicationIntent ? { communicationIntent: entry.communicationIntent } : {}),
+        ...(committedCandidate?.deliberationResolution
+          ? { deliberationResolution: committedCandidate.deliberationResolution }
+          : {}),
+        dependencyRecords,
+        route: { ...entry.route, adapter },
+        profile: entry.profile,
+        requestedBy: input.managedInvocation.requestedBy ?? input.orchestrationRequest.requestedBy,
+        requestSource: input.managedInvocation.requestSource ?? input.orchestrationRequest.requestSource,
+        requestedAuthority: input.requestedAuthority ?? (input.callerIdentity ? "audited" : "read_only"),
+        access: input.access,
+      });
+      assertManagedChildAuthorityAdmissionBoundary({
+        bundle: parentAuthorityAdmission,
+        request,
+        admissionId: parentAuthorityAdmission.admissionId,
+      });
+      assertManagedEconomicCommitmentMatchesRequest(request, entry.route.routeId, commitment);
+      return request;
+    },
   });
   if (preparation.status === "not-dispatchable") {
     throw new Error(`Managed orchestration economic child '${entry.child.childId}' is not dispatchable from retained state '${preparation.record.state}'.`);
@@ -384,12 +422,16 @@ async function prepareOrchestrationEconomicDispatch(
     || selected.routeId !== entry.route.routeId
     || selected.providerId !== entry.route.providerId
     || selected.modelId !== entry.route.model) {
-    await preparation.recordExecutionSettlementPending("committed-route-mismatch");
+    await preparation.recordExecutionNotDispatched("committed-route-mismatch");
     throw new Error(`Managed orchestration economic commitment does not match selected route '${entry.route.routeId}'.`);
   }
   if (!orchestrationAdapterMatchesRouteCapability(preparation.adapter, entry.route)) {
-    await preparation.recordExecutionSettlementPending("committed-route-adapter-mismatch");
+    await preparation.recordExecutionNotDispatched("committed-route-adapter-mismatch");
     throw new Error("managed_orchestration_route_capability_adapter_mismatch");
+  }
+  if (preparation.realization.kind !== "realized") {
+    await preparation.recordExecutionNotDispatched("orchestration-request-realization-missing");
+    throw new Error("Managed orchestration economic preparation did not realize its child request before fencing.");
   }
   return {
     ...entry,
@@ -397,11 +439,14 @@ async function prepareOrchestrationEconomicDispatch(
       ? { deliberationResolution: selectedCandidate.deliberationResolution }
       : {}),
     route: { ...entry.route, adapter: preparation.adapter },
+    request: preparation.realization.execution,
     abortSignal: preparation.abortSignal,
     economicDispatch: {
       commitment: preparation.commitment,
       dispatchFenceId: preparation.dispatchFenceId,
+      admissionId: preparation.actionClaim.admissionId,
       recordExecutionSettlementPending: preparation.recordExecutionSettlementPending,
+      recordExecutionNotDispatched: preparation.recordExecutionNotDispatched,
       createExecutionSettlement: preparation.createExecutionSettlement,
       registerEconomicSettlement: preparation.registerEconomicSettlement,
     },
@@ -470,6 +515,7 @@ function orchestrationAdapterMatchesRouteCapability(
 async function runOrchestrationBatch(input: {
   readonly service: NonNullable<ManagedInvocationToolOptions["invocationService"]>;
   readonly entries: readonly ExecutableOrchestrationChild[];
+  readonly authorityAdmission?: EffectiveAuthorityAdmissionBundle;
   readonly invocationOwner?: object;
   readonly lifecycleObserver?: ManagedAgentOrchestrationLifecycleObserver;
 }): Promise<readonly ManagedAgentOrchestrationLifecycleChildRecord[]> {
@@ -504,10 +550,11 @@ async function runOrchestrationBatch(input: {
         displayName: route.routeId,
         ...(route.voiceProfile ? { voiceProfile: route.voiceProfile } : {}),
       },
-    }, input.invocationOwner || economicDispatch || abortSignal ? {
+    }, input.invocationOwner || economicDispatch || abortSignal || input.authorityAdmission ? {
       ...(input.invocationOwner ? { owner: input.invocationOwner } : {}),
       ...(economicDispatch ? { economicDispatch } : {}),
       ...(abortSignal ? { abortSignal } : {}),
+      ...(input.authorityAdmission ? { childAuthorityAdmission: { bundle: input.authorityAdmission } } : {}),
     } : undefined);
     await input.lifecycleObserver?.onAdmissionResolved({ request, decision: startResult.decision });
     if (startResult.status === "denied") {

@@ -125,11 +125,28 @@ agent catalog. Fixed-route requests still cannot claim policy-bound capacity
 without economic admission. A failed realization releases its held commitment;
 only a fully prepared request proceeds to fencing.
 
+The parent's authority admission limits the child's permissions; its execution
+commitment belongs to the parent execution. The child's economic reservation is
+distinct. Managed dispatch binds that reservation to the parent's admission
+identity through the canonical economic action claim, and startup checks both
+that admission identity and the child's route/account binding. It must not
+compare the child reservation with the parent's execution commitment or rewrite
+the parent bundle to make them match.
+
 Any interim failure that is proven pre-fence releases the commitment and its
 optional account lease before the job is projected terminal. Release is
 idempotent and owner-generation fenced. Once dispatch is fenced, unknown
 external work continues consuming capacity until authoritative settlement or
 explicit reconciliation proves release safe.
+
+For a local failure after fencing, the active Runtime invocation owner may
+record `runtime-not-dispatched` only when its adapter invocation port was never
+entered. The dedicated economic authority operation checks the owner generation
+and exact fence, releases capacity atomically, and preserves the original action
+claim. Ordinary adapter settlement cannot submit this observation. A timeout or
+missing result alone is not proof; work that may have reached the adapter remains
+unknown. Runtime no-dispatch evidence has no billing class and is distinct from
+the operator-attested reconciliation below.
 
 A fenced attempt proven never dispatched can be terminally reconciled through
 `kiln managed-economic reconcile-not-dispatched --evidence <file.json> --json`.

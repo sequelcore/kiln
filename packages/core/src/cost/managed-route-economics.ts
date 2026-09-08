@@ -516,6 +516,13 @@ export type ManagedEconomicSettlement =
       readonly sourceEvidenceDigest: string;
       readonly denialEvidenceDigest: string;
       readonly authorityEvidenceDigest: string;
+    }
+  /** Runtime proved that the fenced dispatch port was never entered. */
+  | {
+      readonly kind: "runtime-not-dispatched";
+      readonly reservationId: string;
+      readonly dispatchFenceId: string;
+      readonly reason: string;
     };
 
 export interface ManagedEconomicSettlementExpectation {
@@ -670,7 +677,7 @@ export function validateManagedEconomicSettlement(
 ): ManagedEconomicSettlement {
   requireAllowed(
     settlement.kind,
-    ["charged", "estimated", "subscription", "included", "free", "unknown", "pending", "leaked", "not-dispatched"],
+    ["charged", "estimated", "subscription", "included", "free", "unknown", "pending", "leaked", "not-dispatched", "runtime-not-dispatched"],
     "settlement kind",
   );
   requireIdentity(settlement.reservationId, "settlement reservation id");
@@ -691,6 +698,10 @@ export function validateManagedEconomicSettlement(
     requireDigest(settlement.sourceEvidenceDigest, "not-dispatched source evidence digest");
     requireDigest(settlement.denialEvidenceDigest, "not-dispatched denial evidence digest");
     requireDigest(settlement.authorityEvidenceDigest, "not-dispatched authority evidence digest");
+    return settlement;
+  }
+  if (settlement.kind === "runtime-not-dispatched") {
+    requireIdentity(settlement.reason, "runtime-not-dispatched settlement reason");
     return settlement;
   }
   if (settlement.kind === "unknown") {

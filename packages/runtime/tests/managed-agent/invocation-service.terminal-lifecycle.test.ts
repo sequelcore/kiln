@@ -25,7 +25,7 @@ describe("RuntimeManagedAgentInvocationService terminal lifecycle", () => {
     });
   });
 
-  it("records a fenced commitment as pending on admission denial or authority observation failure", async () => {
+  it("records a fenced commitment as not-dispatched on admission denial or authority observation failure", async () => {
     const request = makeRequest();
     const commitment = {
       commitmentId: "commitment-test",
@@ -43,7 +43,7 @@ describe("RuntimeManagedAgentInvocationService terminal lifecycle", () => {
         },
       },
     } as never;
-    const deniedPending = vi.fn();
+    const deniedNotDispatched = vi.fn();
     const denied = await new RuntimeManagedAgentInvocationService().start(
       request,
       {
@@ -55,17 +55,19 @@ describe("RuntimeManagedAgentInvocationService terminal lifecycle", () => {
         economicDispatch: {
           commitment,
           dispatchFenceId: "managed-economic-dispatch:test",
-          recordExecutionSettlementPending: deniedPending,
+          admissionId: "admission:test",
+          recordExecutionSettlementPending: vi.fn(),
+          recordExecutionNotDispatched: deniedNotDispatched,
           createExecutionSettlement: vi.fn(() => ({} as never)),
           registerEconomicSettlement: vi.fn(),
         },
       },
     );
     expect(denied.status).toBe("denied");
-    expect(deniedPending).toHaveBeenCalledOnce();
-    expect(deniedPending).toHaveBeenCalledWith("runtime-admission-denied");
+    expect(deniedNotDispatched).toHaveBeenCalledOnce();
+    expect(deniedNotDispatched).toHaveBeenCalledWith("runtime-admission-denied");
 
-    const observationPending = vi.fn();
+    const observationNotDispatched = vi.fn();
     const throwing = new RuntimeManagedAgentInvocationService({
       authorityObserver: { observe: vi.fn(async () => { throw new Error("synthetic observation failure"); }) },
     });
@@ -76,7 +78,9 @@ describe("RuntimeManagedAgentInvocationService terminal lifecycle", () => {
       economicDispatch: {
         commitment,
         dispatchFenceId: "managed-economic-dispatch:test",
-        recordExecutionSettlementPending: observationPending,
+        admissionId: "admission:test",
+        recordExecutionSettlementPending: vi.fn(),
+        recordExecutionNotDispatched: observationNotDispatched,
         createExecutionSettlement: vi.fn(() => ({} as never)),
         registerEconomicSettlement: vi.fn(),
       },
@@ -86,11 +90,11 @@ describe("RuntimeManagedAgentInvocationService terminal lifecycle", () => {
       status: "completed",
       record: { lifecycleState: "failed" },
     });
-    expect(observationPending).toHaveBeenCalledOnce();
-    expect(observationPending).toHaveBeenCalledWith("runtime-poststart-authority-failed");
+    expect(observationNotDispatched).toHaveBeenCalledOnce();
+    expect(observationNotDispatched).toHaveBeenCalledWith("runtime-poststart-authority-failed");
   });
 
-  it("records a fenced commitment as pending when the final recovery checkpoint fails", async () => {
+  it("records a fenced commitment as not-dispatched when the final recovery checkpoint fails", async () => {
     const request = makeIsolatedWorktreeRequest();
     const recoveryStore = makeRecoveryStore();
     let saveCount = 0;
@@ -114,6 +118,7 @@ describe("RuntimeManagedAgentInvocationService terminal lifecycle", () => {
       })),
     };
     const recordExecutionSettlementPending = vi.fn();
+    const recordExecutionNotDispatched = vi.fn();
     const invoke = vi.fn();
     const service = new RuntimeManagedAgentInvocationService({ recoveryStore, worktreeLeaseManager });
     const started = await service.start(request, {
@@ -147,7 +152,9 @@ describe("RuntimeManagedAgentInvocationService terminal lifecycle", () => {
           },
         } as never,
         dispatchFenceId: "managed-economic-dispatch:write-test",
+        admissionId: "admission:write-test",
         recordExecutionSettlementPending,
+        recordExecutionNotDispatched,
         createExecutionSettlement: vi.fn(() => ({} as never)),
         registerEconomicSettlement: vi.fn(),
       },
@@ -155,8 +162,83 @@ describe("RuntimeManagedAgentInvocationService terminal lifecycle", () => {
 
     expect(started.status).toBe("started");
     await expect(service.join(request.invocationId)).rejects.toThrow("synthetic pre-fence checkpoint failure");
-    expect(recordExecutionSettlementPending).toHaveBeenCalledOnce();
-    expect(recordExecutionSettlementPending).toHaveBeenCalledWith("runtime-recovery-checkpoint-failed");
+    expect(recordExecutionNotDispatched).toHaveBeenCalledOnce();
+    expect(recordExecutionNotDispatched).toHaveBeenCalledWith("runtime-recovery-checkpoint-failed");
+    expect(recordExecutionSettlementPending).not.toHaveBeenCalled();
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("signals dispatch readiness when no-dispatch settlement rejects after the final recovery checkpoint fails", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const recoveryStore = makeRecoveryStore();
+    let saveCount = 0;
+    recoveryStore.save.mockImplementation(async (checkpoint) => {
+      saveCount++;
+      if (saveCount === 2) throw new Error("synthetic pre-fence checkpoint failure");
+      recoveryStore.entries.set(
+        checkpoint.request.invocationId,
+        JSON.parse(JSON.stringify(checkpoint)) as ManagedAgentRuntimeRecoveryCheckpoint,
+      );
+    });
+    const worktreeLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        resourceUris: [...lease.resourceUris, "kiln://artifacts/write-1/worktree-lease"],
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+      })),
+    };
+    const recordExecutionSettlementPending = vi.fn();
+    const recordExecutionNotDispatched = vi.fn().mockRejectedValue(new Error("settlement write failed"));
+    const invoke = vi.fn();
+    const service = new RuntimeManagedAgentInvocationService({ recoveryStore, worktreeLeaseManager });
+    const started = await service.start(request, {
+      descriptor: makeWriteDescriptor(),
+      invoke,
+    }, {
+      capturedAt: "2026-08-02T00:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
+    }, {
+      economicDispatch: {
+        commitment: {
+          commitmentId: "commitment-write-test",
+          reservation: {
+            reservationId: "reservation:write-test",
+            jobId: "managed-economic-job:write-test",
+            economicAttemptId: "economic-attempt:write-test",
+            policy: { policyId: "test-policy" },
+            selectedIdentity: {
+              route: {
+                routeId: "opencode:managed-test-route",
+                providerId: request.providerRoute.providerId,
+                modelId: request.providerRoute.model,
+                accountPolicyId: null,
+              },
+              account: { kind: "accountless" },
+            },
+            envelope: { kind: "bounded" },
+            amounts: [],
+            authorityRevision: "revision:write-test",
+          },
+        } as never,
+        dispatchFenceId: "managed-economic-dispatch:write-test",
+        admissionId: "admission:write-test",
+        recordExecutionSettlementPending,
+        recordExecutionNotDispatched,
+        createExecutionSettlement: vi.fn(() => ({} as never)),
+        registerEconomicSettlement: vi.fn(),
+      },
+    });
+
+    expect(started.status).toBe("started");
+    await expect(service.join(request.invocationId)).rejects.toThrow("could not be durably settled");
+    expect(recordExecutionNotDispatched).toHaveBeenCalledOnce();
+    expect(recordExecutionNotDispatched).toHaveBeenCalledWith("runtime-recovery-checkpoint-failed");
+    expect(recordExecutionSettlementPending).not.toHaveBeenCalled();
     expect(invoke).not.toHaveBeenCalled();
   });
 
@@ -570,6 +652,121 @@ describe("RuntimeManagedAgentInvocationService terminal lifecycle", () => {
         resourceUris: ["kiln://artifacts/invocation-1/transcript", "kiln://artifacts/invocation-1/cancel-cleanup"],
       },
     });
+  });
+
+  it("rejects a concurrent duplicate while the first invocation is still reserving startup", async () => {
+    const observation = deferred<never>();
+    const service = new RuntimeManagedAgentInvocationService({
+      authorityObserver: {
+        observe: async () => observation.promise,
+      },
+    });
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot)),
+    };
+    const firstStart = service.start(makeRequest(), adapter, makeSnapshotInput());
+    await flushMicrotasks();
+    await expect(service.start(makeRequest(), adapter, makeSnapshotInput())).rejects.toThrow("already registered");
+    observation.resolve(undefined as never);
+    const started = await firstStart;
+    expect(started.status).toBe("started");
+    await service.join("invocation-1");
+  });
+
+  it("keeps a closed service duplicate pending instead of releasing the active invocation fence", async () => {
+    const terminal = deferred<ManagedAgentInvocationRecord>();
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ admission }) => {
+        await terminal.promise;
+        return makeRecord(admission.capabilitySnapshot);
+      }),
+    };
+    const service = new RuntimeManagedAgentInvocationService();
+    const started = await service.start(makeRequest(), adapter, makeSnapshotInput());
+    expect(started.status).toBe("started");
+    service.close();
+    const pending = vi.fn();
+    const notDispatched = vi.fn();
+    await expect(
+      service.start(makeRequest(), adapter, makeSnapshotInput(), {
+        economicDispatch: {
+          commitment: {} as never,
+          dispatchFenceId: "managed-economic-dispatch:closed-duplicate",
+          admissionId: "admission:closed-duplicate",
+          recordExecutionSettlementPending: pending,
+          recordExecutionNotDispatched: notDispatched,
+          createExecutionSettlement: vi.fn(() => ({}) as never),
+          registerEconomicSettlement: vi.fn(),
+        },
+      }),
+    ).rejects.toThrow("service is closed");
+    expect(pending).toHaveBeenCalledWith("runtime-service-closed");
+    expect(notDispatched).not.toHaveBeenCalled();
+    if (started.status === "started") {
+      terminal.resolve(makeRecord(started.decision.capabilitySnapshot));
+      await service.join(started.snapshot.invocationId);
+    }
+  });
+
+  it("does not enter the adapter when cancellation wins during the recovery checkpoint", async () => {
+    const checkpoint = deferred<void>();
+    const checkpointEntered = deferred<void>();
+    const recoveryStore = makeRecoveryStore();
+    recoveryStore.save.mockImplementation(async (saved) => {
+      checkpointEntered.resolve();
+      await checkpoint.promise;
+      recoveryStore.entries.set(saved.request.invocationId, JSON.parse(JSON.stringify(saved)) as ManagedAgentRuntimeRecoveryCheckpoint);
+    });
+    const abortController = new AbortController();
+    const invoke = vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot));
+    const worktreeLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => lease),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+      })),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ recoveryStore, worktreeLeaseManager });
+    const startPromise = service.start(
+      makeIsolatedWorktreeRequest(),
+      { descriptor: makeWriteDescriptor(), invoke } as ManagedAgentRuntimeAdapter,
+      makeSnapshotInput(),
+      { abortSignal: abortController.signal },
+    );
+    await checkpointEntered.promise;
+    abortController.abort("checkpoint cancellation");
+    checkpoint.resolve();
+    await expect(startPromise).resolves.toMatchObject({ status: "started" });
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("propagates a no-dispatch settlement rejection from a closed service", async () => {
+    const service = new RuntimeManagedAgentInvocationService();
+    service.close();
+    const settlementFailure = new Error("settlement write failed");
+    const notDispatched = vi.fn().mockRejectedValue(settlementFailure);
+    await expect(
+      service.start(
+        makeRequest(),
+        { descriptor: makeDescriptor(), invoke: vi.fn() },
+        makeSnapshotInput(),
+        {
+          economicDispatch: {
+            commitment: {} as never,
+            dispatchFenceId: "managed-economic-dispatch:settlement-rejection",
+            admissionId: "admission:settlement-rejection",
+            recordExecutionSettlementPending: vi.fn(),
+            recordExecutionNotDispatched: notDispatched,
+            createExecutionSettlement: vi.fn(() => ({}) as never),
+            registerEconomicSettlement: vi.fn(),
+          },
+        },
+      ),
+    ).rejects.toThrow("settlement write failed");
+    expect(notDispatched).toHaveBeenCalledWith("runtime-service-closed");
   });
 
   it("rejects duplicate runtime registration for the same invocation id", async () => {

@@ -1217,6 +1217,9 @@ export class SqliteManagedAccountLeaseAuthority {
       if (settlement.kind === "not-dispatched") {
         throw new Error("Not-dispatched reconciliation requires the operator reconciliation path.");
       }
+      if (settlement.kind === "runtime-not-dispatched") {
+        throw new Error("Runtime no-dispatch settlement requires the dedicated owner proof path.");
+      }
       const row = this.#requiredCommitmentRow(jobId, economicAttemptId);
       if (row.dispatch_fence_id !== dispatchFenceId) {
         throw new Error("Managed economic settlement does not own the durable dispatch fence.");
@@ -1260,6 +1263,111 @@ export class SqliteManagedAccountLeaseAuthority {
       if (changed.changes !== 1) throw new Error("Managed economic settlement lost its dispatch fence.");
       const settled = this.#requiredCommitmentRow(jobId, economicAttemptId);
       return recordFromCommitmentRow(settled, this.#rowForOptionalLease(settled.lease_id));
+    });
+  }
+
+  /**
+   * Terminalizes a fenced attempt when this Runtime owner proves that its
+   * adapter dispatch port was never entered. This is separate from the
+   * operator-attested not-dispatched reconciliation path.
+   */
+  recordExecutionNotDispatched(
+    jobId: string,
+    economicAttemptId: string,
+    dispatchFenceId: string,
+    reason: string,
+  ): ManagedEconomicCommitmentRecord {
+    return this.#transaction(() => {
+      this.#heartbeat();
+      requireCanonicalText(dispatchFenceId, "Managed economic dispatch fence id is required.");
+      requireAuditReason(reason, "Managed economic runtime no-dispatch reason is invalid.");
+      const row = this.#requiredCommitmentRow(jobId, economicAttemptId);
+      if (row.dispatch_fence_id !== dispatchFenceId) {
+        throw new Error("Managed economic runtime no-dispatch does not own the durable dispatch fence.");
+      }
+      if (row.owner_id !== this.#ownerId || row.owner_generation !== this.#ownerGeneration) {
+        throw new Error("Managed economic runtime no-dispatch is not owned by this authority.");
+      }
+      const commitment = JSON.parse(row.commitment_json!) as ManagedEconomicCommitment;
+      const expectation = {
+        reservationId: row.reservation_id,
+        dispatchFenceId,
+        selectedIdentity: commitment.reservation.selectedIdentity,
+      } as const;
+      const settlement: ManagedEconomicSettlement = {
+        kind: "runtime-not-dispatched",
+        reservationId: row.reservation_id,
+        dispatchFenceId,
+        reason,
+      };
+      validateManagedEconomicSettlement(settlement, expectation);
+      const serialized = JSON.stringify(settlement);
+      let retainedPendingSettlement: Extract<ManagedEconomicSettlement, { readonly kind: "unknown" }> | undefined;
+      if (row.state === "released") {
+        if (row.settlement_json !== serialized) {
+          throw new Error("Managed economic runtime no-dispatch conflicts with the durable terminal settlement.");
+        }
+        return recordFromCommitmentRow(row, this.#rowForOptionalLease(row.lease_id));
+      }
+      if (row.state !== "dispatch-fenced" && row.state !== "settlement-pending") {
+        throw new Error("Managed economic runtime no-dispatch requires a fenced or pending commitment.");
+      }
+      if (row.state === "dispatch-fenced" && row.settlement_json !== null) {
+        throw new Error("Managed economic runtime no-dispatch found contradictory fenced settlement evidence.");
+      }
+      if (row.state === "settlement-pending") {
+        if (row.settlement_json === null) {
+          throw new Error("Managed economic runtime no-dispatch requires retained pending evidence.");
+        }
+        const pending = JSON.parse(row.settlement_json) as ManagedEconomicSettlement;
+        if (pending.kind !== "unknown") {
+          throw new Error("Managed economic runtime no-dispatch requires retained unknown settlement evidence.");
+        }
+        validateManagedEconomicSettlement(pending, expectation);
+        retainedPendingSettlement = pending;
+      }
+      if (row.lease_id !== null) {
+        const lease = this.#requiredRow(row.lease_id);
+        if (
+          lease.lifecycle_state !== "held" ||
+          lease.owner_id !== this.#ownerId ||
+          lease.owner_generation !== this.#ownerGeneration
+        ) {
+          throw new Error("Managed economic runtime no-dispatch does not own a releasable account lease.");
+        }
+        this.#rollbackWinningAffinity(lease);
+        const released = this.#db
+          .query(
+            `UPDATE account_leases
+             SET lifecycle_state='released',released_at=?,dispatch_fence_id=?,settlement_json=?
+             WHERE lease_id=? AND lifecycle_state='held' AND owner_id=? AND owner_generation=?`,
+          )
+          .run(
+            new Date(this.#now()).toISOString(),
+            dispatchFenceId,
+            serialized,
+            row.lease_id,
+            this.#ownerId,
+            this.#ownerGeneration,
+          );
+        if (released.changes !== 1)
+          throw new Error("Managed economic runtime no-dispatch lost its account lease owner fence.");
+      }
+      const retainedLifecycleEvidence = retainedPendingSettlement === undefined
+        ? null
+        : JSON.stringify({ kind: "runtime-not-dispatched-evidence", originalSettlement: retainedPendingSettlement });
+      const changed = this.#db
+        .query(
+          `UPDATE economic_commitments
+           SET state='released',settlement_json=?,reconciliation_json=?
+           WHERE commitment_id=? AND state IN ('dispatch-fenced','settlement-pending')
+             AND dispatch_fence_id=? AND owner_id=? AND owner_generation=?`,
+        )
+        .run(serialized, retainedLifecycleEvidence, row.commitment_id, dispatchFenceId, this.#ownerId, this.#ownerGeneration);
+      if (changed.changes !== 1)
+        throw new Error("Managed economic runtime no-dispatch lost its owner or dispatch fence.");
+      const released = this.#requiredCommitmentRow(jobId, economicAttemptId);
+      return recordFromCommitmentRow(released, this.#rowForOptionalLease(released.lease_id));
     });
   }
 
@@ -2363,6 +2471,7 @@ const MANAGED_ECONOMIC_SETTLEMENT_KINDS = new Set<string>([
   "pending",
   "leaked",
   "not-dispatched",
+  "runtime-not-dispatched",
 ]);
 
 function notDispatchedReconciliationEvidence(

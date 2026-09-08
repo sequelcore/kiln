@@ -63,6 +63,12 @@ export interface ManagedEconomicDispatchAuthorityPort {
     dispatchFenceId: string,
     reason: string,
   ): unknown | Promise<unknown>;
+  recordExecutionNotDispatched(
+    jobId: string,
+    economicAttemptId: string,
+    dispatchFenceId: string,
+    reason: string,
+  ): unknown | Promise<unknown>;
 }
 
 /** Immutable identity bound by the economic ledger's canonical action claim. */
@@ -182,6 +188,7 @@ export type ManagedEconomicDispatchPreparation<PreparedExecution = undefined> =
         | { readonly kind: "none" }
         | { readonly kind: "realized"; readonly execution: PreparedExecution };
       readonly recordExecutionSettlementPending: (reason: string) => Promise<void>;
+      readonly recordExecutionNotDispatched: (reason: string) => Promise<void>;
       readonly createExecutionSettlement: (report: ManagedEconomicExecutionReport) => ManagedEconomicSettlement;
       readonly registerEconomicSettlement: (settlement: PromiseLike<ManagedEconomicSettlement>) => void;
     };
@@ -376,14 +383,33 @@ export class ManagedEconomicDispatchCoordinator {
 
     let settlementRegistered = false;
     let settlementPending: Promise<void> | undefined;
+    let notDispatchedReason: string | undefined;
+    let notDispatchedPromise: Promise<void> | undefined;
+    let terminalSettlement: "settlement-pending" | "runtime-not-dispatched" | undefined;
+    let settlementOperationTail = Promise.resolve();
+    let lifecycleDisposed = false;
+    const disposeLifecycle = (): void => {
+      if (lifecycleDisposed) return;
+      lifecycleDisposed = true;
+      lifecycle.signal.removeEventListener("abort", onAbort);
+      lifecycle.dispose();
+    };
+    const enqueueSettlementOperation = (operation: () => Promise<void>): Promise<void> => {
+      const queued = settlementOperationTail.then(operation);
+      settlementOperationTail = queued.catch(() => undefined);
+      return queued;
+    };
     const recordSettlementPending = (reason: string): Promise<void> => {
-      settlementPending ??= (async () => {
+      if (terminalSettlement === "runtime-not-dispatched") return Promise.resolve();
+      settlementPending ??= enqueueSettlementOperation(async () => {
+        if (terminalSettlement === "runtime-not-dispatched") return;
         await this.options.authority.recordExecutionSettlementPending(
           input.jobId,
           input.economicAttemptId,
           dispatchFenceId,
           reason,
         );
+        terminalSettlement ??= "settlement-pending";
         input.lifecycleEvents?.record({
           transition: "settlement-pending",
           policy: policy(),
@@ -391,8 +417,55 @@ export class ManagedEconomicDispatchCoordinator {
           dispatchFenceId,
           reason,
         });
-      })();
+      });
       return settlementPending;
+    };
+    const recordNotDispatched = (reason: string): Promise<void> => {
+      if (notDispatchedReason !== undefined) {
+        if (notDispatchedReason !== reason) {
+          return Promise.reject(
+            new Error("Managed economic runtime no-dispatch reason conflicts with its in-flight proof."),
+          );
+        }
+        return notDispatchedPromise ?? Promise.resolve();
+      }
+      if (settlementRegistered) {
+        return Promise.reject(
+          new Error("Managed economic runtime no-dispatch proof conflicts with a registered settlement."),
+        );
+      }
+      notDispatchedReason = reason;
+      const operation = enqueueSettlementOperation(async () => {
+        if (terminalSettlement === "runtime-not-dispatched") return;
+        await this.options.authority.recordExecutionNotDispatched(
+          input.jobId,
+          input.economicAttemptId,
+          dispatchFenceId,
+          reason,
+        );
+        terminalSettlement = "runtime-not-dispatched";
+        disposeLifecycle();
+        input.lifecycleEvents?.record({
+          transition: "released",
+          policy: policy(),
+          commitment: result.record.commitment,
+          dispatchFenceId,
+          settlement: {
+            kind: "runtime-not-dispatched",
+            reservationId: result.record.commitment.reservation.reservationId,
+            dispatchFenceId,
+            reason,
+          },
+        });
+      });
+      notDispatchedPromise = operation;
+      void operation.catch(() => {
+        if (terminalSettlement !== "runtime-not-dispatched" && notDispatchedPromise === operation) {
+          notDispatchedPromise = undefined;
+          notDispatchedReason = undefined;
+        }
+      });
+      return operation;
     };
     const onAbort = () => {
       void recordSettlementPending(
@@ -409,6 +482,7 @@ export class ManagedEconomicDispatchCoordinator {
       abortSignal: lifecycle.signal,
       realization: realization ?? { kind: "none" },
       recordExecutionSettlementPending: recordSettlementPending,
+      recordExecutionNotDispatched: recordNotDispatched,
       createExecutionSettlement: (report) => {
         const adoptedRoute = input.adoption.snapshot.routes.find(
           (candidate) =>
@@ -425,6 +499,9 @@ export class ManagedEconomicDispatchCoordinator {
         });
       },
       registerEconomicSettlement: (settlement) => {
+        if (notDispatchedReason !== undefined) {
+          throw new Error("Managed economic settlement registration conflicts with runtime no-dispatch proof.");
+        }
         if (settlementRegistered) {
           throw new Error("Managed economic execution settlement was registered more than once.");
         }
@@ -455,10 +532,7 @@ export class ManagedEconomicDispatchCoordinator {
             },
           )
           .catch(() => recordSettlementPending("registered-execution-settlement-invalid"))
-          .finally(() => {
-            lifecycle.signal.removeEventListener("abort", onAbort);
-            lifecycle.dispose();
-          })
+          .finally(() => disposeLifecycle())
           .catch(() => undefined);
       },
     };

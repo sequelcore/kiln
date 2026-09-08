@@ -359,6 +359,72 @@ describe("managed economic commitment authority", () => {
     });
   });
 
+  it("records Runtime no-dispatch atomically and replays its exact terminal evidence", () => {
+    const authority = create();
+    const acquired = authority.acquireCommitment(input());
+    if (acquired.status !== "committed") throw new Error("fixture");
+    authority.fenceDispatch("job-a", "economic-attempt-a", "fence-a", actionClaim(acquired.record.ownerGeneration));
+    authority.recordExecutionSettlementPending("job-a", "economic-attempt-a", "fence-a", "provider outcome not observed");
+    const settlement = {
+      kind: "runtime-not-dispatched" as const,
+      reservationId: acquired.record.commitment.reservation.reservationId,
+      dispatchFenceId: "fence-a",
+      reason: "adapter-request-never-entered",
+    };
+    expect(() => authority.settleExecution("job-a", "economic-attempt-a", "fence-a", settlement)).toThrow(
+      "dedicated owner proof path",
+    );
+    expect(() => authority.recordExecutionNotDispatched("job-a", "economic-attempt-a", "wrong-fence", settlement.reason))
+      .toThrow("does not own the durable dispatch fence");
+    expect(authority.createAgentTaskReplayInspectionPort().inspect({ jobId: "job-a", economicAttemptId: "economic-attempt-a" }))
+      .toMatchObject({ status: "settlement-pending", settlementKind: "unknown" });
+    const released = authority.recordExecutionNotDispatched(
+      "job-a",
+      "economic-attempt-a",
+      "fence-a",
+      settlement.reason,
+    );
+    expect(released).toMatchObject({
+      state: "released",
+      settlement,
+      lifecycleEvidence: { kind: "runtime-not-dispatched-evidence", originalSettlement: { kind: "unknown" } },
+    });
+    expect(authority.recordExecutionNotDispatched("job-a", "economic-attempt-a", "fence-a", settlement.reason)).toEqual(
+      released,
+    );
+    expect(() => authority.recordExecutionNotDispatched("job-a", "economic-attempt-a", "fence-a", "other-reason"))
+      .toThrow("terminal settlement");
+    expect(authority.createAgentTaskReplayInspectionPort().inspect({ jobId: "job-a", economicAttemptId: "economic-attempt-a" }))
+      .toMatchObject({ status: "released", settlementKind: "runtime-not-dispatched" });
+  });
+
+  it("releases an account lease and rolls back a newly won affinity on Runtime no-dispatch", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-economic-runtime-no-dispatch-affinity-"));
+    roots.push(root);
+    const path = join(root, "authority.sqlite");
+    const authority = createAt(path, "owner-a", () => Date.parse("2026-07-31T11:00:00.000Z"));
+    const adopted = accountSnapshot();
+    const { route, candidate } = accountCapacity(adopted);
+    const capacity = [{
+      routeId: "route-direct",
+      route,
+      affinityRequest: { continuity: "prefer" as const, scope: "session" as const, key: "f".repeat(64) as never },
+      candidates: [candidate],
+    }];
+    const acquired = authority.acquireCommitment({ ...input(adopted), routeCapacity: capacity });
+    if (acquired.status !== "committed") throw new Error("fixture");
+    authority.fenceDispatch("job-a", "economic-attempt-a", "fence-a", actionClaim(acquired.record.ownerGeneration));
+    const released = authority.recordExecutionNotDispatched(
+      "job-a", "economic-attempt-a", "fence-a", "request-construction-failed-before-adapter-dispatch",
+    );
+    expect(released).toMatchObject({ state: "released", lease: { lifecycleState: "released" }, settlement: { kind: "runtime-not-dispatched" } });
+    const db = new Database(path, { readonly: true, strict: true });
+    expect(db.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM managed_account_affinities").get()?.count).toBe(0);
+    db.close();
+    expect(authority.acquireCommitment({
+      ...input(adopted), jobId: "job-b", economicAttemptId: "economic-attempt-b", routeCapacity: capacity,
+    })).toMatchObject({ status: "committed" });
+  });
   it("reconciles a retained fenced denial without relabelling it as zero-cost execution", () => {
     const authority = create();
     const adopted = accountSnapshot();
@@ -857,6 +923,15 @@ describe("managed economic commitment authority", () => {
     clock = 3_000;
     const current = createAt(path, "owner-b", () => clock);
     current.recoverCommitments();
+    const currentReplay = current.acquireCommitment(input());
+    if (currentReplay.status !== "committed") throw new Error("fixture");
+    current.fenceDispatch("job-a", "economic-attempt-a", "fence-current", actionClaim(currentReplay.record.ownerGeneration));
+    expect(() => stale.recordExecutionNotDispatched("job-a", "economic-attempt-a", "fence-current", "stale-proof"))
+      .toThrow("ownership was lost");
+    expect(() => current.recordExecutionNotDispatched("job-a", "economic-attempt-a", "fence-wrong", "wrong-fence"))
+      .toThrow("does not own the durable dispatch fence");
+    expect(current.recordExecutionNotDispatched("job-a", "economic-attempt-a", "fence-current", "current-proof"))
+      .toMatchObject({ state: "released", settlement: { kind: "runtime-not-dispatched" } });
     expect(() => stale.acquireCommitment({ ...input(), jobId: "job-b", economicAttemptId: "economic-attempt-b" }))
       .toThrow("ownership was lost");
     expect(() => stale.releaseCommitmentPreFence("job-a", "economic-attempt-a"))

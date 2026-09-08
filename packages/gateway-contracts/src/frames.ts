@@ -823,7 +823,7 @@ export interface OperatorManagedEconomicChildConsumption {
 
 export type OperatorManagedEconomicSettlementKind =
   | "charged" | "estimated" | "subscription" | "included" | "free" | "unknown" | "pending" | "leaked"
-  | "not-dispatched";
+  | "not-dispatched" | "runtime-not-dispatched";
 
 export type OperatorManagedEconomicEvidenceAuthority =
   | "provider-reported"

@@ -77,5 +77,15 @@ export function createOperatorRuntimeManagedEconomicAuthority(
         reason,
       });
     },
+    recordExecutionNotDispatched: async (jobId, economicAttemptId, dispatchFenceId, reason) => {
+      await execute({
+        schemaVersion: 1,
+        operation: "managed-economic.record-not-dispatched",
+        jobId,
+        economicAttemptId,
+        dispatchFenceId,
+        reason,
+      });
+    },
   };
 }

@@ -583,6 +583,14 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
             request.reason,
           );
           return applicationSuccess(null);
+        case "managed-economic.record-not-dispatched":
+          requireEconomicAuthority(composition).recordExecutionNotDispatched(
+            request.jobId,
+            request.economicAttemptId,
+            request.dispatchFenceId,
+            request.reason,
+          );
+          return applicationSuccess(null);
       }
     } catch (error) {
       options.onApplicationError?.(error);

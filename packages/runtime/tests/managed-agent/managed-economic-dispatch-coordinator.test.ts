@@ -159,6 +159,7 @@ function authority(state: "held" | "dispatch-fenced" = "held") {
     readDispatch: vi.fn(() => undefined),
     settleExecution: vi.fn(),
     recordExecutionSettlementPending: vi.fn(),
+    recordExecutionNotDispatched: vi.fn(),
   };
   return port;
 }
@@ -421,6 +422,8 @@ describe("ManagedEconomicDispatchCoordinator", () => {
             authority.settleExecution(settleJobId, settleAttemptId, dispatchFenceId, settlement),
           recordExecutionSettlementPending: (pendingJobId, pendingAttemptId, dispatchFenceId, reason) =>
             authority.recordExecutionSettlementPending(pendingJobId, pendingAttemptId, dispatchFenceId, reason),
+          recordExecutionNotDispatched: (pendingJobId, pendingAttemptId, dispatchFenceId, reason) =>
+            authority.recordExecutionNotDispatched(pendingJobId, pendingAttemptId, dispatchFenceId, reason),
         },
         resolveLifecycleTimeoutMs: () => 1_000,
         createAdapter: async () => ({ descriptor: {} }) as never,
@@ -770,6 +773,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       readDispatch: vi.fn(() => undefined),
       settleExecution: vi.fn(),
       recordExecutionSettlementPending: vi.fn(),
+      recordExecutionNotDispatched: vi.fn(),
     };
     const coordinator = new ManagedEconomicDispatchCoordinator({
       authority: economicAuthority,
@@ -866,6 +870,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       readDispatch: vi.fn(() => undefined),
       settleExecution: vi.fn(),
       recordExecutionSettlementPending: vi.fn(),
+      recordExecutionNotDispatched: vi.fn(),
     };
     const coordinator = new ManagedEconomicDispatchCoordinator({
       authority: economicAuthority,
@@ -1037,6 +1042,166 @@ describe("ManagedEconomicDispatchCoordinator", () => {
     expect(economicAuthority.releasePreFence).not.toHaveBeenCalled();
   });
 
+  it("memoizes an in-flight Runtime no-dispatch proof and retries after write failure", async () => {
+    const economicAuthority = authority();
+    const lifecycleEvents = recordingLifecycleEvents();
+    let rejectWrite!: (error: Error) => void;
+    let resolveWrite!: () => void;
+    const firstWrite = new Promise<void>((_resolve, reject) => { rejectWrite = reject; });
+    const secondWrite = new Promise<void>((resolve) => { resolveWrite = resolve; });
+    vi.mocked(economicAuthority.recordExecutionNotDispatched)
+      .mockReturnValueOnce(firstWrite)
+      .mockReturnValueOnce(secondWrite);
+    const prepared = await new ManagedEconomicDispatchCoordinator({
+      authority: economicAuthority,
+      resolveLifecycleTimeoutMs: () => 1_000,
+      createAdapter: async () => ({ descriptor: {} }) as never,
+    }).prepare({
+      jobId: "job-a",
+      economicAttemptId: "economic-attempt-a",
+      intentFingerprint: `sha256:${"9".repeat(64)}`,
+      admissionBundle: admissionBundle(),
+      effectIdentity: "managed-economic-dispatch:test",
+      adoption: dispatchAdoption(),
+      access: "read-only",
+      authorityProfileId: AUTHORITY_PROFILE_ID,
+      invocationId: INVOCATION_ID,
+      lifecycleEvents: lifecycleEvents.port,
+    });
+    if (prepared.status !== "prepared") throw new Error("fixture");
+
+    const first = prepared.recordExecutionNotDispatched("adapter-never-entered");
+    const replay = prepared.recordExecutionNotDispatched("adapter-never-entered");
+    expect(replay).toBe(first);
+    await expect(prepared.recordExecutionNotDispatched("different-proof")).rejects.toThrow("reason conflicts");
+    expect(economicAuthority.recordExecutionNotDispatched).toHaveBeenCalledOnce();
+    rejectWrite(new Error("durable no-dispatch write failed"));
+    await expect(first).rejects.toThrow("durable no-dispatch write failed");
+
+    const retry = prepared.recordExecutionNotDispatched("adapter-never-entered");
+    await vi.waitFor(() => expect(economicAuthority.recordExecutionNotDispatched).toHaveBeenCalledTimes(2));
+    resolveWrite();
+    await retry;
+    expect(lifecycleEvents.transitions).toEqual(["held", "dispatch-fenced", "released"]);
+  });
+
+  it("does not retry a durable Runtime no-dispatch proof when released event publication fails", async () => {
+    const economicAuthority = authority();
+    const transitions: string[] = [];
+    const published: unknown[] = [];
+    const lifecycleEvents: ManagedEconomicLifecycleEventPort = {
+      record: (input) => {
+        published.push(input);
+        transitions.push(input.transition);
+        if (input.transition === "released") throw new Error("released lifecycle publication failed");
+      },
+    };
+    const prepared = await new ManagedEconomicDispatchCoordinator({
+      authority: economicAuthority,
+      resolveLifecycleTimeoutMs: () => 1_000,
+      createAdapter: async () => ({ descriptor: {} }) as never,
+    }).prepare({
+      jobId: "job-a",
+      economicAttemptId: "economic-attempt-a",
+      intentFingerprint: `sha256:${"9".repeat(64)}`,
+      admissionBundle: admissionBundle(),
+      effectIdentity: "managed-economic-dispatch:test",
+      adoption: dispatchAdoption(),
+      access: "read-only",
+      authorityProfileId: AUTHORITY_PROFILE_ID,
+      invocationId: INVOCATION_ID,
+      lifecycleEvents,
+    });
+    if (prepared.status !== "prepared") throw new Error("fixture");
+
+    const first = prepared.recordExecutionNotDispatched("adapter-never-entered");
+    await expect(first).rejects.toThrow("released lifecycle publication failed");
+    const replay = prepared.recordExecutionNotDispatched("adapter-never-entered");
+    expect(replay).toBe(first);
+    await expect(replay).rejects.toThrow("released lifecycle publication failed");
+    expect(economicAuthority.recordExecutionNotDispatched).toHaveBeenCalledOnce();
+    expect(transitions).toEqual(["held", "dispatch-fenced", "released"]);
+    expect(published.at(-1)).toMatchObject({ transition: "released", settlement: { kind: "runtime-not-dispatched" } });
+    expect(published.at(-1)).not.toHaveProperty("billing");
+  });
+
+  it("rejects adapter settlement registration after Runtime no-dispatch proof begins", async () => {
+    const economicAuthority = authority();
+    const prepared = await new ManagedEconomicDispatchCoordinator({
+      authority: economicAuthority,
+      resolveLifecycleTimeoutMs: () => 1_000,
+      createAdapter: async () => ({ descriptor: {} }) as never,
+    }).prepare({
+      jobId: "job-a",
+      economicAttemptId: "economic-attempt-a",
+      intentFingerprint: `sha256:${"9".repeat(64)}`,
+      admissionBundle: admissionBundle(),
+      effectIdentity: "managed-economic-dispatch:test",
+      adoption: dispatchAdoption(),
+      access: "read-only",
+      authorityProfileId: AUTHORITY_PROFILE_ID,
+      invocationId: INVOCATION_ID,
+    });
+    if (prepared.status !== "prepared") throw new Error("fixture");
+
+    const proof = prepared.recordExecutionNotDispatched("adapter-never-entered");
+    const settlement: ManagedEconomicSettlement = {
+      kind: "unknown",
+      reservationId: prepared.commitment.reservation.reservationId,
+      dispatchFenceId: prepared.dispatchFenceId,
+      actualIdentity: null,
+      reason: "adapter settlement arrived after no-dispatch proof",
+      evidence: null,
+    };
+    expect(() => prepared.registerEconomicSettlement(Promise.resolve(settlement))).toThrow(
+      "conflicts with runtime no-dispatch proof",
+    );
+    await proof;
+    expect(economicAuthority.settleExecution).not.toHaveBeenCalled();
+  });
+
+  it("serializes an abort pending write before Runtime no-dispatch terminalization", async () => {
+    const economicAuthority = authority();
+    const controller = new AbortController();
+    let releasePending!: () => void;
+    const pendingWrite = new Promise<void>((resolve) => { releasePending = resolve; });
+    vi.mocked(economicAuthority.recordExecutionSettlementPending).mockReturnValue(pendingWrite);
+    const order: string[] = [];
+    vi.mocked(economicAuthority.recordExecutionSettlementPending).mockImplementation(async () => {
+      order.push("pending-start");
+      await pendingWrite;
+      order.push("pending-end");
+    });
+    vi.mocked(economicAuthority.recordExecutionNotDispatched).mockImplementation(() => {
+      order.push("not-dispatched");
+      return undefined;
+    });
+    const prepared = await new ManagedEconomicDispatchCoordinator({
+      authority: economicAuthority,
+      resolveLifecycleTimeoutMs: () => 1_000,
+      createAdapter: async () => ({ descriptor: {} }) as never,
+    }).prepare({
+      jobId: "job-a",
+      economicAttemptId: "economic-attempt-a",
+      intentFingerprint: `sha256:${"9".repeat(64)}`,
+      admissionBundle: admissionBundle(),
+      effectIdentity: "managed-economic-dispatch:test",
+      adoption: dispatchAdoption(),
+      access: "read-only",
+      authorityProfileId: AUTHORITY_PROFILE_ID,
+      invocationId: INVOCATION_ID,
+      abortSignal: controller.signal,
+    });
+    if (prepared.status !== "prepared") throw new Error("fixture");
+    controller.abort(new Error("operator stopped"));
+    const noDispatch = prepared.recordExecutionNotDispatched("adapter-never-entered");
+    await Promise.resolve();
+    expect(order).toEqual(["pending-start"]);
+    releasePending();
+    await noDispatch;
+    expect(order).toEqual(["pending-start", "pending-end", "not-dispatched"]);
+    expect(economicAuthority.recordExecutionNotDispatched).toHaveBeenCalledOnce();
+  });
   it("keeps capacity pending when a typed settlement reports unknown outcome", async () => {
     const economicAuthority = authority();
     const coordinator = new ManagedEconomicDispatchCoordinator({
@@ -1209,6 +1374,8 @@ describe("ManagedEconomicDispatchCoordinator", () => {
             authority.settleExecution(settleJobId, settleAttemptId, fenceId, settlement),
           recordExecutionSettlementPending: (pendingJobId, pendingAttemptId, fenceId, reason) =>
             authority.recordExecutionSettlementPending(pendingJobId, pendingAttemptId, fenceId, reason),
+          recordExecutionNotDispatched: (pendingJobId, pendingAttemptId, fenceId, reason) =>
+            authority.recordExecutionNotDispatched(pendingJobId, pendingAttemptId, fenceId, reason),
         },
         resolveLifecycleTimeoutMs: () => 5_000,
         createAdapter,

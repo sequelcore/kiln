@@ -103,6 +103,7 @@ describe("createOperatorRuntimeService", () => {
   it("routes managed-economic application commands only for an authenticated operator surface", async () => {
     const project = adoptedProject("surface-application");
     const releasePreFence = vi.fn();
+    const recordExecutionNotDispatched = vi.fn();
     const createComposition = vi.fn(async () => ({
       ...composition(),
       economicAuthority: {
@@ -112,6 +113,7 @@ describe("createOperatorRuntimeService", () => {
         readDispatch: vi.fn(),
         settleExecution: vi.fn(),
         recordExecutionSettlementPending: vi.fn(),
+        recordExecutionNotDispatched,
       },
     }));
     const service = createOperatorRuntimeService({ sessionSecret: SECRET, createComposition, nowEpochSeconds: () => 100 });
@@ -138,6 +140,24 @@ describe("createOperatorRuntimeService", () => {
       },
     })).resolves.toMatchObject({ status: "ok" });
     expect(releasePreFence).toHaveBeenCalledWith("job-1", "attempt-1");
+
+    await expect(service.onApplicationRequest({
+      claims: surfaceClaims,
+      request: {
+        schemaVersion: 1,
+        operation: "managed-economic.record-not-dispatched",
+        jobId: "job-1",
+        economicAttemptId: "attempt-1",
+        dispatchFenceId: "fence-1",
+        reason: "adapter-materialization-failed-before-invocation",
+      },
+    })).resolves.toMatchObject({ status: "ok" });
+    expect(recordExecutionNotDispatched).toHaveBeenCalledWith(
+      "job-1",
+      "attempt-1",
+      "fence-1",
+      "adapter-materialization-failed-before-invocation",
+    );
 
     const nativeClaims = await openClaims(service, project, "codex", "native-application-session");
     await expect(service.onApplicationRequest({

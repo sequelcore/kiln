@@ -313,6 +313,12 @@ export interface OperatorProjectManagedEconomicAuthorityPort {
     dispatchFenceId: string,
     reason: string,
   ): void;
+  recordExecutionNotDispatched(
+    jobId: string,
+    economicAttemptId: string,
+    dispatchFenceId: string,
+    reason: string,
+  ): void;
 }
 
 /** Project identity comes from this trusted composition, never from MCP input. */
@@ -1143,7 +1149,9 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
           economicDispatch: {
             commitment: preparation.commitment,
             dispatchFenceId: preparation.dispatchFenceId,
+            admissionId: preparation.actionClaim.admissionId,
             recordExecutionSettlementPending: preparation.recordExecutionSettlementPending,
+            recordExecutionNotDispatched: preparation.recordExecutionNotDispatched,
             createExecutionSettlement: preparation.createExecutionSettlement,
             registerEconomicSettlement: preparation.registerEconomicSettlement,
           },
@@ -1311,6 +1319,14 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
         },
         recordExecutionSettlementPending: (jobId, economicAttemptId, dispatchFenceId, reason) => {
           managedAccountComposition.authority.recordExecutionSettlementPending(
+            jobId,
+            economicAttemptId,
+            dispatchFenceId,
+            reason,
+          );
+        },
+        recordExecutionNotDispatched: (jobId, economicAttemptId, dispatchFenceId, reason) => {
+          managedAccountComposition.authority.recordExecutionNotDispatched(
             jobId,
             economicAttemptId,
             dispatchFenceId,

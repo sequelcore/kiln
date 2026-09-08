@@ -1319,6 +1319,32 @@ describe("appendManagedEconomicLifecycleSessionEvent", () => {
     expect(cancelled).toMatchObject({ terminalCause: "cancelled" });
   });
 
+  it("does not project Runtime no-dispatch as a billing class", () => {
+    const session = makeSession("session-runtime-no-dispatch");
+    const event = appendManagedEconomicLifecycleSessionEvent({
+      session,
+      workspaceRoot: "C:/workspace/kiln",
+      jobId: "job-runtime-no-dispatch",
+      economicAttemptId: "economic-attempt-runtime-no-dispatch",
+      transition: "released",
+      policy: makeEconomicPolicy(),
+      commitment: makeEconomicCommitment(),
+      dispatchFenceId: "managed-economic-dispatch:fence-runtime-no-dispatch",
+      settlement: {
+        kind: "runtime-not-dispatched",
+        reservationId: "reservation-a",
+        dispatchFenceId: "managed-economic-dispatch:fence-runtime-no-dispatch",
+        reason: "adapter-materialization-failed-before-invocation",
+      },
+    })[0];
+
+    expect(event).toMatchObject({
+      settlementKind: "runtime-not-dispatched",
+      terminalCause: "cancelled",
+    });
+    expect(event).not.toHaveProperty("billingClass");
+  });
+
   it.each([
     { transition: "denied" as const },
     { transition: "held" as const },

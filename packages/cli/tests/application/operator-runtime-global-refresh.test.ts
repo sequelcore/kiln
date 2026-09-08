@@ -69,6 +69,7 @@ describe("operator runtime global composition refresh", () => {
           readDispatch: vi.fn(),
           settleExecution: vi.fn(),
           recordExecutionSettlementPending: vi.fn(),
+          recordExecutionNotDispatched: vi.fn(),
           sourceAuthority: managedAccountComposition?.authority,
         },
         close,

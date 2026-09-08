@@ -203,6 +203,57 @@ describe("startOperatorRuntimeListener", () => {
     expect(started.applicationHandler).toHaveBeenCalledOnce();
     expect(started.handler).not.toHaveBeenCalled();
   });
+  it("round-trips the Runtime no-dispatch operation and denies a native principal", async () => {
+    const surfaceClaims = {
+      ...claims,
+      principal: { kind: "operator-surface", surface: "cli" },
+      sessionId: "cli-no-dispatch-session",
+    } satisfies OperatorSessionClaims;
+    const surfaceCredential = signOperatorSessionCredential(surfaceClaims, sessionSecret);
+    const requestBody = {
+      schemaVersion: 1,
+      operation: "managed-economic.record-not-dispatched",
+      jobId: "job-1",
+      economicAttemptId: "attempt-1",
+      dispatchFenceId: "fence-1",
+      reason: "adapter-materialization-failed-before-invocation",
+    } as const;
+    const headers = {
+      host: `127.0.0.1:${port}`,
+      origin,
+      authorization: `Bearer ${surfaceCredential}`,
+      "content-type": "application/json",
+      "x-kiln-project-runtime-id": surfaceClaims.projectRuntimeId,
+      "x-kiln-composition-revision": surfaceClaims.compositionRevision,
+      "x-kiln-principal-kind": surfaceClaims.principal.kind,
+      "x-kiln-principal-id": surfaceClaims.principal.surface,
+      "x-kiln-session-id": surfaceClaims.sessionId,
+    };
+    const started = await startTestListener();
+    const response = await started.fetch(new Request(`${origin}${OPERATOR_RUNTIME_APPLICATION_PATH}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(requestBody),
+    }));
+    expect(response.status).toBe(200);
+    expect(started.applicationHandler).toHaveBeenCalledWith(expect.objectContaining({ request: requestBody }));
+
+    const nativeResponse = await started.fetch(new Request(`${origin}${OPERATOR_RUNTIME_APPLICATION_PATH}`, {
+      method: "POST",
+      headers: {
+        ...headers,
+        authorization: `Bearer ${signOperatorSessionCredential(claims, sessionSecret)}`,
+        "x-kiln-principal-kind": "native-harness",
+        "x-kiln-principal-id": "codex",
+        "x-kiln-session-id": claims.sessionId,
+      },
+      body: JSON.stringify(requestBody),
+    }));
+    expect(nativeResponse.status).toBe(403);
+    expect(await nativeResponse.json()).toEqual({ error: { code: "principal_denied" } });
+    expect(started.applicationHandler).toHaveBeenCalledOnce();
+  });
+
   it("binds exactly to the configured IPv4 loopback port", async () => {
     const started = await startTestListener();
     expect(started.bound).toEqual({ hostname: "127.0.0.1", port });

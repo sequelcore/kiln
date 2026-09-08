@@ -66,6 +66,7 @@ export interface ManagedEconomicCandidateRejection {
   readonly stage: "managed-candidate-admission";
   readonly routeId: string;
   readonly reason: ManagedEconomicCandidateRejectionReason;
+  readonly missingRequiredTools?: readonly string[];
 }
 
 export interface ManagedEconomicCandidateDescriptor {
@@ -118,24 +119,29 @@ export function collectManagedEconomicCandidates(
   }
 
   for (const route of routes) {
-    const profile = resolveConfiguredManagedInvocationRouteProfile(route, {
-      authorityProfileId: command.authorityProfileId,
-      access: command.access,
-    }, command.access);
+    const profile = resolveConfiguredManagedInvocationRouteProfile(
+      route,
+      {
+        authorityProfileId: command.authorityProfileId,
+        access: command.access,
+      },
+      command.access,
+    );
+    const missingRequiredTools = missingManagedInvocationRequiredTools(
+      command.requiredToolNames ?? [],
+      profile?.allowedToolNames ?? [],
+    );
+    const missingRequiredCapabilities = profile
+      ? missingManagedInvocationRequiredCapabilities(command.requiredToolNames ?? [], profile)
+      : [];
+    const missingRequiredReadPaths = profile
+      ? missingManagedInvocationRequiredReadPaths(command.requiredReadPaths ?? [], profile)
+      : [];
     const nonEconomicAdmissionFailed = (
       !profile
-      || missingManagedInvocationRequiredTools(
-        command.requiredToolNames ?? [],
-        profile.allowedToolNames,
-      ).length > 0
-      || missingManagedInvocationRequiredCapabilities(
-        command.requiredToolNames ?? [],
-        profile,
-      ).length > 0
-      || missingManagedInvocationRequiredReadPaths(
-        command.requiredReadPaths ?? [],
-        profile,
-      ).length > 0
+      || missingRequiredTools.length > 0
+      || missingRequiredCapabilities.length > 0
+      || missingRequiredReadPaths.length > 0
       || (command.requiresNetwork === true && profile.networkAllowed !== true)
       || (command.requiresWrite === true && profile.writeAllowed !== true)
       || (
@@ -162,6 +168,7 @@ export function collectManagedEconomicCandidates(
         stage: "managed-candidate-admission",
         routeId: route.routeId,
         reason: "non-economic-admission-failed",
+        ...(missingRequiredTools.length > 0 ? { missingRequiredTools } : {}),
       });
       continue;
     }

@@ -33,6 +33,8 @@ import {
   resolveManagedInvocationCallerIdentity,
 } from "../caller-capability-policy.js";
 import type { ManagedAgentRuntimeInvocationLifecycleOptions } from "../index.js";
+import { assertManagedChildAuthorityAdmissionBoundary } from "../child-authority-admission.js";
+import { assertManagedEconomicCommitmentMatchesRequest } from "../invocation-authority-guard.js";
 import { appendManagedEconomicLifecycleSessionEvent } from "../session-events.js";
 import { MANAGED_AGENT_INVOKE_TOOL_NAME, MANAGED_AGENT_START_TOOL_NAME } from "../tool-names.js";
 import { resolveManagedInvocationRouteProfile } from "./profile-resolution.js";
@@ -377,6 +379,24 @@ async function resolveManagedInvocationEconomicCommitment(input: {
     options.unavailableRoutes,
   );
   if (candidateSet.candidates.length === 0) {
+    const missingRequiredTools = unique(
+      candidateSet.rejections.flatMap((rejection) => rejection.missingRequiredTools ?? []),
+    );
+    if (missingRequiredTools.length > 0) {
+      return {
+        ok: false,
+        result: errorResult(
+          `Managed economic invocation requires tools unavailable on every admitted route: ${missingRequiredTools.join(", ")}.`,
+          {
+            errorCode: "required_tools_missing",
+            status: "denied",
+            candidateSet,
+            missingRequiredTools,
+          },
+          toolName,
+        ),
+      };
+    }
     return {
       ok: false,
       result: errorResult(
@@ -554,6 +574,16 @@ async function resolveManagedInvocationEconomicCommitment(input: {
             : {}),
         });
         if (!requestOutcome.ok) throw new ManagedPreFenceRequestDeniedError(requestOutcome.result);
+        assertManagedChildAuthorityAdmissionBoundary({
+          bundle: admissionBundle,
+          request: requestOutcome.prepared.request,
+          admissionId: admissionBundle.admissionId,
+        });
+        assertManagedEconomicCommitmentMatchesRequest(
+          requestOutcome.prepared.request,
+          committedRoute.routeId,
+          commitment,
+        );
         return requestOutcome.prepared;
       },
       releasePreparedExecutionBeforeFence: (prepared) => {
@@ -663,7 +693,9 @@ async function resolveManagedInvocationEconomicCommitment(input: {
         economicDispatch: {
           commitment: economicPreparation.commitment,
           dispatchFenceId: economicPreparation.dispatchFenceId,
+          admissionId: economicPreparation.actionClaim.admissionId,
           recordExecutionSettlementPending: economicPreparation.recordExecutionSettlementPending,
+          recordExecutionNotDispatched: economicPreparation.recordExecutionNotDispatched,
           createExecutionSettlement: economicPreparation.createExecutionSettlement,
           registerEconomicSettlement: economicPreparation.registerEconomicSettlement,
         },

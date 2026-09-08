@@ -2119,6 +2119,75 @@ describe("operator cockpit read-only projection", () => {
     expect(projection.invocations).toHaveLength(0);
   });
 
+  it("projects Runtime no-dispatch settlement without billing classification", () => {
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-08-06T12:01:00.000Z",
+      attachTargets: [{ instanceId: "economic:instance:1", label: "Synthetic economic runtime", kind: "local" }],
+      events: [{
+        eventId: "economic:runtime-no-dispatch",
+        kilnSessionId: "economic:session:1",
+        sequence: 1,
+        timestamp: "2026-08-06T12:00:00.000Z",
+        kind: "managed_economic_lifecycle",
+        payload: {
+          instanceId: "economic:instance:1",
+          sessionId: "economic:session:1",
+          evidenceVersion: 1,
+          jobId: "managed-economic-job:runtime-no-dispatch",
+          economicAttemptId: "economic-attempt:runtime-no-dispatch:1",
+          transition: "released",
+          policyId: "fixture-policy",
+          policyRevision: "1",
+          policyDigest: "sha256:fixture-policy-digest",
+          settlementKind: "runtime-not-dispatched",
+          reason: "adapter-materialization-failed-before-invocation",
+        },
+      }],
+    });
+
+    expect(projection.economicAttempts[0]).toMatchObject({
+      settlementKind: "runtime-not-dispatched",
+      reason: "adapter-materialization-failed-before-invocation",
+    });
+    expect(projection.economicAttempts[0]).not.toHaveProperty("billingClass");
+    expect(projection.unprojectableEvidence).toEqual([]);
+  });
+
+  it("rejects a billing authority attached to Runtime no-dispatch settlement", () => {
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-08-06T12:01:00.000Z",
+      attachTargets: [{ instanceId: "economic:instance:1", label: "Synthetic economic runtime", kind: "local" }],
+      events: [{
+        eventId: "economic:runtime-no-dispatch-authority",
+        kilnSessionId: "economic:session:1",
+        sequence: 1,
+        timestamp: "2026-08-06T12:00:00.000Z",
+        kind: "managed_economic_lifecycle",
+        payload: {
+          instanceId: "economic:instance:1",
+          sessionId: "economic:session:1",
+          evidenceVersion: 1,
+          jobId: "managed-economic-job:runtime-no-dispatch-authority",
+          economicAttemptId: "economic-attempt:runtime-no-dispatch-authority:1",
+          transition: "released",
+          policyId: "fixture-policy",
+          policyRevision: "1",
+          policyDigest: "sha256:fixture-policy-digest",
+          settlementKind: "runtime-not-dispatched",
+          settlementAuthority: "configured",
+        },
+      }],
+    });
+
+    expect(projection.economicAttempts[0]).not.toHaveProperty("settlementKind");
+    expect(projection.unprojectableEvidence).toEqual([
+      expect.objectContaining({
+        eventId: "economic:runtime-no-dispatch-authority",
+        field: "settlementAuthority",
+      }),
+    ]);
+  });
+
   it("rejects legacy or incomplete settlement evidence without silently projecting it", () => {
     const basePayload = {
       instanceId: "economic:instance:1",

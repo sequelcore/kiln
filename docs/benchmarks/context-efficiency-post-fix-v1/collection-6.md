@@ -1,6 +1,6 @@
 # Context Efficiency Control 6
 
-Status: terminal, diagnostic-only; two global economic reservations remain pending.
+Status: terminal, diagnostic-only; both pending economic reservations reconciled.
 
 This cohort tests the managed economic admission repair first, then retains the
 remaining task order, conditions, repetitions, scoring, and per-trial budgets
@@ -33,5 +33,11 @@ The report records 27 attempts: 21 valid (13 pass, 8 fail) and 6 invalid.
 Coding passed 6/6; managed-child success was 0. It used 110 physical requests
 with no new unknown requests, leaving 6 of the existing authorization. The next
 trial requires an 8-request allocation, so collection stopped before completion.
-Two global reservations remain pending with runtime-prestart-validation-failed.
+Two global reservations were left pending with runtime-prestart-validation-failed.
+On 2026-09-07, the canonical operator reconciliation command released both as
+`not-dispatched` using the reviewed frozen-source and retained denial evidence.
+Read-only ledger verification confirmed both leases released, both dispatch fences
+preserved, and zero remaining pending commitments or held economic leases.
+Recovery evidence remains in the private collection's `reconciliation` directory.
+This recovery does not change the benchmark results or request allowance.
 See the [startup diagnosis](../../research/active/managed-child-startup-diagnosis.md).

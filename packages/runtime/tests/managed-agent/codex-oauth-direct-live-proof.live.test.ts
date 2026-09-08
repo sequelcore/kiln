@@ -338,6 +338,8 @@ async function withCodexOauthEconomicDispatch<T>(
         },
         recordExecutionSettlementPending: (jobId, economicAttemptId, dispatchFenceId, reason) =>
           authority.recordExecutionSettlementPending(jobId, economicAttemptId, dispatchFenceId, reason),
+        recordExecutionNotDispatched: (jobId, economicAttemptId, dispatchFenceId, reason) =>
+          authority.recordExecutionNotDispatched(jobId, economicAttemptId, dispatchFenceId, reason),
       },
       resolveLifecycleTimeoutMs: () => 120_000,
       createAdapter: ({
@@ -420,7 +422,9 @@ async function withCodexOauthEconomicDispatch<T>(
       economicDispatch: {
         commitment: prepared.commitment,
         dispatchFenceId: prepared.dispatchFenceId,
+        admissionId: prepared.actionClaim.admissionId,
         recordExecutionSettlementPending: prepared.recordExecutionSettlementPending,
+        recordExecutionNotDispatched: prepared.recordExecutionNotDispatched,
         createExecutionSettlement: prepared.createExecutionSettlement,
         registerEconomicSettlement: prepared.registerEconomicSettlement,
       },

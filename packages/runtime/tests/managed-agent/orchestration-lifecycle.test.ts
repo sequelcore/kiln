@@ -587,7 +587,19 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
   });
 
   it("commits, fences, invokes, and settles every economic orchestration child", async () => {
-    const managedInvocation = createManagedInvocation();
+    const realizedRequests: unknown[] = [];
+    const actualRequests: ManagedAgentRuntimeInvocationInput["request"][] = [];
+    const managedInvocation = createManagedInvocation({
+      requestObserver: (request) => actualRequests.push(request),
+    });
+    const invocationService = managedInvocation.invocationService;
+    if (!invocationService) throw new Error("fixture invocation service unavailable");
+    const startLifecycleOptions: Array<Parameters<RuntimeManagedAgentInvocationService["start"]>[3]> = [];
+    const start = invocationService.start.bind(invocationService);
+    vi.spyOn(invocationService, "start").mockImplementation(async (...args) => {
+      startLifecycleOptions.push(args[3]);
+      return await start(...args);
+    });
     const primaryRoute = managedInvocation.routes[0]!;
     const primaryAdapter = await primaryRoute.createAdapter?.();
     if (!primaryAdapter) throw new Error("fixture adapter unavailable");
@@ -597,9 +609,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
     let preparationCount = 0;
     const preparation: EconomicPrepare = async (input) => {
       preparationCount += 1;
-      return {
-      status: "prepared" as const,
-      commitment: {
+      const commitment = {
         reservation: {
           selectedIdentity: {
             route: {
@@ -611,38 +621,61 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
             account: { kind: "accountless" },
           },
         },
-      } as never,
-      adapter: {
+      } as never;
+      const dispatchFenceId = `dispatch-fence:${input.economicAttemptId}`;
+      const abortSignal = input.abortSignal ?? new AbortController().signal;
+      const adapter: ManagedAgentRuntimeAdapter = {
         ...primaryAdapter,
         invoke: async (invocation: ManagedAgentRuntimeInvocationInput) => {
           invocation.registerAdapterCompletion(Promise.resolve());
           invocation.registerEconomicSettlement?.(Promise.resolve({} as never));
           return await primaryAdapter.invoke(invocation);
         },
-      },
-      dispatchFenceId: `dispatch-fence:${input.economicAttemptId}`,
-      actionClaim: {
-        version: 1 as const,
-        attemptId: input.economicAttemptId,
-        admissionId: input.admissionBundle.admissionId,
-        admissionBundle: input.admissionBundle,
-        intentFingerprint: input.intentFingerprint,
-        ownerGeneration: "managed-economic-owner:orchestration-test",
-        effectIdentity: input.effectIdentity,
-      },
-      abortSignal: input.abortSignal ?? new AbortController().signal,
-      recordExecutionSettlementPending: async (reason) => {
-        events.push(`pending:${input.jobId}:${reason}`);
-      },
-      createExecutionSettlement: () => ({} as never),
-      registerEconomicSettlement: (settlement) => {
-        events.push(`settlement:${input.jobId}`);
-        void Promise.resolve(settlement).then(() => events.push(`settled:${input.jobId}`));
-      },
-      realization: { kind: "none" },
+      };
+      const realizeExecutionBeforeFence = input.realizeExecutionBeforeFence;
+      return {
+        status: "prepared" as const,
+        commitment,
+        adapter,
+        dispatchFenceId,
+        actionClaim: {
+          version: 1 as const,
+          attemptId: input.economicAttemptId,
+          admissionId: input.admissionBundle.admissionId,
+          admissionBundle: input.admissionBundle,
+          intentFingerprint: input.intentFingerprint,
+          ownerGeneration: "managed-economic-owner:orchestration-test",
+          effectIdentity: input.effectIdentity,
+        },
+        abortSignal,
+        recordExecutionSettlementPending: async (reason) => {
+          events.push(`pending:${input.jobId}:${reason}`);
+        },
+        recordExecutionNotDispatched: async (reason) => {
+          events.push("not-dispatched:" + input.jobId + ":" + reason);
+        },
+        createExecutionSettlement: () => ({} as never),
+        registerEconomicSettlement: (settlement) => {
+          events.push(`settlement:${input.jobId}`);
+          void Promise.resolve(settlement).then(() => events.push(`settled:${input.jobId}`));
+        },
+        realization: realizeExecutionBeforeFence
+          ? {
+              kind: "realized" as const,
+              execution: await (async () => {
+                const execution = await realizeExecutionBeforeFence({ commitment, dispatchFenceId, adapter, abortSignal });
+                realizedRequests.push(execution);
+                return execution;
+              })(),
+            }
+          : { kind: "none" as const },
       };
     };
 
+    const authorityAdmission = managedEconomicAdmissionBundle({
+      sessionId: "parent-session",
+      turnId: "parent-turn",
+    });
     const result = await runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: {
         ...orchestrationRequest,
@@ -678,14 +711,17 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       access: "approved-write",
       callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
       requestedAuthority: "audited",
-      authorityAdmission: managedEconomicAdmissionBundle({
-        sessionId: "parent-session",
-        turnId: "parent-turn",
-      }),
+      authorityAdmission,
       economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
     });
 
     expect(result.orchestrationResult.status).toBe("completed");
+    expect(actualRequests).toEqual(realizedRequests);
+    expect(startLifecycleOptions).toHaveLength(2);
+    expect(startLifecycleOptions.map((options) => options?.childAuthorityAdmission?.bundle)).toEqual([
+      authorityAdmission,
+      authorityAdmission,
+    ]);
     expect(preparationCount).toBe(2);
     expect(events.filter((event) => event.startsWith("settlement:"))).toHaveLength(2);
     await vi.waitFor(() => expect(events.filter((event) => event.startsWith("settled:"))).toHaveLength(2));
@@ -741,7 +777,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
     });
   });
 
-  it("marks every fenced commitment pending when a later child cannot be prepared", async () => {
+  it("marks every fenced commitment no-dispatched when a later child cannot be prepared", async () => {
     const managedInvocation = createEconomicManagedInvocation({
       rejectPreparationOrdinals: new Set([2]),
     });
@@ -756,7 +792,8 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
     })).rejects.toThrow("synthetic second preparation failure");
 
-    expect(managedInvocation.recordExecutionSettlementPending).toHaveBeenCalledOnce();
+    expect(managedInvocation.recordExecutionNotDispatched).toHaveBeenCalledWith("orchestration-wave-preparation-failed");
+    expect(managedInvocation.recordExecutionSettlementPending).not.toHaveBeenCalled();
     expect(managedInvocation.invoked).not.toHaveBeenCalled();
   });
 
@@ -986,6 +1023,7 @@ function createEconomicManagedInvocation(input: {
     },
   };
   const recordExecutionSettlementPending = vi.fn();
+  const recordExecutionNotDispatched = vi.fn();
   type EconomicPrepare = NonNullable<ManagedInvocationToolOptions["economicDispatch"]>["prepare"];
   const prepareCalls: Array<{ readonly intentFingerprint: string }> = [];
   const prepare: EconomicPrepare = async (prepareInput) => {
@@ -999,18 +1037,21 @@ function createEconomicManagedInvocation(input: {
     if (input.status === "denied") {
       return { status: "denied" as const, result: {} as never };
     }
+    const commitment = {
+      reservation: {
+        selectedIdentity: {
+          route: { routeId: route.routeId, providerId: route.providerId, modelId: route.model, accountPolicyId: null },
+          account: { kind: "accountless" },
+        },
+      },
+    } as never;
+    const dispatchFenceId = `dispatch-fence:${prepareInput.economicAttemptId}`;
+    const abortSignal = prepareInput.abortSignal ?? new AbortController().signal;
     return {
       status: "prepared" as const,
-      commitment: {
-        reservation: {
-          selectedIdentity: {
-            route: { routeId: route.routeId, providerId: route.providerId, modelId: route.model, accountPolicyId: null },
-            account: { kind: "accountless" },
-          },
-        },
-      } as never,
+      commitment,
       adapter,
-      dispatchFenceId: `dispatch-fence:${prepareInput.economicAttemptId}`,
+      dispatchFenceId,
       actionClaim: {
         version: 1 as const,
         attemptId: prepareInput.economicAttemptId,
@@ -1020,11 +1061,17 @@ function createEconomicManagedInvocation(input: {
         ownerGeneration: "managed-economic-owner:orchestration-test",
         effectIdentity: prepareInput.effectIdentity,
       },
-      abortSignal: prepareInput.abortSignal ?? new AbortController().signal,
+      abortSignal,
       recordExecutionSettlementPending,
+      recordExecutionNotDispatched,
       createExecutionSettlement: () => ({} as never),
       registerEconomicSettlement: () => undefined,
-      realization: { kind: "none" },
+      realization: prepareInput.realizeExecutionBeforeFence
+        ? {
+            kind: "realized" as const,
+            execution: await prepareInput.realizeExecutionBeforeFence({ commitment, dispatchFenceId, adapter, abortSignal }),
+          }
+        : { kind: "none" as const },
     };
   };
   return {
@@ -1080,6 +1127,7 @@ function createEconomicManagedInvocation(input: {
     prepare,
     prepareCalls,
     recordExecutionSettlementPending,
+    recordExecutionNotDispatched,
     invoked,
     authorityAdmission: managedEconomicAdmissionBundle({
       sessionId: "parent-session",
