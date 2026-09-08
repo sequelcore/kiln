@@ -19,49 +19,79 @@ export function compileCodexExternalSkillExposure(input: {
 }): ExternalSkillExposureProjection {
   const codexPolicy = input.policy.harnesses.codex;
   if (!codexPolicy) throw new Error("External catalog policy has no configured Codex adapter.");
-  if (!input.inventory.complete) throw new Error("External catalog inventory is incomplete; exposure projection refused.");
-  const external = input.inventory.candidates.filter((candidate) => candidate.relationship === "external"
-    && candidate.applicableHarnesses.includes("codex")
-    && candidate.exposureScope !== "project"
-    && candidate.effectiveVisibility === "implicit");
+  if (!input.inventory.complete)
+    throw new Error("External catalog inventory is incomplete; exposure projection refused.");
+  const external = input.inventory.candidates.filter(
+    (candidate) =>
+      candidate.relationship === "external" &&
+      candidate.applicableHarnesses.includes("codex") &&
+      candidate.exposureScope !== "project" &&
+      candidate.effectiveVisibility === "implicit",
+  );
   const fingerprint = computeCodexExternalInventoryFingerprint(external);
-  if (codexPolicy.expectedFingerprint !== fingerprint) {
-    throw new Error(`External catalog inventory fingerprint drifted: expected ${codexPolicy.expectedFingerprint}, current ${fingerprint}`);
-  }
-  const byId = new Map<string, typeof external[number]>();
+  const byId = new Map<string, (typeof external)[number]>();
   for (const candidate of external) {
     if (byId.has(candidate.sourceId)) throw new Error(`Ambiguous external catalog sourceId: ${candidate.sourceId}`);
     byId.set(candidate.sourceId, candidate);
+  }
+  if (codexPolicy.expectedFingerprint !== fingerprint) {
+    const changes = codexPolicy.keepImplicit
+      .flatMap((decision) => {
+        const candidate = byId.get(decision.sourceId);
+        if (!candidate) return [`absent: ${decision.sourceId}`];
+        return candidate.packageDigest !== decision.packageDigest ? [`changed: ${decision.sourceId}`] : [];
+      })
+      .sort();
+    const detail =
+      changes.length > 0
+        ? `Reviewed package differences: ${changes.join("; ")}. Other inventory changes may also exist.`
+        : "Reviewed packages are unchanged; the saved fingerprint alone cannot identify other inventory changes.";
+    throw new Error(
+      `External catalog inventory fingerprint drifted: expected ${codexPolicy.expectedFingerprint}, current ${fingerprint}. ${detail} Review the current inventory before updating catalog approval.`,
+    );
   }
   const keep = new Set<string>();
   for (const decision of codexPolicy.keepImplicit) {
     const candidate = byId.get(decision.sourceId);
     if (!candidate) throw new Error(`Reviewed external catalog source is absent: ${decision.sourceId}`);
-    if (candidate.packageDigest !== decision.packageDigest) throw new Error(`Reviewed external catalog digest drifted: ${decision.sourceId}`);
+    if (candidate.packageDigest !== decision.packageDigest)
+      throw new Error(`Reviewed external catalog digest drifted: ${decision.sourceId}`);
     if (candidate.health.status === "blocked") {
       throw new Error(`Reviewed external catalog source is blocked by package health: ${decision.sourceId}`);
     }
     keep.add(decision.sourceId);
   }
-  const disabledItems = external.filter((candidate) => !keep.has(candidate.sourceId)).map((candidate) => {
-    const path = input.absolutePathBySourceId.get(candidate.sourceId);
-    if (!path) throw new Error(`Absolute external catalog path is unavailable: ${candidate.sourceId}`);
-    return { path, enabled: false as const };
-  }).sort((left, right) => left.path.localeCompare(right.path));
-  const policyFingerprint = `sha256:${createHash("sha256").update(JSON.stringify({
-    adapterRevision: CODEX_EXTERNAL_SKILL_EXPOSURE_ADAPTER_REVISION,
-    inventoryFingerprint: fingerprint,
-    keepImplicit: [...keep].sort(),
-  })).digest("hex")}`;
+  const disabledItems = external
+    .filter((candidate) => !keep.has(candidate.sourceId))
+    .map((candidate) => {
+      const path = input.absolutePathBySourceId.get(candidate.sourceId);
+      if (!path) throw new Error(`Absolute external catalog path is unavailable: ${candidate.sourceId}`);
+      return { path, enabled: false as const };
+    })
+    .sort((left, right) => left.path.localeCompare(right.path));
+  const policyFingerprint = `sha256:${createHash("sha256")
+    .update(
+      JSON.stringify({
+        adapterRevision: CODEX_EXTERNAL_SKILL_EXPOSURE_ADAPTER_REVISION,
+        inventoryFingerprint: fingerprint,
+        keepImplicit: [...keep].sort(),
+      }),
+    )
+    .digest("hex")}`;
   return { fingerprint, policyFingerprint, appliedAt: (input.now ?? new Date()).toISOString(), disabledItems };
 }
 
 export function computeCodexExternalInventoryFingerprint(
   candidates: readonly Pick<KilnSkillSourceInventorySnapshot["candidates"][number], "sourceId" | "packageDigest">[],
 ): string {
-  return `sha256:${createHash("sha256").update(JSON.stringify({
-    adapterRevision: CODEX_EXTERNAL_SKILL_EXPOSURE_ADAPTER_REVISION,
-    candidates: candidates.map(({ sourceId, packageDigest }) => ({ sourceId, packageDigest }))
-      .sort((a, b) => a.sourceId.localeCompare(b.sourceId)),
-  })).digest("hex")}`;
+  return `sha256:${createHash("sha256")
+    .update(
+      JSON.stringify({
+        adapterRevision: CODEX_EXTERNAL_SKILL_EXPOSURE_ADAPTER_REVISION,
+        candidates: candidates
+          .map(({ sourceId, packageDigest }) => ({ sourceId, packageDigest }))
+          .sort((a, b) => a.sourceId.localeCompare(b.sourceId)),
+      }),
+    )
+    .digest("hex")}`;
 }
