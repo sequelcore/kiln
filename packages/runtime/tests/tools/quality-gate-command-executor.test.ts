@@ -131,6 +131,10 @@ async function executeWithUnsettledChild(): Promise<{ exitCode: number; output: 
       timeoutMs: 10,
     });
 
+    expect(spawn).toHaveBeenCalledWith("never settles", expect.objectContaining({
+      windowsHide: true,
+      shell: true,
+    }));
     await vi.advanceTimersByTimeAsync(1_010);
     return await pending;
   } finally {

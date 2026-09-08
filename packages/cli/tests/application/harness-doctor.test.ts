@@ -7,6 +7,13 @@ import {
 } from "../../src/application/harness-doctor.js";
 import type { TrustedExecutionIntegrity } from "@kilnai/gateway-contracts";
 
+const { execSyncMock } = vi.hoisted(() => ({ execSyncMock: vi.fn(() => "kiln 3.0.0") }));
+
+vi.mock("node:child_process", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:child_process")>()),
+  execSync: execSyncMock,
+}));
+
 const { delimiter, join } = win32;
 
 function createDiscovery(overrides: Partial<HarnessDoctorModelDiscovery> = {}): HarnessDoctorModelDiscovery {
@@ -88,6 +95,23 @@ function permissionIntegrity(): TrustedExecutionIntegrity {
 }
 
 describe("harness doctor", () => {
+  it("probes the selected harness with a hidden console", async () => {
+    const report = await buildHarnessDoctorReport({
+      env: { USERPROFILE: "C:\\Users\\ExampleUser", PATH: "C:\\Tools" },
+      platform: "win32",
+      fileExists: (path) => path === "C:\\Tools\\kiln.exe",
+      discoverModels: vi.fn(async () => createDiscovery()),
+      readConfigProjections: vi.fn(async () => []),
+      runningModulePath: "C:\\Tools\\kiln.exe",
+    });
+
+    expect(report.kilnCli.version).toBe("kiln 3.0.0");
+    expect(execSyncMock).toHaveBeenCalledWith(
+      '"C:\\Tools\\kiln.exe" --version',
+      { encoding: "utf8", windowsHide: true },
+    );
+  });
+
   it("reports canonical executable, version, auth, models, and competing PATH entries", async () => {
     const npmDir = "C:\\Users\\ExampleUser\\AppData\\Roaming\\npm";
     const wingetDir = "C:\\Users\\ExampleUser\\AppData\\Local\\Microsoft\\WinGet\\Links";

@@ -20,7 +20,7 @@ vi.mock("node:child_process", () => ({
 }));
 
 import { execFile } from "node:child_process";
-import { domainCommand } from "../../src/commands/domain.js";
+import { domainCommand, spawnCommand } from "../../src/commands/domain.js";
 import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 
 const mockExecFile = vi.mocked(execFile);
@@ -115,6 +115,17 @@ describe("domainCommand", () => {
   function getErrors() {
     return errorSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
   }
+
+  it("runs package commands with hidden Windows consoles", async () => {
+    await spawnCommand("bun", ["--version"], tempDir);
+
+    expect(mockExecFile).toHaveBeenCalledWith(
+      "bun",
+      ["--version"],
+      { cwd: tempDir, windowsHide: true },
+      expect.any(Function),
+    );
+  });
 
   // --- Help ---
 

@@ -23,7 +23,7 @@ interface SpawnResult {
 
 export function spawnCommand(cmd: string, args: string[], cwd?: string): Promise<SpawnResult> {
   return new Promise((resolve) => {
-    execFile(cmd, args, { cwd }, (error, stdout, stderr) => {
+    execFile(cmd, args, { cwd, windowsHide: true }, (error, stdout, stderr) => {
       resolve({
         exitCode: error?.code ? (typeof error.code === "number" ? error.code : 1) : 0,
         stdout: stdout ?? "",

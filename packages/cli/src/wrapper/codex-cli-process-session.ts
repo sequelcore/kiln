@@ -376,6 +376,7 @@ export class CodexCliProcessSession implements IKilnSession {
     const proc: import("node:child_process").ChildProcess = spawn(codexBin, args, {
       cwd,
       env,
+      windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"],
       detached: false,
     });

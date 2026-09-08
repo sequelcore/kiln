@@ -12,6 +12,7 @@ export const nodeQualityGateCommandExecutor: QualityGateCommandExecutor = {
       const child = spawn(request.command, {
         cwd: request.cwd,
         shell: true,
+        windowsHide: true,
         // A dedicated process group lets the POSIX adapter terminate the shell
         // and every ordinary descendant without touching the Runtime process.
         detached: process.platform !== "win32",

@@ -508,7 +508,7 @@ describe("CodexSession implements IKilnSession", () => {
     expect(mockSpawn).toHaveBeenCalledWith(
       "C:\\Program Files\\Codex\\codex.exe",
       expect.arrayContaining(["exec"]),
-      expect.objectContaining({ cwd: baseConfig().cwd }),
+      expect.objectContaining({ cwd: baseConfig().cwd, windowsHide: true }),
     );
 
     resolveExit(0);

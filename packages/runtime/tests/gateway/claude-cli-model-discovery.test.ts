@@ -50,6 +50,7 @@ describe("discoverClaudeCliModelDiscovery", () => {
       encoding: "utf8",
       shell: false,
       stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
     });
     expect(supportedModels).toHaveBeenCalledOnce();
     expect(next).not.toHaveBeenCalled();

@@ -13,6 +13,7 @@ export function git(root: string, args: readonly string[], indexPath?: string): 
   return new Promise((resolve, reject) => {
     execFile("git", [...args], {
       cwd: root,
+      windowsHide: true,
       encoding: "buffer",
       maxBuffer: 64 * 1024 * 1024,
       env: indexPath === undefined ? process.env : { ...process.env, GIT_INDEX_FILE: indexPath },

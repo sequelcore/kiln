@@ -47,12 +47,14 @@ export class HookExecutor {
       cwd: string;
       env: typeof env;
       shell: boolean;
+      windowsHide: boolean;
       encoding: "utf8";
       timeout?: number;
     } = {
       cwd: ctx.workingDirectory,
       env,
       shell: true,
+      windowsHide: true,
       encoding: "utf8",
     };
 
@@ -95,6 +97,7 @@ export class HookExecutor {
         cwd: ctx.workingDirectory,
         env,
         shell: true,
+        windowsHide: true,
         detached: true,
         stdio: "ignore",
       });

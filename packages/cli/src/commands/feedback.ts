@@ -166,6 +166,7 @@ function resolveGitStatus(flags: FeedbackDraftFlags, projectRoot: string): strin
     const status = execFileSync("git", ["status", "--short"], {
       cwd: projectRoot,
       encoding: "utf-8",
+      windowsHide: true,
       stdio: ["ignore", "pipe", "ignore"],
     }).replace(/\r\n/g, "\n").trimEnd();
     return status.trim().length > 0 ? status : "clean";

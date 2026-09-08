@@ -1308,6 +1308,7 @@ export class OpenCodeSession implements IKilnSession {
     const proc = spawn(opencodePath, args, {
       cwd,
       env: spawnEnv,
+      windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
       detached: false,
     });
@@ -1373,6 +1374,7 @@ export class OpenCodeSession implements IKilnSession {
     const output = execFileSync(path, ["--version"], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
       shell: process.platform === "win32" && /\.(cmd|bat)$/i.test(path),
     });
     const observedVersion = output.match(/\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/u)?.[0];

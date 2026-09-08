@@ -559,7 +559,7 @@ function formatModelSummary(models: readonly string[]): string {
 
 async function defaultRunVersion(path: string): Promise<string | undefined> {
   try {
-    return execSync(`"${path}" --version`, { encoding: "utf8" }).trim();
+    return execSync(`"${path}" --version`, { encoding: "utf8", windowsHide: true }).trim();
   } catch {
     return undefined;
   }

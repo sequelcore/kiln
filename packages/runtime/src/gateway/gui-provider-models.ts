@@ -2764,6 +2764,7 @@ function resolveExecutable(
       const output = execFileSync(candidate, ["--version"], {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
+        windowsHide: true,
         shell: process.platform === "win32" && /\.(cmd|bat)$/i.test(candidate),
       });
       const probe: ExecutableProbe = { path: candidate, version: output.match(CLI_VERSION_PATTERN)?.[0] };

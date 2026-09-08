@@ -35,6 +35,7 @@ function defaultGitRunner(): GitRunner {
       new Promise((resolve) => {
         const proc = spawn("git", args, {
           cwd,
+          windowsHide: true,
           stdio: ["ignore", "pipe", "pipe"],
         });
         let stdout = "";

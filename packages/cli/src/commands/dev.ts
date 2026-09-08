@@ -118,7 +118,7 @@ function openBrowser(url: string): void {
     process.platform === "win32" ? `start "" "${url}"` :
     process.platform === "darwin" ? `open "${url}"` :
     `xdg-open "${url}"`;
-  exec(cmd, (err) => {
+  exec(cmd, { windowsHide: true }, (err) => {
     if (err) console.error(`Could not open browser: ${err.message}`);
   });
 }

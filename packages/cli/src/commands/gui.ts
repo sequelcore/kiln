@@ -927,6 +927,7 @@ function spawnGuiDevServer(
       GUI_GATEWAY_PORT: String(gatewayPort),
       VITE_GATEWAY_PORT: String(gatewayPort),
     },
+    windowsHide: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
 

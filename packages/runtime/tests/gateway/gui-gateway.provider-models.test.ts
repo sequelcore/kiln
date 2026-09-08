@@ -899,6 +899,7 @@ describe("discoverOpencodeCliModelDiscovery", () => {
       String(command).toLowerCase().endsWith("opencode.cmd"));
     expect(shimCall?.[2]).toEqual(expect.objectContaining({
       shell: process.platform === "win32",
+      windowsHide: true,
     }));
   });
 

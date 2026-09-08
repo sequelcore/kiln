@@ -176,6 +176,22 @@ discarding it is preferred over carrying readers that exist only to parse it.
 - Recovery policy follows workload semantics. Reusing a store engine does not
   authorize reusing another workload's stale-owner cleanup behavior.
 
+## Background Process Launches
+
+Kiln-owned noninteractive subprocesses must not create visible Windows consoles.
+The owning process adapter supplies `windowsHide: true` for every launch,
+including executable discovery, Git, hooks, shell commands, and cleanup helpers.
+Hiding the MCP bridge or a supervisor does not establish this property for its
+subprocesses. Preserve each adapter's arguments, standard streams, cancellation,
+and process-group semantics; window visibility is not a reason to introduce shell
+wrappers or change lifecycle ownership. Explicitly requested interactive windows
+remain owned by their UI launcher.
+
+Verify process options at the actual launch boundary, including Windows command
+shims where supported. A mock assertion proves the requested launch policy, not
+OS-level absence of window flashes. Report that distinction when an observed
+Windows reproduction has not been run.
+
 ## Runtime Diagnostics And Terminal Output
 
 - Runtime state must use canonical events or evidence contracts. Do not print a
