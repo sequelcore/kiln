@@ -12,6 +12,10 @@ Every note must name or link:
 
 ## Investigations
 
+- [Managed-Child End-to-End Advisor Brief](managed-child-advisor-brief.md) scopes
+  the Runtime investigation after repeated discovery, admission, and settlement
+  failures in the managed-child diagnostic.
+
 - [Adaptive Work Governance](adaptive-work-governance.md) supports
   [issue #94](https://github.com/sequelcore/kiln/issues/94) with the evidence,
   hypotheses, and benchmark required before changing scouting, decomposition,
