@@ -28,6 +28,24 @@ bun run lint         # Biome
 bun run test         # Vitest unit/component tests (single run)
 ```
 
+## React Compiler
+
+The GUI enables Oxc's experimental Rust React Compiler through
+`react({ compiler: true })` in both Vite and Vitest. The GUI owns the
+`oxc-transform-react` development dependency; React 19 supplies its runtime.
+This adoption covers the browser GUI, with the supported build platforms
+determined by the compiler's native bindings. The plugin skips memoization in
+server environments, so Vitest's jsdom suite alone does not verify client
+optimization; the browser suite and production output cover that boundary.
+
+Prefer automatic memoization in new components and hooks. Retain existing
+manual memoization until a focused change verifies its removal. Compiler
+diagnostics, component tests, browser interactions, and the production build
+are the verification surface; compilation alone does not prove every component
+was optimized. If compiler regressions occur, revert this integration and its
+dependency together. Reassess the experimental qualification when upstream
+stabilizes the integration.
+
 ## Design system
 
 The GUI uses shadcn with Base UI primitives. Project configuration lives in
