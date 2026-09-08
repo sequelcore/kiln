@@ -120,12 +120,12 @@ describe("work classification", () => {
     expect(recommendedSkillsForWorkClassification(unscopedResearch)).toEqual([]);
     expect(recommendedSkillsForWorkClassification(repositoryResearch)).toEqual(["codebase-scouting"]);
     expect(recommendedSkillsForWorkClassification(externalReport)).toEqual([
-      "research-workflow",
+      "research",
       "clear-writing",
     ]);
     expect(recommendedSkillsForWorkClassification(mixedResearch)).toEqual([
       "codebase-scouting",
-      "research-workflow",
+      "research",
     ]);
   });
 

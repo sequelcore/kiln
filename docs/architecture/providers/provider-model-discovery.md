@@ -332,7 +332,7 @@ The `research` task describes whether a route can perform research synthesis;
 it does not identify where evidence must come from. Procedural selection is an
 orthogonal work-classification decision: repository evidence maps to
 `codebase-scouting`, external or provided evidence maps to
-`research-workflow`, mixed evidence maps to both, and missing scope maps to
+`research`, mixed evidence maps to both, and missing scope maps to
 neither.
 
 Static suitability belongs in `ModelCapabilityRegistry`. It is advisory and

@@ -93,6 +93,31 @@ recompute the embedded evidence identity even for independently reconstructed
 artifacts. File inventories and test counts are evidence,
 not completion claims.
 
+The pull-request contract is `v2`. Its ordered, non-empty `body` contains
+evidence-bound Markdown claims rather than fixed outcome/problem/scope fields.
+The evidence bundle alone owns candidate revision and diff identity. Rendering
+leads with open findings, preserves the supplied body, and adds verification,
+material residual risks, and related work. Single entries use an inline label;
+empty optional sections and raw evidence hashes are not printed. An absence of
+observed verification is rendered as "Not run", never inferred success.
+
+Standalone validation checks evidence references and identity and recomputes
+the rendering to detect omitted or altered disclosures. This checks structural
+consistency, not whether a cited source semantically proves the author's prose.
+The old fixed-section PR contract has no compatibility path. The shared evidence
+and commit contracts are also `v2`: checks use `revision`
+and can reference the exact candidate or an explicitly declared, distinct
+`baselineRevision`. Baseline and candidate checks are labelled separately.
+Baseline-only results leave candidate verification explicitly unrun. Commit
+message formatting is unchanged. The renderer is an exported Core artifact API;
+writing procedures also support native drafts and repository templates without
+requiring this API.
+
+Issue authoring is procedural context (`writing-issues`), not a new issue
+publication service or a requirement for candidate-bound implementation
+evidence. The session-feedback draft and its publication gate remain owned by
+the [feedback pipeline](../coordination/session-feedback-pipeline.md).
+
 ## Surfaces
 
 Gateway contracts own the strict content-free wire schema and presentation.

@@ -11,11 +11,12 @@ export interface ChangeVerificationEvidence {
   readonly id: string;
   readonly command: string;
   readonly status: ChangeVerificationStatus;
-  readonly candidateRevision: string;
+  readonly revision: string;
 }
 
 export interface ChangeArtifactEvidenceInput {
   readonly candidateRevision: string;
+  readonly baselineRevision?: string;
   readonly diffHash: string;
   readonly linkedWork: readonly ChangeWorkEvidence[];
   readonly verification: readonly ChangeVerificationEvidence[];
@@ -23,7 +24,7 @@ export interface ChangeArtifactEvidenceInput {
 }
 
 export interface ChangeArtifactEvidence extends ChangeArtifactEvidenceInput {
-  readonly version: "v1";
+  readonly version: "v2";
   readonly identity: string;
 }
 
@@ -39,7 +40,7 @@ export interface ChangeArtifactValidation {
 
 export interface CommitArtifact {
   readonly kind: "commit-message";
-  readonly contractVersion: "v1";
+  readonly contractVersion: "v2";
   readonly content: string;
   readonly subject: string;
   readonly subjectCeiling: number;
@@ -55,19 +56,18 @@ export interface PullRequestFinding extends EvidenceBoundClaim {
 
 export interface PullRequestArtifact {
   readonly kind: "pull-request";
-  readonly contractVersion: "v1";
+  readonly contractVersion: "v2";
   readonly title: string;
   readonly content: string;
-  readonly candidateRevision: string;
-  readonly diffHash: string;
+  readonly body: readonly EvidenceBoundClaim[];
   readonly evidence: ChangeArtifactEvidence;
-  readonly evidenceIdentity: string;
-  readonly claimEvidence: readonly EvidenceBoundClaim[];
   readonly findings: readonly PullRequestFinding[];
 }
 
 export function createChangeArtifactEvidence(input: ChangeArtifactEvidenceInput): ChangeArtifactEvidence {
   const candidateRevision = required(input.candidateRevision, "candidateRevision");
+  const baselineRevision = input.baselineRevision === undefined ? undefined : required(input.baselineRevision, "baselineRevision");
+  if (baselineRevision === candidateRevision) throw new Error("Baseline and candidate revisions must differ.");
   if (!/^sha256:[a-f0-9]{64}$/u.test(input.diffHash)) {
     throw new Error("Change artifact diffHash must be a sha256 content identity.");
   }
@@ -76,21 +76,22 @@ export function createChangeArtifactEvidence(input: ChangeArtifactEvidenceInput)
     ...(work.url ? { url: required(work.url, "linkedWork.url") } : {}),
   })), (work) => work.id);
   const verification = uniqueBy(input.verification.map((item) => {
-    const revision = required(item.candidateRevision, "verification.candidateRevision");
-    if (revision !== candidateRevision) {
-      throw new Error("Change artifact verification must match the exact candidate revision.");
+    const revision = required(item.revision, "verification.revision");
+    if (revision !== candidateRevision && revision !== baselineRevision) {
+      throw new Error("Change artifact verification must match the candidate revision or declared baseline revision.");
     }
     return {
       id: portable(required(item.id, "verification.id"), "verification.id"),
       command: required(item.command, "verification.command"),
       status: item.status,
-      candidateRevision: revision,
+      revision,
     };
   }), (item) => item.id);
   const residualRisks = uniqueText(input.residualRisks);
   const value = {
-    version: "v1" as const,
+    version: "v2" as const,
     candidateRevision,
+    ...(baselineRevision === undefined ? {} : { baselineRevision }),
     diffHash: input.diffHash,
     linkedWork,
     verification,
@@ -128,7 +129,7 @@ export function renderCommitArtifact(input: {
   const content = body.length > 0 ? [subject, "", ...body].join("\n") : subject;
   const artifact: CommitArtifact = {
     kind: "commit-message",
-    contractVersion: "v1",
+    contractVersion: "v2",
     content,
     subject,
     subjectCeiling,
@@ -143,6 +144,7 @@ export function renderCommitArtifact(input: {
 
 export function validateCommitArtifact(artifact: CommitArtifact): ChangeArtifactValidation {
   const errors: string[] = [];
+  if (artifact.contractVersion !== "v2") errors.push("Unsupported commit contract version.");
   if (!artifact.subject.trim()) errors.push("Commit subject is required.");
   const firstWord = artifact.subject.trim().split(/\s+/u)[0] ?? "";
   if (!/^\p{Lu}[\p{L}-]*$/u.test(firstWord)) {
@@ -165,75 +167,25 @@ export function validateCommitArtifact(artifact: CommitArtifact): ChangeArtifact
 export function renderPullRequestArtifact(input: {
   readonly evidence: ChangeArtifactEvidence;
   readonly title: string;
-  readonly outcome: EvidenceBoundClaim;
-  readonly problem: EvidenceBoundClaim;
-  readonly scope: readonly EvidenceBoundClaim[];
-  readonly exclusions: readonly string[];
-  readonly decisions: readonly EvidenceBoundClaim[];
+  readonly body: readonly EvidenceBoundClaim[];
   readonly findings?: readonly PullRequestFinding[];
 }): PullRequestArtifact {
   validateEvidenceIdentity(input.evidence);
   const title = required(input.title, "pull request title");
-  const outcome = validateClaim(input.outcome, input.evidence);
-  const problem = validateClaim(input.problem, input.evidence);
-  const scope = validateClaims(input.scope, input.evidence);
-  const decisions = validateClaims(input.decisions, input.evidence);
+  const body = validateClaims(input.body, input.evidence);
+  if (body.length === 0) throw new Error("Pull request body must be non-empty.");
   const findings = (input.findings ?? []).map((finding) => ({
     ...validateClaim(finding, input.evidence),
     severity: finding.severity,
     status: finding.status,
   }));
-  const unresolved = findings.filter((finding) => finding.status === "open");
-  const lines = [
-    ...(unresolved.length > 0
-      ? ["## Findings", "", ...unresolved.map((finding) => `- **${finding.severity}:** ${finding.text}`), ""]
-      : []),
-    "## Outcome",
-    "",
-    outcome.text,
-    "",
-    "## Problem",
-    "",
-    problem.text,
-    "",
-    "## Scope",
-    "",
-    ...(scope.length > 0 ? scope.map((claim) => `- ${claim.text}`) : ["- No implementation scope recorded."]),
-    "",
-    "## Exclusions",
-    "",
-    ...listOrNone(input.exclusions),
-    "",
-    "## Decisions",
-    "",
-    ...(decisions.length > 0 ? decisions.map((claim) => `- ${claim.text}`) : ["- None recorded."]),
-    "",
-    "## Verification",
-    "",
-    ...(input.evidence.verification.length > 0
-      ? input.evidence.verification.map((item) => `- \`${item.command}\` — ${item.status}`)
-      : ["- Not run."]),
-    "",
-    "## Residual risk",
-    "",
-    ...listOrNone(input.evidence.residualRisks),
-    "",
-    "## Evidence",
-    "",
-    `- Candidate revision: \`${input.evidence.candidateRevision}\``,
-    `- Diff: \`${input.evidence.diffHash}\``,
-    ...input.evidence.linkedWork.map((work) => `- Work: ${work.url ? `[${work.id}](${work.url})` : work.id}`),
-  ];
   const artifact: PullRequestArtifact = {
     kind: "pull-request",
-    contractVersion: "v1",
+    contractVersion: "v2",
     title,
-    content: lines.join("\n"),
-    candidateRevision: input.evidence.candidateRevision,
-    diffHash: input.evidence.diffHash,
+    content: renderPullRequestContent(body, findings, input.evidence),
+    body,
     evidence: input.evidence,
-    evidenceIdentity: input.evidence.identity,
-    claimEvidence: [outcome, problem, ...scope, ...decisions, ...findings],
     findings,
   };
   const validation = validatePullRequestArtifact(artifact);
@@ -243,32 +195,54 @@ export function renderPullRequestArtifact(input: {
 
 export function validatePullRequestArtifact(artifact: PullRequestArtifact): ChangeArtifactValidation {
   const errors: string[] = [];
+  if (artifact.contractVersion !== "v2") errors.push("Unsupported pull request contract version.");
   if (!artifact.title.trim()) errors.push("Pull request title is required.");
-  for (const section of ["## Outcome", "## Problem", "## Scope", "## Verification", "## Residual risk", "## Evidence"]) {
-    if (!artifact.content.includes(section)) errors.push(`Pull request is missing ${section}.`);
-  }
-  if (!artifact.content.includes(`Candidate revision: \`${artifact.candidateRevision}\``)) {
-    errors.push("Pull request does not identify its candidate revision.");
-  }
-  if (!artifact.content.includes(artifact.diffHash)) errors.push("Pull request does not identify its diff.");
-  if (artifact.candidateRevision !== artifact.evidence.candidateRevision) {
-    errors.push("Pull request candidate revision does not match its evidence.");
-  }
-  if (artifact.diffHash !== artifact.evidence.diffHash) {
-    errors.push("Pull request diff does not match its evidence.");
-  }
+  if (artifact.body.length === 0) errors.push("Pull request body must be non-empty.");
   validateArtifactEvidence(
     artifact.evidence,
-    artifact.evidenceIdentity,
-    [...artifact.claimEvidence, ...artifact.findings],
+    artifact.evidence.identity,
+    [...artifact.body, ...artifact.findings],
     errors,
     "Pull request",
   );
-  const firstSection = /^## ([^\n]+)/u.exec(artifact.content)?.[1];
-  if (artifact.findings.some((finding) => finding.status === "open") && firstSection !== "Findings") {
-    errors.push("Pull request with unresolved findings must lead with findings.");
+  if (artifact.content !== renderPullRequestContent(artifact.body, artifact.findings, artifact.evidence)) {
+    errors.push("Pull request content does not match its body, findings, and evidence.");
   }
   return { valid: errors.length === 0, errors };
+}
+
+function renderPullRequestContent(
+  body: readonly EvidenceBoundClaim[],
+  findings: readonly PullRequestFinding[],
+  evidence: ChangeArtifactEvidence,
+): string {
+  const unresolved = findings.filter((finding) => finding.status === "open");
+  const verification = evidence.verification.map((item) => {
+    const revisionLabel = evidence.baselineRevision === undefined ? "" :
+      ` (${item.revision === evidence.candidateRevision ? "candidate" : "baseline"} \`${item.revision}\`)`;
+    return `\`${item.command}\`${revisionLabel} — ${item.status}`;
+  });
+  if (!evidence.verification.some((item) => item.revision === evidence.candidateRevision)) {
+    verification.push(evidence.baselineRevision === undefined ? "Not run." : `Candidate \`${evidence.candidateRevision}\`: Not run.`);
+  }
+  const blocks = [
+    ...(unresolved.length > 0
+      ? ["## Findings\n\n" + unresolved.map((finding) => `- **${finding.severity}:** ${finding.text}`).join("\n")]
+      : []),
+    ...body.map((claim) => claim.text),
+    renderEvidenceList("Verification", verification),
+    ...(evidence.residualRisks.length > 0 ? [renderEvidenceList("Residual risk", evidence.residualRisks)] : []),
+    ...(evidence.linkedWork.length > 0
+      ? ["Related: " + evidence.linkedWork.map((work) => (work.url ? `[${work.id}](${work.url})` : work.id)).join(", ")]
+      : []),
+  ];
+  return blocks.join("\n\n");
+}
+
+function renderEvidenceList(label: string, values: readonly string[]): string {
+  return values.length === 1
+    ? `${label}: ${values[0]}`
+    : `## ${label}\n\n${values.map((value) => `- ${value}`).join("\n")}`;
 }
 
 function validateArtifactEvidence(
@@ -297,7 +271,8 @@ function validateArtifactEvidence(
 
 function validateEvidenceIdentity(evidence: ChangeArtifactEvidence): void {
   const { identity: _identity, ...value } = evidence;
-  if (sha256ContentIdentity(stableStringify(value)) !== evidence.identity) {
+  if (sha256ContentIdentity(stableStringify(value)) !== evidence.identity
+    || createChangeArtifactEvidence(evidence).identity !== evidence.identity) {
     throw new Error("Change artifact evidence identity does not match its content.");
   }
 }
@@ -321,11 +296,6 @@ function validateClaim(claim: EvidenceBoundClaim, evidence: ChangeArtifactEviden
   const unknown = evidenceIds.find((id) => !known.has(id));
   if (unknown) throw new Error(`Artifact claim references unknown evidence '${unknown}'.`);
   return { text, evidenceIds };
-}
-
-function listOrNone(values: readonly string[]): readonly string[] {
-  const normalized = uniqueText(values);
-  return normalized.length > 0 ? normalized.map((value) => `- ${value}`) : ["- None recorded."];
 }
 
 function uniqueText(values: readonly string[]): readonly string[] {

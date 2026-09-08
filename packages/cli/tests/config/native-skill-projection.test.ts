@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import os from "node:os";
 import { basename, dirname, join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { renderSkillMarkdown, resolveKilnCoreBuiltinSkills } from "@kilnai/core";
 
 const fsMocks = vi.hoisted(() => ({
   files: new Map<string, string>(),
@@ -43,7 +44,13 @@ import {
 import { canonicalSkillKey } from "../../src/config/native-projection-paths.js";
 
 const PRIVATE_PROJECT_SKILLS = join("/home/tester", ".kiln", "projects", "test-project", "skills");
-const GLOBAL_NATIVE_PROJECTION_STATE = join("/home/tester", ".kiln", "runtime", "native-projections", "install-state.json");
+const GLOBAL_NATIVE_PROJECTION_STATE = join(
+  "/home/tester",
+  ".kiln",
+  "runtime",
+  "native-projections",
+  "install-state.json",
+);
 const SKILLS_DISABLED = {
   skillConfig: { builtin: { enabled: false } },
   projectSkillsDirectory: PRIVATE_PROJECT_SKILLS,
@@ -57,7 +64,10 @@ const readdirSyncMock = readdirSync as unknown as ReturnType<typeof vi.fn>;
 const writeFileSyncMock = writeFileSync as unknown as ReturnType<typeof vi.fn>;
 const homedirMock = os.homedir as unknown as ReturnType<typeof vi.fn>;
 
-function dirent(name: string, isDirectory: boolean): { name: string; isDirectory: () => boolean; isFile: () => boolean } {
+function dirent(
+  name: string,
+  isDirectory: boolean,
+): { name: string; isDirectory: () => boolean; isFile: () => boolean } {
   return {
     name,
     isDirectory: () => isDirectory,
@@ -130,7 +140,10 @@ describe("native-skill-projection", () => {
       if (targetPath === projectDir) throw new Error("ENOENT");
       return readdirFallback(targetPath);
     });
-    fsMocks.files.set(join(skillSourceDir, "SKILL.md"), "---\nname: planner\ndescription: Plan work.\nlicense: MIT\n---\nBody\n");
+    fsMocks.files.set(
+      join(skillSourceDir, "SKILL.md"),
+      "---\nname: planner\ndescription: Plan work.\nlicense: MIT\n---\nBody\n",
+    );
     fsMocks.files.set(join(skillSourceDir, "agents", "openai.yaml"), "interface:\n  display_name: Planner\n");
 
     const result = await syncNativeSkillProjections(projectPath, {
@@ -142,23 +155,31 @@ describe("native-skill-projection", () => {
     });
 
     expect(result.errors).toEqual([]);
-    expect(fsMocks.files.get(join("/home/tester", ".codex", "skills", "planner", "agents", "openai.yaml")))
-      .toContain("allow_implicit_invocation: false");
-    expect(fsMocks.files.get(join("/home/tester", ".codex", "skills", "planner", "agents", "openai.yaml")))
-      .toContain("display_name: Planner");
-    expect(fsMocks.files.get(join("/home/tester", ".claude", "skills", "planner", "SKILL.md")))
-      .toContain("disable-model-invocation: true");
-    expect(fsMocks.files.get(join("/home/tester", ".claude", "skills", "planner", "SKILL.md")))
-      .toContain("license: MIT");
-    expect(fsMocks.files.has(join("/home/tester", ".claude", "skills", "planner", "agents", "openai.yaml")))
-      .toBe(false);
-    expect([...fsMocks.files.keys()].some((path) => path.includes(join(".config", "opencode", "skills", "planner"))))
-      .toBe(false);
-    expect(result.outcomes).toContainEqual(expect.objectContaining({
-      targetId: "opencode-skill:planner",
-      status: "skipped",
-      reason: expect.stringContaining("explicit-only visibility is unsupported"),
-    }));
+    expect(fsMocks.files.get(join("/home/tester", ".codex", "skills", "planner", "agents", "openai.yaml"))).toContain(
+      "allow_implicit_invocation: false",
+    );
+    expect(fsMocks.files.get(join("/home/tester", ".codex", "skills", "planner", "agents", "openai.yaml"))).toContain(
+      "display_name: Planner",
+    );
+    expect(fsMocks.files.get(join("/home/tester", ".claude", "skills", "planner", "SKILL.md"))).toContain(
+      "disable-model-invocation: true",
+    );
+    expect(fsMocks.files.get(join("/home/tester", ".claude", "skills", "planner", "SKILL.md"))).toContain(
+      "license: MIT",
+    );
+    expect(fsMocks.files.has(join("/home/tester", ".claude", "skills", "planner", "agents", "openai.yaml"))).toBe(
+      false,
+    );
+    expect(
+      [...fsMocks.files.keys()].some((path) => path.includes(join(".config", "opencode", "skills", "planner"))),
+    ).toBe(false);
+    expect(result.outcomes).toContainEqual(
+      expect.objectContaining({
+        targetId: "opencode-skill:planner",
+        status: "skipped",
+        reason: expect.stringContaining("explicit-only visibility is unsupported"),
+      }),
+    );
   });
 
   it("overrides stale native opt-out metadata when visibility returns to implicit", async () => {
@@ -175,22 +196,22 @@ describe("native-skill-projection", () => {
       join(skillSourceDir, "SKILL.md"),
       "---\nname: planner\ndescription: Plan work.\ndisable-model-invocation: true\n---\nBody\n",
     );
-    fsMocks.files.set(
-      join(skillSourceDir, "agents", "openai.yaml"),
-      "policy:\n  allow_implicit_invocation: false\n",
-    );
+    fsMocks.files.set(join(skillSourceDir, "agents", "openai.yaml"), "policy:\n  allow_implicit_invocation: false\n");
 
     await syncNativeSkillProjections(projectPath, {
       projectSkillsDirectory: PRIVATE_PROJECT_SKILLS,
       skillConfig: { builtin: { enabled: false }, visibility: { overrides: { planner: "implicit" } } },
     });
 
-    expect(fsMocks.files.get(join("/home/tester", ".codex", "skills", "planner", "agents", "openai.yaml")))
-      .toContain("allow_implicit_invocation: true");
-    expect(fsMocks.files.get(join("/home/tester", ".claude", "skills", "planner", "SKILL.md")))
-      .toContain("disable-model-invocation: false");
-    expect(fsMocks.files.has(join("/home/tester", ".claude", "skills", "planner", "agents", "openai.yaml")))
-      .toBe(false);
+    expect(fsMocks.files.get(join("/home/tester", ".codex", "skills", "planner", "agents", "openai.yaml"))).toContain(
+      "allow_implicit_invocation: true",
+    );
+    expect(fsMocks.files.get(join("/home/tester", ".claude", "skills", "planner", "SKILL.md"))).toContain(
+      "disable-model-invocation: false",
+    );
+    expect(fsMocks.files.has(join("/home/tester", ".claude", "skills", "planner", "agents", "openai.yaml"))).toBe(
+      false,
+    );
   });
 
   it("does not project disabled skills", async () => {
@@ -213,10 +234,8 @@ describe("native-skill-projection", () => {
     });
 
     expect(result.synced).toBe(0);
-    expect([...fsMocks.files.keys()].some((path) => path.includes(`${join("skills", "planner")}`)))
-      .toBe(true); // canonical source remains
-    expect([...fsMocks.files.keys()].some((path) => path.includes(join(".codex", "skills", "planner"))))
-      .toBe(false);
+    expect([...fsMocks.files.keys()].some((path) => path.includes(`${join("skills", "planner")}`))).toBe(true); // canonical source remains
+    expect([...fsMocks.files.keys()].some((path) => path.includes(join(".codex", "skills", "planner")))).toBe(false);
   });
 
   it("prunes previously managed projections when a skill becomes disabled", async () => {
@@ -239,13 +258,14 @@ describe("native-skill-projection", () => {
       },
     });
 
-    expect(result.outcomes).toEqual(expect.arrayContaining([
-      expect.objectContaining({ targetId: "codex-skill:planner/SKILL.md", status: "removed" }),
-      expect.objectContaining({ targetId: "claude-skill:planner/SKILL.md", status: "removed" }),
-      expect.objectContaining({ targetId: "opencode-skill:planner/SKILL.md", status: "removed" }),
-    ]));
-    expect([...fsMocks.files.keys()].some((path) => path.includes(join(".codex", "skills", "planner"))))
-      .toBe(false);
+    expect(result.outcomes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ targetId: "codex-skill:planner/SKILL.md", status: "removed" }),
+        expect.objectContaining({ targetId: "claude-skill:planner/SKILL.md", status: "removed" }),
+        expect.objectContaining({ targetId: "opencode-skill:planner/SKILL.md", status: "removed" }),
+      ]),
+    );
+    expect([...fsMocks.files.keys()].some((path) => path.includes(join(".codex", "skills", "planner")))).toBe(false);
     const state = JSON.parse(fsMocks.files.get(GLOBAL_NATIVE_PROJECTION_STATE) ?? "{}") as {
       targets?: Record<string, unknown>;
     };
@@ -301,9 +321,7 @@ describe("native-skill-projection", () => {
 
     const dirs = discoverSkillDirs(projectPath, "/home/tester", PRIVATE_PROJECT_SKILLS);
 
-    expect([...dirs.entries()]).toEqual([
-      ["planner", join(globalDir, "planner")],
-    ]);
+    expect([...dirs.entries()]).toEqual([["planner", join(globalDir, "planner")]]);
   });
 
   it("discoverSkillDirs() project overrides global skill with same name", () => {
@@ -403,7 +421,12 @@ describe("native-skill-projection", () => {
       return readdirFallback(targetPath);
     });
 
-    const sources = discoverSkillProjectionSources(projectPath, SKILLS_DISABLED.skillConfig, "/home/tester", PRIVATE_PROJECT_SKILLS);
+    const sources = discoverSkillProjectionSources(
+      projectPath,
+      SKILLS_DISABLED.skillConfig,
+      "/home/tester",
+      PRIVATE_PROJECT_SKILLS,
+    );
     expect(sources.get(canonicalSkillKey("buildtools"))).toMatchObject({
       skillName: "buildtools",
       sourceIdentity: "project:buildtools",
@@ -427,7 +450,12 @@ describe("native-skill-projection", () => {
       return readdirFallback(targetPath);
     });
 
-    const source = discoverSkillProjectionSources(projectPath, SKILLS_DISABLED.skillConfig, "/home/tester", PRIVATE_PROJECT_SKILLS).get("planner");
+    const source = discoverSkillProjectionSources(
+      projectPath,
+      SKILLS_DISABLED.skillConfig,
+      "/home/tester",
+      PRIVATE_PROJECT_SKILLS,
+    ).get("planner");
 
     expect(source).toMatchObject({
       sourceIdentity: "project:planner",
@@ -450,7 +478,12 @@ describe("native-skill-projection", () => {
       return readdirFallback(targetPath);
     });
 
-    const source = discoverSkillProjectionSources(projectPath, SKILLS_DISABLED.skillConfig, "/home/tester", PRIVATE_PROJECT_SKILLS).get("planner");
+    const source = discoverSkillProjectionSources(
+      projectPath,
+      SKILLS_DISABLED.skillConfig,
+      "/home/tester",
+      PRIVATE_PROJECT_SKILLS,
+    ).get("planner");
 
     expect(source).toMatchObject({
       sourceIdentity: "project:planner",
@@ -470,7 +503,12 @@ describe("native-skill-projection", () => {
       return readdirMissing(targetPath);
     });
 
-    const source = discoverSkillProjectionSources(projectPath, SKILLS_DISABLED.skillConfig, "/home/tester", PRIVATE_PROJECT_SKILLS).get("planner");
+    const source = discoverSkillProjectionSources(
+      projectPath,
+      SKILLS_DISABLED.skillConfig,
+      "/home/tester",
+      PRIVATE_PROJECT_SKILLS,
+    ).get("planner");
 
     expect(source).toMatchObject({ sourceIdentity: "user:planner", sourceDir: skillDir });
   });
@@ -530,7 +568,7 @@ describe("native-skill-projection", () => {
 
     expect(result.codex).toBe(false);
     expect(result.errors).toContain(
-      "Codex skill \"planner\" file \"SKILL.md\" failed: managed projection identity mismatch",
+      'Codex skill "planner" file "SKILL.md" failed: managed projection identity mismatch',
     );
     expect(fsMocks.files.get(join("/home/tester", ".codex", "skills", "planner", "SKILL.md"))).toBe(PLANNER_SKILL);
   });
@@ -552,7 +590,7 @@ describe("native-skill-projection", () => {
 
     expect(blocked.codex).toBe(false);
     expect(blocked.errors).toContain(
-      "Codex skill \"planner\" file \"SKILL.md\" failed: unmanaged skill file exists; rerun with force after review",
+      'Codex skill "planner" file "SKILL.md" failed: unmanaged skill file exists; rerun with force after review',
     );
     expect(fsMocks.files.get(codexSkillPath)).toBe("operator-owned content\n");
 
@@ -563,20 +601,24 @@ describe("native-skill-projection", () => {
     fsMocks.files.delete(GLOBAL_NATIVE_PROJECTION_STATE);
     writeFileSyncMock.mockClear();
     const adoptionPlan = await syncNativeSkillProjections(projectPath, { ...SKILLS_DISABLED, dryRun: true });
-    expect(adoptionPlan.outcomes).toContainEqual(expect.objectContaining({
-      targetId: "codex-skill:planner/SKILL.md",
-      status: "planned",
-      reason: "adopted byte-identical unmanaged skill file",
-    }));
+    expect(adoptionPlan.outcomes).toContainEqual(
+      expect.objectContaining({
+        targetId: "codex-skill:planner/SKILL.md",
+        status: "planned",
+        reason: "adopted byte-identical unmanaged skill file",
+      }),
+    );
     expect(fsMocks.files.has(GLOBAL_NATIVE_PROJECTION_STATE)).toBe(false);
 
     const adopted = await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);
     expect(adopted.codex).toBe(true);
-    expect(adopted.outcomes).toContainEqual(expect.objectContaining({
-      targetId: "codex-skill:planner/SKILL.md",
-      status: "unchanged",
-      reason: "adopted byte-identical unmanaged skill file",
-    }));
+    expect(adopted.outcomes).toContainEqual(
+      expect.objectContaining({
+        targetId: "codex-skill:planner/SKILL.md",
+        status: "unchanged",
+        reason: "adopted byte-identical unmanaged skill file",
+      }),
+    );
     expect(writeFileSyncMock).not.toHaveBeenCalledWith(codexSkillPath, expect.anything(), expect.anything());
   });
 
@@ -600,7 +642,7 @@ describe("native-skill-projection", () => {
     delete target.harness;
     delete target.sourceIdentity;
     target.contentHash = "historical-snapshot";
-    target.managedFieldHashes = { "$file": "historical-snapshot" };
+    target.managedFieldHashes = { $file: "historical-snapshot" };
     fsMocks.files.set(statePath, JSON.stringify(state));
     writeFileSyncMock.mockClear();
 
@@ -608,7 +650,7 @@ describe("native-skill-projection", () => {
 
     expect(result.codex).toBe(false);
     expect(result.errors).toContain(
-      "Codex skill \"planner\" file \"SKILL.md\" failed: managed projection identity mismatch",
+      'Codex skill "planner" file "SKILL.md" failed: managed projection identity mismatch',
     );
     expect(fsMocks.files.get(join("/home/tester", ".codex", "skills", "planner", "SKILL.md"))).toBe(PLANNER_SKILL);
     expect(writeFileSyncMock).not.toHaveBeenCalledWith(
@@ -659,9 +701,42 @@ describe("native-skill-projection", () => {
     expect(result.synced).toBe(3);
     expect(writeFileSyncMock).toHaveBeenCalledWith(
       join("/home/tester", ".codex", "skills", "verification-evidence", "SKILL.md"),
-      expect.stringMatching(/name: verification-evidence[\s\S]*capability\.search[\s\S]*repository-owned verification commands/u),
+      expect.stringMatching(
+        /name: verification-evidence[\s\S]*capability\.search[\s\S]*repository-owned verification commands/u,
+      ),
       "utf-8",
     );
+  });
+
+  it("projects canonical writing and research procedures through the existing native catalog", async () => {
+    readdirSyncMock.mockImplementation((targetPath: string) => {
+      if (targetPath.endsWith(join(".kiln", "skills"))) return readdirMissing(targetPath);
+      return readdirFallback(targetPath);
+    });
+    const names = [
+      "writing-issues",
+      "writing-pr",
+      "problem-clarification",
+      "clear-writing",
+      "research",
+      "documentation-hygiene",
+      "repository-text-hygiene",
+    ];
+    const result = await syncNativeSkillProjections("/workspace/project", {
+      projectSkillsDirectory: PRIVATE_PROJECT_SKILLS,
+      skillConfig: { builtin: { include: names } },
+    });
+    expect(result.errors).toEqual([]);
+    expect(result.synced).toBe(21);
+    for (const skill of resolveKilnCoreBuiltinSkills({ include: names })) {
+      for (const root of [join(".codex", "skills"), join(".claude", "skills"), join(".config", "opencode", "skills")]) {
+        expect(writeFileSyncMock).toHaveBeenCalledWith(
+          join("/home/tester", root, skill.name, "SKILL.md"),
+          renderSkillMarkdown(skill),
+          "utf-8",
+        );
+      }
+    }
   });
 
   it("plans every builtin skill file without creating directories, files, backups, or install state", async () => {
@@ -699,10 +774,12 @@ describe("native-skill-projection", () => {
       status: "skipped",
       reason: "Codex harness is disabled",
     });
-    expect(result.outcomes).not.toContainEqual(expect.objectContaining({
-      targetId: expect.stringMatching(/^codex-skill:/),
-      status: "planned",
-    }));
+    expect(result.outcomes).not.toContainEqual(
+      expect.objectContaining({
+        targetId: expect.stringMatching(/^codex-skill:/),
+        status: "planned",
+      }),
+    );
   });
 
   it("skill files are copied to all three target directories", async () => {
@@ -818,7 +895,10 @@ describe("native-skill-projection", () => {
 
     expect(result.errors).toHaveLength(0);
     const state = JSON.parse(fsMocks.files.get(GLOBAL_NATIVE_PROJECTION_STATE) ?? "{}") as {
-      targets: Record<string, { projectionKind?: string; managedFields: string[]; harness?: string; sourceIdentity?: string }>;
+      targets: Record<
+        string,
+        { projectionKind?: string; managedFields: string[]; harness?: string; sourceIdentity?: string }
+      >;
     };
     expect(Object.keys(state.targets).sort()).toEqual([
       "claude-skill:planner/SKILL.md",
@@ -877,19 +957,27 @@ describe("native-skill-projection", () => {
     const result = await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);
 
     expect(result.errors).toEqual([]);
-    expect(result.outcomes).toEqual(expect.arrayContaining(targetFiles.map(({ target, path }) => ({
-      targetId: `${target}-skill:planner/SKILL.md`,
-      path,
-      status: "unchanged",
-      reason: "reconciled managed skill file snapshot",
-    }))));
-    expect(writeFileSyncMock.mock.calls.some(([path]) => targetFiles.some((target) => target.path === path))).toBe(false);
+    expect(result.outcomes).toEqual(
+      expect.arrayContaining(
+        targetFiles.map(({ target, path }) => ({
+          targetId: `${target}-skill:planner/SKILL.md`,
+          path,
+          status: "unchanged",
+          reason: "reconciled managed skill file snapshot",
+        })),
+      ),
+    );
+    expect(writeFileSyncMock.mock.calls.some(([path]) => targetFiles.some((target) => target.path === path))).toBe(
+      false,
+    );
     expect(writeFileSyncMock.mock.calls.some(([path]) => String(path).includes(".kiln/backups/"))).toBe(false);
 
     const repairedState = JSON.parse(fsMocks.files.get(statePath) ?? "{}") as {
       targets: Record<string, { contentHash: string; managedFieldHashes: Record<string, string> }>;
     };
-    expect(Object.values(repairedState.targets).every((target) => target.contentHash !== "historical-snapshot")).toBe(true);
+    expect(Object.values(repairedState.targets).every((target) => target.contentHash !== "historical-snapshot")).toBe(
+      true,
+    );
     for (const { path } of targetFiles) {
       expect(fsMocks.files.get(path)).toBe(PLANNER_SKILL);
     }
@@ -994,7 +1082,7 @@ describe("native-skill-projection", () => {
     expect(second.codex).toBe(false);
     expect(second.opencode).toBe(true);
     expect(second.errors).toEqual([
-      "Codex skill \"planner\" file \"SKILL.md\" failed: managed file drift detected: file content",
+      'Codex skill "planner" file "SKILL.md" failed: managed file drift detected: file content',
     ]);
     expect(fsMocks.files.get(codexSkillPath)).toBe("user drift\n");
 
@@ -1010,22 +1098,25 @@ describe("native-skill-projection", () => {
     const kilnDir = dirname(GLOBAL_NATIVE_PROJECTION_STATE);
     const removedPath = join("/home/tester", ".codex", "skills", "removed", "SKILL.md");
     fsMocks.files.set(removedPath, "removed\n");
-    fsMocks.files.set(join(kilnDir, "install-state.json"), JSON.stringify({
-      version: 1,
-      targets: {
-        "codex-skill:removed/SKILL.md": {
-          targetId: "codex-skill:removed/SKILL.md",
-          filePath: removedPath,
-          projectionKind: "file",
-          contentHash: "ignored",
-          managedFields: ["$file"],
-          managedFieldHashes: {
-            "$file": "6b95743f7339e0aff16c1d1b9f453711ffcdc3fed9b6787af264f9601c4e2961",
+    fsMocks.files.set(
+      join(kilnDir, "install-state.json"),
+      JSON.stringify({
+        version: 1,
+        targets: {
+          "codex-skill:removed/SKILL.md": {
+            targetId: "codex-skill:removed/SKILL.md",
+            filePath: removedPath,
+            projectionKind: "file",
+            contentHash: "ignored",
+            managedFields: ["$file"],
+            managedFieldHashes: {
+              $file: "6b95743f7339e0aff16c1d1b9f453711ffcdc3fed9b6787af264f9601c4e2961",
+            },
+            updatedAt: "2026-07-22T00:00:00.000Z",
           },
-          updatedAt: "2026-07-22T00:00:00.000Z",
         },
-      },
-    }));
+      }),
+    );
     readdirSyncMock.mockImplementation((targetPath: string) => {
       return readdirMissing(targetPath);
     });
@@ -1048,20 +1139,23 @@ describe("native-skill-projection", () => {
     const skillSourceDir = join(globalDir, "planner");
     const codexSkillPath = join("/home/tester", ".codex", "skills", "planner", "SKILL.md");
     fsMocks.files.set(codexSkillPath, PLANNER_SKILL);
-    fsMocks.files.set(join(kilnDir, "install-state.json"), JSON.stringify({
-      version: 1,
-      targets: {
-        "codex-skill:planner/skill.md": {
-          targetId: "codex-skill:planner/skill.md",
-          filePath: codexSkillPath,
-          projectionKind: "file",
-          contentHash: "legacy",
-          managedFields: ["$file"],
-          managedFieldHashes: { "$file": "legacy" },
-          updatedAt: "2026-07-22T00:00:00.000Z",
+    fsMocks.files.set(
+      join(kilnDir, "install-state.json"),
+      JSON.stringify({
+        version: 1,
+        targets: {
+          "codex-skill:planner/skill.md": {
+            targetId: "codex-skill:planner/skill.md",
+            filePath: codexSkillPath,
+            projectionKind: "file",
+            contentHash: "legacy",
+            managedFields: ["$file"],
+            managedFieldHashes: { $file: "legacy" },
+            updatedAt: "2026-07-22T00:00:00.000Z",
+          },
         },
-      },
-    }));
+      }),
+    );
     readdirSyncMock.mockImplementation((targetPath: string) => {
       if (targetPath === globalDir) return [dirent("planner", true)];
       if (targetPath === skillSourceDir) return [dirent("SKILL.md", false)];

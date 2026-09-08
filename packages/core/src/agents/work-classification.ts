@@ -167,7 +167,7 @@ export function recommendedSkillsForWorkClassification(
     recommended.push("codebase-scouting");
   }
   if (isResearch && classification.evidenceScopes?.some((scope) => scope === "external" || scope === "provided")) {
-    recommended.push("research-workflow");
+    recommended.push("research");
   }
   if (classification.modes?.includes("delegate")) {
     recommended.push("orchestration-workflow");

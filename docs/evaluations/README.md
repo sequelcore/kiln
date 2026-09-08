@@ -27,6 +27,9 @@ Public claims require the evidence gates defined there.
 
 ## Doctrine Evaluations
 
+- [Writing Skills 2026](writing-skills-2026.md)
+- [Research Skill 2026](research-skill-2026.md)
+
 - [Architectural Legibility Baseline 2026](architectural-legibility-baseline-2026.md)
 - [Concise Communication Default 2026](communication-concise-default-2026.md)
 - [Codex Native-Continuity Prepilot 2026](native-continuity-codex-prepilot-2026.md)

@@ -144,7 +144,7 @@ Primary capability sources are the current
 Claim support is not citation presence. ALCE separates citation entailment and
 completeness, while systematic- and rapid-review guidance shows that search
 shortcuts can materially change conclusions. Kiln therefore requires an
-explicit systematic, rapid, or decision-oriented mode; claim-dependent source
+proportional planning and an honest account of the method performed; claim-dependent source
 selection; independent evidence-lineage accounting; contradiction and adverse
 evidence handling; citation existence, entailment, scope, placement, and
 coverage checks; and an honest stopping rule. See
@@ -157,6 +157,117 @@ repetitions, uncertainty, exclusions, evaluator evidence, contamination risk,
 and domain limits in proportion to the decision. General research procedure
 does not replace specialist legal, medical, financial, regulatory, security,
 scientific-method, or benchmark review.
+
+## Research reassessment, September 8, 2026
+
+This decision-oriented review compares the existing procedure with current
+community instructions, research-system reports, reporting guidance, and citation
+evaluation research. It is a design review, not a systematic literature review
+or an effectiveness experiment. The procedure was subsequently refactored around
+the decisions below; comparative effectiveness remains untested.
+
+Search covered Matt Pocock's upstream research skill, the installed OpenAI
+deep-research artifact skill, Anthropic's research-system engineering report,
+OpenAI's deep-research system card, PRISMA, Cochrane rapid-review guidance, ALCE,
+and recent deep-research benchmarks. Queries included `deep research agents
+benchmark citation faithfulness 2026`, `Cochrane rapid reviews methods guidance
+2024`, and `mattpocock skills research SKILL.md`. The review stopped after covering
+proportionality, search adaptation, evidence transfer, citation evaluation, and
+method-label limitations. It did not rank community popularity or reproduce the
+benchmarks. The BMJ full text was inaccessible through the browsing tool;
+Cochrane's own overview was inspected instead.
+
+### Contributions and limits of the inspected sources
+
+- [Matt Pocock research](https://github.com/mattpocock/skills/blob/main/skills/engineering/research/SKILL.md)
+  is a very small procedure: delegate background reading, trace claims to primary
+  owners, and save one cited file using repository conventions. Its economy and
+  durable output are useful. Mandatory delegation is a harness choice, and
+  primary-only selection is tailored to engineering facts, not a universal rule
+  for empirical synthesis. This mutable source was read on the cutoff date;
+  no effectiveness study accompanies the inspected instructions.
+- The installed OpenAI `deep-research-work` skill, version 0.1.15, improves
+  explicit attention to user-provided sources, scope, dates, jurisdiction,
+  supersession, and useful artifacts. Its default comprehensive artifact lengths
+  and initial clarification flow serve that product workflow, not every Kiln
+  lookup. This is a local package observation, not a claim about all OpenAI
+  research products or their quality.
+- [Anthropic's June 2025 system report](https://www.anthropic.com/engineering/multi-agent-research-system)
+  describes adapting searches, scaling effort, tracing execution failures, and
+  evaluating factuality, citation accuracy, completeness, and tool efficiency.
+  It also reports high resource use and coordination failures. Borrow the
+  outcome-oriented evaluation and adaptive search, not fixed agent counts or
+  automatic parallel delegation. These are vendor-specific engineering results.
+- [OpenAI's deep-research system card](https://cdn.openai.com/deep-research-system-card.pdf),
+  section 3.3.6, notes that stale PersonQA reference answers made some accurate
+  outputs appear erroneous. Evaluation fixtures need observation dates and
+  review of changed facts. This is a documented evaluation limitation, not a
+  current-model performance claim.
+- [PRISMA 2020](https://www.prisma-statement.org/prisma-2020) is reporting guidance
+  for systematic reviews. [Cochrane's rapid-review overview](https://methods.cochrane.org/rapidreviews/cochrane-rr-methods)
+  describes a developed methodology for rapid effectiveness reviews. Neither
+  supports treating a declared mode or time limit as sufficient methodological
+  rigor. An ordinary time-limited web search should be described as such.
+- [ALCE](https://aclanthology.org/2023.emnlp-main.398/) distinguishes answer
+  correctness and citation quality. [DeepResearch Bench](https://arxiv.org/abs/2506.11763)
+  describes adaptive report criteria and citation evaluation across 100 research
+  tasks. Their benchmark descriptions inform evaluation dimensions; no published
+  model ranking is transferred to Kiln.
+- [Hirsch et al., August 2026](https://arxiv.org/abs/2608.24306), reports a method
+  for locating faithfulness and citation errors at individual agent invocations.
+  Its abstract describes errors introduced during evidence transfer and synthesis.
+  [DRNOISE, July 2026](https://arxiv.org/abs/2607.17291), describes a constructed
+  benchmark where plausible direct false claims compete with supporting record
+  chains. These abstracts motivate handoff and misleading-evidence test cases.
+  Full experimental methods were not appraised here, so effect sizes and broad
+  claims about deployed systems are not adopted.
+
+### Refactor decisions
+
+Keep claim-dependent source choice, independence accounting, explicit uncertainty,
+contradiction handling, quantitative appraisal, and untrusted-content boundaries.
+Replace the long universal declaration and rigid `status:` output requirement
+with proportional planning and an answer appropriate to the user's request.
+Research completion should be stated when useful, without making a presentation
+token stand in for verified coverage.
+
+Distinguish a focused lookup, a decision-oriented investigation, and a formal
+evidence review. These are effort and method distinctions, not quality rankings.
+A lookup can finish when the relevant authoritative fact and version are
+verified. A decision investigation needs coverage of material alternatives and
+uncertainties. A formal review needs an explicit protocol, search scope,
+eligibility criteria, screening, and appraisal; do not imply that naming it
+systematic makes it so. Domain methods still belong to specialist procedures.
+
+Use an adaptive loop: identify the unresolved claim, choose a source that could
+resolve it, inspect the result, update the evidence, then choose the next query.
+After weak results, change terminology, source family, or retrieval route rather
+than repeating the same search. Search failure means not found or inaccessible,
+not nonexistent. Stop when further feasible searches are unlikely to change the
+answer, or report exactly which decisive evidence remains unavailable.
+
+Keep compact evidence notes for substantial investigations: claim, supporting
+passage or location, exact source/version/date, evidence lineage, limitations,
+and whether support is direct or inferred. Preserve those links through summaries
+and delegated work. A worker summary is not itself source verification. Inspect
+the original support for consequential final claims; do not treat citation repair
+after drafting as a substitute for grounded synthesis.
+
+Make synthesis explicit: compare alternatives using the same criteria, explain
+whether apparent conflicts arise from scope or method, and weight evidence by
+quality rather than vote count. A vendor owns its API specification but does not
+thereby prove a comparative benefit. Separate the factual conclusion from the
+recommendation and state what unresolved evidence could change that recommendation.
+
+Evaluate the current skill, a minimal version, and the replacement on matched
+tasks before claiming improvement. Include a simple version lookup, inaccessible
+source, stale reference answer, copied reports from one study, contradictory
+versions, unsupported citation, evidence lost in a summary, plausible misleading
+page, and an unanswerable question. Score supported-answer correctness, material
+coverage, citation entailment and coverage, appropriate abstention, and effort.
+Do not reward length, source count, self-assigned confidence, or checklist wording.
+Maintain dated fixtures and inspect automated-judge disagreements with human
+review. No such comparison was performed in this pass.
 
 ## Operational consequence
 

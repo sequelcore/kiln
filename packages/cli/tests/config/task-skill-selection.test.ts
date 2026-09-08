@@ -7,17 +7,11 @@ import { resolveTaskSkillSelection } from "../../src/config/task-skill-selection
 function writeSkill(root: string, name: string, instructions = "Use this skill."): void {
   const dir = join(root, ".kiln", "skills", name);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "SKILL.md"), [
-    "---",
-    `name: ${name}`,
-    `description: ${name} skill.`,
-    "---",
-    "",
-    `# ${name}`,
-    "",
-    instructions,
-    "",
-  ].join("\n"), "utf-8");
+  writeFileSync(
+    join(dir, "SKILL.md"),
+    ["---", `name: ${name}`, `description: ${name} skill.`, "---", "", `# ${name}`, "", instructions, ""].join("\n"),
+    "utf-8",
+  );
 }
 
 describe("task skill selection work classification", () => {
@@ -59,11 +53,13 @@ describe("task skill selection work classification", () => {
 
     expect(selection.skillNames).toEqual([]);
     expect(selection.autoSkillNames).toEqual([]);
-    expect(selection.workRecommendedSkillDiagnostics).toEqual([{
-      skillName: "clear-writing",
-      state: "advisory",
-      reason: "skills.selection.mode is advisory; recommendation was not auto-admitted.",
-    }]);
+    expect(selection.workRecommendedSkillDiagnostics).toEqual([
+      {
+        skillName: "clear-writing",
+        state: "advisory",
+        reason: "skills.selection.mode is advisory; recommendation was not auto-admitted.",
+      },
+    ]);
   });
 
   it("auto-admits clear-writing for explicit writing work classification", () => {
@@ -91,11 +87,13 @@ describe("task skill selection work classification", () => {
     expect(selection.skillNames).toEqual(["clear-writing"]);
     expect(selection.autoSkillNames).toEqual(["clear-writing"]);
     expect(selection.workRecommendedSkillNames).toEqual(["clear-writing"]);
-    expect(selection.workRecommendedSkillDiagnostics).toEqual([{
-      skillName: "clear-writing",
-      state: "admitted",
-      reason: "Recommended by work classification and admitted by auto selection.",
-    }]);
+    expect(selection.workRecommendedSkillDiagnostics).toEqual([
+      {
+        skillName: "clear-writing",
+        state: "admitted",
+        reason: "Recommended by work classification and admitted by auto selection.",
+      },
+    ]);
     expect(selection.contextCandidates[0]?.content).toContain("# clear-writing");
   });
 
@@ -107,7 +105,7 @@ describe("task skill selection work classification", () => {
       userHome: root,
       skillConfig: {
         selection: { mode: "auto" },
-        builtin: { enabled: true, include: ["research-workflow"] },
+        builtin: { enabled: true, include: ["research"] },
       },
       selection: { mode: "auto" },
       workClassification: {
@@ -118,14 +116,16 @@ describe("task skill selection work classification", () => {
       requesterLabel: "Task skill selection",
     });
 
-    expect(selection.skillNames).toEqual(["research-workflow"]);
-    expect(selection.autoSkillNames).toEqual(["research-workflow"]);
-    expect(selection.workRecommendedSkillDiagnostics).toEqual([{
-      skillName: "research-workflow",
-      state: "admitted",
-      reason: "Recommended by work classification and admitted by auto selection.",
-    }]);
-    expect(selection.contextCandidates[0]?.content).toContain("# Research Workflow");
+    expect(selection.skillNames).toEqual(["research"]);
+    expect(selection.autoSkillNames).toEqual(["research"]);
+    expect(selection.workRecommendedSkillDiagnostics).toEqual([
+      {
+        skillName: "research",
+        state: "admitted",
+        reason: "Recommended by work classification and admitted by auto selection.",
+      },
+    ]);
+    expect(selection.contextCandidates[0]?.content).toContain("# Research\n");
     expect(selection.projectionEvidence.selections[0]?.selectionReason).toBe("auto");
   });
 
@@ -137,7 +137,7 @@ describe("task skill selection work classification", () => {
       userHome: root,
       skillConfig: {
         selection: { mode: "auto" },
-        builtin: { enabled: true, include: ["codebase-scouting", "research-workflow"] },
+        builtin: { enabled: true, include: ["codebase-scouting", "research"] },
       },
       selection: { mode: "auto" },
       workClassification: {
@@ -150,7 +150,7 @@ describe("task skill selection work classification", () => {
 
     expect(selection.skillNames).toEqual(["codebase-scouting"]);
     expect(selection.contextCandidates[0]?.content).toContain("# Codebase Scouting");
-    expect(selection.contextCandidates[0]?.content).not.toContain("# Research Workflow");
+    expect(selection.contextCandidates[0]?.content).not.toContain("# Research\n");
   });
 
   it("does not guess a research procedure from unscoped research", () => {
@@ -161,7 +161,7 @@ describe("task skill selection work classification", () => {
       userHome: root,
       skillConfig: {
         selection: { mode: "auto" },
-        builtin: { enabled: true, include: ["codebase-scouting", "research-workflow"] },
+        builtin: { enabled: true, include: ["codebase-scouting", "research"] },
       },
       selection: { mode: "auto" },
       workClassification: {
@@ -198,27 +198,31 @@ describe("task skill selection work classification", () => {
 
     expect(selection.skillNames).toEqual([]);
     expect(selection.unavailableAutoSkillNames).toEqual(["clear-writing"]);
-    expect(selection.workRecommendedSkillDiagnostics).toEqual([{
-      skillName: "clear-writing",
-      state: "unavailable",
-      reason: "Recommended by work classification but not found in the governed Kiln registry.",
-    }]);
+    expect(selection.workRecommendedSkillDiagnostics).toEqual([
+      {
+        skillName: "clear-writing",
+        state: "unavailable",
+        reason: "Recommended by work classification but not found in the governed Kiln registry.",
+      },
+    ]);
   });
 
   it("rejects explicitly requested skills disabled by catalog visibility", () => {
     const root = tempRoot();
     writeSkill(root, "selected-skill");
 
-    expect(() => resolveTaskSkillSelection({
-      explicitSkills: ["selected-skill"],
-      projectPath: root,
-      userHome: root,
-      skillConfig: {
-        builtin: { enabled: false },
-        visibility: { overrides: { "selected-skill": "disabled" } },
-      },
-      requesterLabel: "Task skill selection",
-    })).toThrow("Task skill selection references unavailable skill(s): selected-skill");
+    expect(() =>
+      resolveTaskSkillSelection({
+        explicitSkills: ["selected-skill"],
+        projectPath: root,
+        userHome: root,
+        skillConfig: {
+          builtin: { enabled: false },
+          visibility: { overrides: { "selected-skill": "disabled" } },
+        },
+        requesterLabel: "Task skill selection",
+      }),
+    ).toThrow("Task skill selection references unavailable skill(s): selected-skill");
   });
 
   it("does not auto-admit a disabled work-recommended skill", () => {
@@ -270,11 +274,13 @@ describe("task skill selection work classification", () => {
       catalogSkillCount: 2,
       selectedSkillCount: 1,
       deferredSkillCount: 1,
-      selections: [{
-        skillName: "selected-skill",
-        selectionReason: "explicit",
-        materializationSource: "filesystem",
-      }],
+      selections: [
+        {
+          skillName: "selected-skill",
+          selectionReason: "explicit",
+          materializationSource: "filesystem",
+        },
+      ],
     });
     expect(selection.projectionEvidence.catalogMetadataBytes).toBeGreaterThan(0);
     expect(selection.projectionEvidence.selectedContextBytes).toBeGreaterThan(0);
@@ -287,9 +293,14 @@ describe("task skill selection work classification", () => {
     const root = tempRoot();
     writeSkill(root, "broken-skill", "Read [missing](references/missing.md).");
 
-    expect(() => resolveTaskSkillSelection({
-      explicitSkills: ["broken-skill"], projectPath: root, userHome: root,
-      skillConfig: { builtin: { enabled: false } }, requesterLabel: "Task skill selection",
-    })).toThrow(/blocked skill.*broken-skill.*missing/i);
+    expect(() =>
+      resolveTaskSkillSelection({
+        explicitSkills: ["broken-skill"],
+        projectPath: root,
+        userHome: root,
+        skillConfig: { builtin: { enabled: false } },
+        requesterLabel: "Task skill selection",
+      }),
+    ).toThrow(/blocked skill.*broken-skill.*missing/i);
   });
 });

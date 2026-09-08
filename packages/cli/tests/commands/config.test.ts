@@ -173,7 +173,7 @@ describe("configCommand", () => {
       version: 1,
       harnesses: { codex: { expectedFingerprint: `sha256:${"b".repeat(64)}`, keepImplicit: [{ sourceId: "plugin:docs:pdf:.", packageDigest: `sha256:${"a".repeat(64)}` }] } },
     };
-    const builtin = { enabled: true, include: ["research-workflow", "orchestration-workflow"] };
+    const builtin = { enabled: true, include: ["research", "orchestration-workflow"] };
     await configCommand(MOCK_APP_CONFIG, "set", ["--global", "skills.builtin", JSON.stringify(builtin), "--approve"], tempDir);
     await configCommand(MOCK_APP_CONFIG, "set", ["--global", "skills.visibility.default", "explicit-only", "--approve"], tempDir);
     await configCommand(MOCK_APP_CONFIG, "set", ["--global", "skills.visibility.overrides", '{"pdf":"implicit"}', "--approve"], tempDir);

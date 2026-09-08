@@ -1,9 +1,6 @@
 import { stringify } from "yaml";
 import type { SkillConfig } from "./types.js";
-import {
-  createSkillPortabilityMetadata,
-  type DeclaredSkillPortability,
-} from "./skill-portability.js";
+import { createSkillPortabilityMetadata, type DeclaredSkillPortability } from "./skill-portability.js";
 
 export interface BuiltinSkillPolicy {
   readonly enabled?: boolean;
@@ -11,7 +8,8 @@ export interface BuiltinSkillPolicy {
   readonly exclude?: readonly string[];
 }
 
-export const KILN_CONTROL_PLANE_SERVER_INSTRUCTIONS = "Discover Kiln control-plane tools and read current schemas. Inspect status, work governance, and capability evidence before authority-dependent work. Managed-job acceptance is asynchronous, not completion: preserve the job id and reconcile status, result, cancellation, and replay. Reuse a stable idempotency key for the same logical request. Never choose routes, credentials, budgets, permissions, or approvals, and never replace a missing operation with CLI, shell, native subprocess, or direct HTTP.";
+export const KILN_CONTROL_PLANE_SERVER_INSTRUCTIONS =
+  "Discover Kiln control-plane tools and read current schemas. Inspect status, work governance, and capability evidence before authority-dependent work. Managed-job acceptance is asynchronous, not completion: preserve the job id and reconcile status, result, cancellation, and replay. Reuse a stable idempotency key for the same logical request. Never choose routes, credentials, budgets, permissions, or approvals, and never replace a missing operation with CLI, shell, native subprocess, or direct HTTP.";
 
 function defineBuiltinSkill(input: {
   readonly name: string;
@@ -42,7 +40,8 @@ function defineBuiltinSkill(input: {
 export const KILN_CORE_BUILTIN_SKILLS: readonly SkillConfig[] = [
   defineBuiltinSkill({
     name: "agent-context-doctor",
-    description: "Diagnose repository guidance ownership and private/global leakage, classify content, and propose a safe diff without mutating project files.",
+    description:
+      "Diagnose repository guidance ownership and private/global leakage, classify content, and propose a safe diff without mutating project files.",
     tools: ["read", "grep", "glob"],
     tags: ["kiln", "context", "repository", "doctor"],
     instructions: `
@@ -99,7 +98,8 @@ the proposed change and the owning authority is clear.
   }),
   defineBuiltinSkill({
     name: "repo-context-review",
-    description: "Validate private reviewed project context against durable, conflicting, and incomplete repository evidence before adoption.",
+    description:
+      "Validate private reviewed project context against durable, conflicting, and incomplete repository evidence before adoption.",
     tools: ["read", "grep", "glob", "bash"],
     tags: ["kiln", "project-context", "repository"],
     instructions: `
@@ -153,7 +153,8 @@ Output:
   }),
   defineBuiltinSkill({
     name: "codebase-scouting",
-    description: "Investigate unclear repository ownership, dependencies, or affected tests before a consequential change.",
+    description:
+      "Investigate unclear repository ownership, dependencies, or affected tests before a consequential change.",
     tools: ["read", "grep", "glob", "bash"],
     tags: ["engineering", "scouting", "codebase"],
     instructions: `
@@ -220,7 +221,8 @@ Output:
   }),
   defineBuiltinSkill({
     name: "implementation-planning",
-    description: "Produce repository-evidenced implementation sequences for scoped, nontrivial changes with decisions, dependencies, verification, and recovery.",
+    description:
+      "Produce repository-evidenced implementation sequences for scoped, nontrivial changes with decisions, dependencies, verification, and recovery.",
     tools: ["read", "grep", "glob"],
     tags: ["engineering", "planning"],
     instructions: `
@@ -289,7 +291,8 @@ structured plan, work-item, or approval system when one exists.
   }),
   defineBuiltinSkill({
     name: "tdd-workflow",
-    description: "Design behavior-focused tests and small red-green-refactor loops from trustworthy executable oracles.",
+    description:
+      "Design behavior-focused tests and small red-green-refactor loops from trustworthy executable oracles.",
     tools: ["read", "grep", "glob", "bash", "write"],
     tags: ["engineering", "testing", "tdd"],
     instructions: `
@@ -375,7 +378,8 @@ productivity.
   }),
   defineBuiltinSkill({
     name: "verification-evidence",
-    description: "Match implementation claims to current verification evidence through Kiln capability discovery, with a repository-command fallback when the fabric is unavailable.",
+    description:
+      "Match implementation claims to current verification evidence through Kiln capability discovery, with a repository-command fallback when the fabric is unavailable.",
     tools: ["capability.search", "capability.describe"],
     tags: ["kiln", "verification", "evidence", "capability"],
     instructions: `
@@ -413,7 +417,8 @@ executable paths, or replace unavailable evidence with a stronger claim.
   }),
   defineBuiltinSkill({
     name: "code-review-findings",
-    description: "Review completed code changes findings-first with severity, evidence, actionable defect risk, and verification gaps.",
+    description:
+      "Review completed code changes findings-first with severity, evidence, actionable defect risk, and verification gaps.",
     tools: ["read", "grep", "glob", "bash"],
     tags: ["engineering", "review"],
     instructions: `
@@ -470,7 +475,8 @@ Do not rewrite the author's intent unless the evidence shows a real problem.
   }),
   defineBuiltinSkill({
     name: "clean-architecture-boundary-review",
-    description: "Review dependency direction, runtime coupling, contract ownership, and boundary tradeoffs without rewarding speculative abstraction.",
+    description:
+      "Review dependency direction, runtime coupling, contract ownership, and boundary tradeoffs without rewarding speculative abstraction.",
     tools: ["read", "grep", "glob"],
     tags: ["architecture", "clean-architecture", "review"],
     instructions: `
@@ -523,7 +529,8 @@ reachability; do not invent a finding when evidence supports none.
   }),
   defineBuiltinSkill({
     name: "ddd-boundary-review",
-    description: "Review domain language, bounded contexts, aggregate invariants, integration relationships, and justified DDD scope.",
+    description:
+      "Review domain language, bounded contexts, aggregate invariants, integration relationships, and justified DDD scope.",
     tools: ["read", "grep", "glob"],
     tags: ["architecture", "ddd", "review"],
     instructions: `
@@ -686,7 +693,8 @@ Workflow:
   }),
   defineBuiltinSkill({
     name: "security-scope-review",
-    description: "Trace authority, untrusted data, credentials, and consequential effects to evidence-backed enforcement boundaries.",
+    description:
+      "Trace authority, untrusted data, credentials, and consequential effects to evidence-backed enforcement boundaries.",
     tools: ["read", "grep", "glob", "bash"],
     tags: ["security", "review", "safety"],
     instructions: `
@@ -733,7 +741,8 @@ the general enforcement, credential, untrusted-data, and disclosure paths.
   }),
   defineBuiltinSkill({
     name: "managed-agent-risk-review",
-    description: "Audit managed-child identity, attenuated authority, lifecycle settlement, evidence integrity, and honest replay limits.",
+    description:
+      "Audit managed-child identity, attenuated authority, lifecycle settlement, evidence integrity, and honest replay limits.",
     tools: ["read", "grep", "glob"],
     tags: ["kiln", "managed-agents", "architecture", "review"],
     instructions: `
@@ -783,11 +792,12 @@ residual limitation.
 `,
   }),
   defineBuiltinSkill({
-    name: "research-workflow",
-    description: "Research current questions with claim-bound sources, explicit methods, contradiction handling, and calibrated uncertainty.",
+    name: "research",
+    description:
+      "Research current questions with claim-bound sources, explicit methods, contradiction handling, and calibrated uncertainty.",
     tags: ["research", "evidence", "sources"],
     instructions: `
-# Research Workflow
+# Research
 
 Use this skill for technical, product, standards, scientific, market, or
 architecture research that must support a decision with verifiable evidence.
@@ -796,64 +806,81 @@ not map repository ownership, dependency paths, or affected tests; route that
 internal impact analysis to codebase scouting and use both only for an explicit
 repository-to-external comparison.
 
-Before searching:
-1. State the decision, atomic questions, scope, definitions, cutoff date,
-   required precision, non-goals, deliverable, and stopping rule. Choose and
-   label the mode as systematic, rapid, or decision-oriented; never imply a
-   stronger or more comprehensive method than was performed.
-2. Decompose each material conclusion into claims and evidence needs. Select
-   source types by claim: current first-party authority for specifications,
-   laws, versions, and product behavior; primary studies and suitable current
-   syntheses for empirical effects; original methods or standards for method
-   claims; reputable secondary sources for discovery, context, or synthesis.
-   Source priority depends on the claim, not one universal hierarchy.
+Scale the investigation:
+- Infer the question, intended decision, scope, and relevant date or version
+  from the request. Ask only when missing information materially changes the
+  investigation. Respect supplied evidence and source restrictions.
+- A focused lookup can finish once the relevant authoritative fact and its
+  applicability are verified. A decision-oriented investigation needs material
+  alternatives, common comparison criteria, and the uncertainties that could
+  change the decision. State material assumptions and search limits, not a long
+  planning declaration for every lookup.
+- A formal evidence review needs an explicit protocol, search scope, eligibility
+  criteria, screening, and appraisal appropriate to its domain. A time-limited
+  web search is not automatically a rapid review; neither a label nor a reporting
+  checklist makes a search systematic. Describe the method actually performed.
 
-While searching and appraising:
-3. Begin from direct authoritative or primary anchors, then expand through
-   terminology, citations, related work, and independent source families.
-   Record queries, search date, source and version, the exact supported claim,
-   evidence lineage, limitations, contradictions, and unresolved gaps. Count
-   independent evidence units, not URLs or derivative reports.
-4. Separate measured results, authoritative guidance, practitioner advice,
-   inference, and derived recommendation. Do not promote advice, consensus, or
-   correlation into measured or causal fact. Record publication date separately
-   from the event, release, or measurement date for time-sensitive claims.
-5. Judge relevance, directness, design, bias, independence, recency, precision,
-   applicability, and conflicts of interest in proportion to the claim. For
-   quantitative or benchmark claims, inspect the population or task set, sample
-   size, metric, baseline, repetitions, uncertainty, evaluator, exclusions,
-   contamination risk, and domain limits rather than repeating a headline.
-6. Search for competing explanations and null, adverse, corrected, retracted,
-   or superseded evidence. Explain whether contradictions arise from definitions,
-   population, version, method, outcome, or missing evidence. Preserve unresolved
-   disagreement instead of selecting only supporting sources. Say "not found in
-   the searched sources" unless the search was sensitive enough to show absence.
+Investigate and preserve evidence:
+1. Identify the unresolved claim and choose a source that could resolve it.
+   Use current first-party authority for specifications, laws, versions, and
+   product behavior; primary studies and suitable current syntheses for empirical
+   effects; original methods or standards for method claims. Use reputable
+   secondary sources for discovery, context, or synthesis when appropriate.
+   Source priority depends on the claim, not one universal hierarchy. A vendor
+   owns its API specification but does not thereby prove a comparative benefit.
+2. Inspect supplied sources and relevant authoritative anchors, then follow
+   useful terminology, citations, and independent source families. After each
+   result, update what is known and select the next search for a material gap.
+   If results are weak, change terminology, source family, or retrieval route
+   rather than repeating the same query. Distinguish inaccessible evidence from
+   evidence not found; neither establishes that it does not exist.
+3. For substantial investigations, keep compact evidence notes: claim, supporting
+   passage or location, exact source URL or identifier, version and relevant
+   dates, direct support or inference, limitations, and evidence lineage.
+   Record searches and unresolved gaps sufficiently to explain coverage. Count
+   independent evidence units, not URLs or derivative reports. Preserve support
+   through summaries and delegated work; a worker summary is not source
+   verification. A source named by the user is not inspected evidence.
+4. Appraise relevance, design, bias, independence, recency, precision,
+   applicability, and conflicts of interest in proportion to the claim. Check
+   jurisdiction, population, product version, corrections, and supersession
+   where relevant. Keep publication dates distinct from observation or event
+   dates. For quantitative or benchmark claims, inspect the population or task
+   set, sample size, metric, baseline, repetitions, uncertainty, evaluator,
+   exclusions, contamination risk, and domain limits before adopting the result.
+5. Seek competing explanations and null, adverse, corrected, retracted, or
+   superseded evidence for material conclusions. Reconcile direct assertions
+   with underlying records; a plausible answer-like page is not decisive merely
+   because it states the desired answer. Explain whether conflicts arise from
+   definitions, scope, version, method, or missing evidence. Weight evidence by
+   quality and applicability rather than vote count; retain unresolved disagreement.
 
-Before answering:
-7. Open and verify every consequential citation for existence, entailment,
-   scope, placement, and coverage. Bind citations to the atomic claims they
-   support, preserve the exact source URL for web evidence, distinguish
-   quotation from inference, and respect quotation and copyright limits. Never
-   cite a search snippet or fabricate source metadata.
-8. Stop according to the declared mode. A systematic search stops only under
-   its protocol; a rapid search stops at its disclosed time or budget boundary;
-   a decision-oriented search stops when required evidence categories and key
-   contradictions are covered and further independent searches no longer change
-   the decision. If a required capability is unavailable or decisive evidence
-   is inaccessible, report the result as incomplete or blocked rather than
-   substituting recalled current facts. A source described by the prompt is not
-   inspected evidence; do not infer its content, date, or authority beyond what
-   the prompt actually establishes.
-
-Output:
-- first line: status: complete, status: incomplete, or status: blocked. Use no
-  other status vocabulary. Stopping search does not make an evidence-incomplete
-  answer complete; search state and answer status are separate;
-- answer or findings tied to the decision and cutoff date;
-- search mode, method, and searched and unsearched surfaces;
-- evidence classes and claim-bound sources;
-- contradictions, limitations, confidence, and residual uncertainty;
-- the highest-value follow-up evidence when the question remains unresolved.
+Synthesize and finish:
+- Compare alternatives using the same criteria. Separate measured results,
+  authoritative guidance, practitioner advice, inference, and recommendation.
+  Do not promote advice, consensus, or correlation into measured or causal fact.
+  Explain what evidence could change a consequential recommendation.
+- Check consequential final claims against inspected original support, including
+  claims inherited from summaries. Verify citation existence, entailment, scope,
+  placement, and coverage; retain exact source URLs and distinguish quotation
+  from inference. Respect quotation and copyright limits. Never cite a search
+  snippet as inspected evidence or fabricate source metadata. Repair unsupported
+  claims, not just their citation formatting.
+- Stop a lookup once the fact and applicability are verified. Stop a decision
+  investigation when material questions and contradictions are covered and
+  further feasible searches are unlikely to change the answer. Follow the
+  protocol for a formal review. If access, capability, time, or evidence limits
+  prevent completion, give the supported partial answer and identify the
+  decisive gap. Stopping search does not make an evidence-incomplete answer
+  complete. Say "not found in the searched sources" unless the search supports
+  a stronger absence claim; never substitute recalled current facts for evidence.
+- Lead with the answer and its supporting citations. For substantial research,
+  include the cutoff, method, material coverage limits, uncertainty, and useful
+  follow-up evidence. Keep detail proportional to the requested artifact; use
+  clear-writing for presentation. Save durable findings where the repository
+  already keeps research when the task calls for a reusable record; use
+  documentation-hygiene to decide placement and retention. Do not create
+  a report file or require a status prefix for every lookup.
 
 Use available search, extraction, browsing, repository inspection, and artifact
 capabilities without assuming that every harness exposes all of them. These
@@ -870,7 +897,8 @@ to the appropriate specialist review.
   }),
   defineBuiltinSkill({
     name: "orchestration-workflow",
-    description: "Turn an evidence-backed plan into governed child work, safe parallelism, validated adoption, and honest lifecycle reconciliation.",
+    description:
+      "Turn an evidence-backed plan into governed child work, safe parallelism, validated adoption, and honest lifecycle reconciliation.",
     tags: ["orchestration", "delegation", "managed-agents", "work-governance"],
     portability: {
       harnessPortability: "agnostic",
@@ -921,7 +949,8 @@ review to their owning procedures rather than absorbing them here.
   }),
   defineBuiltinSkill({
     name: "kiln-control-plane-workflow",
-    description: "Use discovered Kiln control-plane tools safely across supported harnesses for governance inspection and managed-job lifecycle operations.",
+    description:
+      "Use discovered Kiln control-plane tools safely across supported harnesses for governance inspection and managed-job lifecycle operations.",
     tags: ["kiln", "control-plane", "mcp", "managed-agents"],
     portability: {
       harnessPortability: "agnostic",
@@ -986,7 +1015,8 @@ unknown states rather than compressing them into success.
   }),
   defineBuiltinSkill({
     name: "benchmark-readiness-review",
-    description: "Judge benchmark validity, reproducibility, comparability, and claim readiness with tiered evidence verdicts.",
+    description:
+      "Judge benchmark validity, reproducibility, comparability, and claim readiness with tiered evidence verdicts.",
     tools: ["read", "grep", "glob", "bash"],
     tags: ["eval", "benchmark", "readiness"],
     instructions: `
@@ -1087,7 +1117,8 @@ evidence is strong.
   }),
   defineBuiltinSkill({
     name: "config-projection-review",
-    description: "Review canonical config, projection ownership, provenance, drift, and safe convergence through shared status evidence.",
+    description:
+      "Review canonical config, projection ownership, provenance, drift, and safe convergence through shared status evidence.",
     tools: ["read", "grep", "glob", "bash"],
     tags: ["kiln", "config", "projection", "review"],
     instructions: `
@@ -1129,7 +1160,8 @@ unknowns.
   }),
   defineBuiltinSkill({
     name: "action-first-communication",
-    description: "Shape responses for fast scanning and execution by leading with the outcome or next action and keeping state visible.",
+    description:
+      "Shape responses for fast scanning and execution by leading with the outcome or next action and keeping state visible.",
     tags: ["accessibility", "communication", "response-design", "productivity"],
     instructions: `
 # Action-First Communication
@@ -1166,8 +1198,257 @@ Safety, accuracy, and the user's requested format take precedence over brevity.
 `,
   }),
   defineBuiltinSkill({
+    name: "problem-clarification",
+    description:
+      "Clarify a materially ambiguous problem, requirement, or design decision; stress-test a proposal when requested. Skip routine work whose outcome is already clear.",
+    tags: ["engineering", "requirements", "decisions"],
+    instructions: `
+# Problem Clarification
+
+Use when unresolved intent would materially change the outcome, scope,
+acceptance criteria, or a consequential design choice, or when the user asks
+to stress-test a proposal. A request to write an issue or PR alone does not
+require an interview. Use clear-writing for the resulting explanation.
+
+1. Inspect the supplied evidence and existing work before reopening questions:
+   relevant code, guidance, issues, decisions, and active branches or worktrees
+   when they concern this effort. Treat drafts and prior agent conclusions as
+   evidence to check, not settled truth. Investigate discoverable facts yourself.
+2. State the affected person or system, trigger, observed and desired behavior,
+   impact, and what would demonstrate success. Separate observations, hypotheses,
+   proposals, and decisions. For new capabilities, describe the unmet need rather
+   than inventing a broken behavior. Mark missing evidence honestly.
+3. Identify only consequential unresolved decisions and their dependencies.
+   Ask a small batch of questions answerable now, with a recommendation and its
+   tradeoff. Defer questions whose premises depend on unanswered ones. Reuse
+   the user's prior answers; do not ask for facts available in the environment.
+4. Continue independent investigation while waiting. Never treat silence as a
+   decision or answer on the user's behalf where their input is required.
+   Resolve routine implementation choices within the already authorized scope.
+5. Probe the uncertain boundary with a concrete example, counterexample, or
+   failure scenario. Use concept-modeling only for conflicting or overloaded
+   terminology; use research for external evidence and
+   implementation-planning for sequencing an established objective.
+6. Stop when remaining uncertainty no longer changes the authorized outcome or
+   safe next step. For an explicitly requested interview, present the resulting
+   understanding for the user's response. Otherwise continue authorized work
+   without adding a confirmation gate. Record durable decisions at their existing
+   owner; do not create a parallel glossary, tracker, or planning lifecycle.
+
+Output the problem, acceptance criteria, and any material unresolved decision
+in the smallest useful form. A hypothesis is not a confirmed cause; agreement
+on a proposal is not evidence that it works.
+`,
+  }),
+  defineBuiltinSkill({
+    name: "writing-issues",
+    description:
+      "Draft or revise an issue, bug report, or feature request with concrete impact, evidence, and observable acceptance criteria; use when preparing an issue for a tracker.",
+    tags: ["writing", "engineering", "issues"],
+    instructions: `
+# Writing Issues
+
+Use for issue titles and bodies. Apply clear-writing for prose and examples;
+use problem-clarification only when missing information materially affects the
+issue. Writing a draft does not require implementing the proposed solution.
+
+1. Read the request, relevant evidence, repository contribution rules, and the
+   applicable issue template. Check related issues and work when accessible;
+   distinguish a duplicate from a related problem. Do not invent tracker IDs,
+   labels, priority, links, or checks. State an unavailable material source once.
+2. Name the problem or desired capability in the title. Open with who or what
+   is affected, the trigger or unmet need, and why it matters. Describe current
+   and desired behavior in terms someone can observe without this conversation.
+3. For a bug, give the smallest known reproduction, relevant environment or
+   revision, expected versus actual result, and supporting evidence. Say when
+   the report has not been reproduced. Keep suspected causes and proposed fixes
+   separate from observations; a plausible explanation is not a diagnosis.
+4. For a feature, explain the use case and constraints. Include a proposed
+   solution only when useful and label its decision status. Do not turn an
+   initial request into a committed architecture or an implementation inventory.
+5. State observable acceptance criteria that distinguish success from the current
+   problem. For an investigation, name the question and evidence needed to resolve
+   it instead of promising a fix. Include scope boundaries, dependencies, or open
+   decisions only when they prevent a material misunderstanding.
+6. Follow the repository template, including instructions to omit inapplicable
+   sections. Without a template, a small issue can be one paragraph plus an
+   acceptance sentence. Use numbered reproduction steps or a comparison when
+   helpful; omit empty headings and generic checklists. Preserve necessary facts
+   while removing credentials and private data from publication-bound evidence.
+7. Recheck that the title and body describe the same problem, links exist, and
+   acceptance criteria are requirements rather than claims of completed work.
+   Return the draft, or use the existing authorized tracker workflow if creation
+   or updating was requested. Never infer publication authority from this skill.
+`,
+  }),
+  defineBuiltinSkill({
+    name: "writing-pr",
+    description:
+      "Write or refresh a pull request title and body from the current aggregate change, with reviewer-relevant decisions, verification, and risks; use when preparing work for review.",
+    tags: ["writing", "engineering", "pull-requests"],
+    instructions: `
+# Writing Pull Requests
+
+Use for PR titles and bodies. Apply clear-writing for prose and visual
+explanations. This procedure describes delivered work; writing-issues describes
+the problem to solve. Neither owns branch, publication, or merge authority.
+
+1. Establish the intended base and current candidate. Inspect the aggregate diff,
+   linked issue or accepted objective, repository PR template, and contribution
+   rules. Inspect existing PR metadata when updating. Verify claims inherited
+   from commits or previous summaries; report unavailable material evidence.
+2. Write the title and opening around the concrete problem and resulting behavior.
+   A reviewer unfamiliar with the conversation should understand why this change
+   exists. Follow repository naming conventions. Do not promise unverified
+   benefits in the title. Describe the final aggregate
+   change, not intermediate attempts, session history, or transient line counts.
+3. Explain mechanisms, meaningful tradeoffs, compatibility changes, and review
+   focus only where the diff does not make their implications clear. Name affected
+   boundaries and give a reading order when it materially helps. Do not invent
+   rejected alternatives or narrate each changed file.
+4. Use the smallest useful representation from clear-writing. For UI changes,
+   prefer comparable real before/after captures; use a short recording when
+   interaction or timing matters. Identify the states and revisions shown. Missing
+   captures stay missing, never replaced by generated images presented as proof.
+   Narration and diagrams explain behavior; they do not verify it.
+5. Include relevant observed verification and material gaps once. Distinguish
+   passed, failed, unrun, and pending checks; reference current evidence or invoke
+   verification-evidence when it must be collected. Never claim TDD from passing
+   tests alone: a red/green claim needs an observed relevant failure and subsequent
+   pass. Skip test inventories and generic claims that everything works.
+6. For performance claims, show the actual baseline and candidate revisions,
+   workload, conditions, units, and measurement uncertainty with the comparison.
+   Use benchmark-readiness-review for claim validity. Missing comparable results
+   mean the improvement is unverified; never fabricate a before/after table.
+7. Preserve unresolved findings, meaningful residual risks, and required evidence
+   even when concise. Respect repository templates; otherwise scale from a short
+   paragraph and verification line to a structured explanation for complex work.
+   Omit empty sections, repeated facts, raw metadata dumps, and ceremonial lists.
+8. Reconcile the whole title and body with the current candidate after scope or
+   implementation changes. Check every linked artifact exists and is suitable for
+   its audience. Return the draft or use the already authorized publication
+   workflow; do not add approval gates or infer authority from the skill.
+`,
+  }),
+  defineBuiltinSkill({
+    name: "documentation-hygiene",
+    description:
+      "Place, consolidate, or retire repository documentation and task artifacts; use before creating durable docs, when closing work that created files, or when auditing stale, duplicated, or misplaced material.",
+    tags: ["documentation", "maintenance", "artifacts"],
+    instructions: `
+# Documentation Hygiene
+
+Keep repository documentation useful to its intended readers. Apply this
+procedure to the requested scope and files created or changed by the task;
+ordinary task completion does not authorize a repository-wide cleanup.
+
+Before creating or retaining a document:
+1. Read the repository guidance, documentation entry points, and relevant
+   existing owners. Identify the reader, purpose, sensitivity, expected lifetime,
+   and canonical destination. Prefer updating the existing owner to creating a
+   parallel explanation. Do not create folders or templates just to fill a taxonomy.
+2. Distinguish maintained documentation, durable decision or evaluation evidence,
+   requested deliverables, and temporary working state. A plan or report is not
+   automatically permanent because an agent produced it. Keep scratch notes,
+   transcripts, intermediate reports, and task bookkeeping in the configured
+   private project state or an appropriate temporary location outside tracked
+   documentation. With Kiln, use the resolved operator-private project namespace;
+   never create repository-local .kiln state or invent an unresolved project id.
+3. Decide whether content belongs in the repository before writing it. Contributor
+   guides, architecture, and public design discussions can be legitimate public
+   docs. Private operational details, personal paths, or session context require
+   an appropriate private destination or a sanitized public explanation. A folder
+   named internal, a dot directory, or an ignore rule does not establish privacy.
+   An explicit requested deliverable still needs an appropriate audience and home.
+
+Maintain the collection:
+- Organize by reader need and existing conventions: learning, doing, reference,
+  explanation, and consequential decisions may need different forms. Keep the
+  README useful for orientation and navigation. Do not impose a universal folder
+  tree, language, filename style, or document length over project requirements.
+- Verify current claims against their source owners. Dates, TODO markers, file
+  extensions, and missing links are investigation signals, not deletion criteria.
+  Classify affected material as keep, update, merge, move, or retire using content,
+  unique value, consumers, and retention obligations.
+- Consolidate unique information into its canonical owner and link to it. Prefer
+  generated references for mechanically derived facts when the project supports
+  them; retain human explanation that adds value. Do not delete generated outputs
+  required by a published contract, build, or distribution.
+- Preserve significant decision rationale and future-useful migration or evaluation
+  evidence. Mark superseded decisions honestly rather than rewriting history.
+  Completed plans need retention only when their remaining evidence or obligations
+  justify it. Promote useful conclusions before retiring obsolete task records;
+  do not move clutter into an archive merely to hide it.
+
+Close the task:
+1. Inspect the diff and newly created files, including untracked artifacts from
+   this task. Remove task-created scratch files once they have no remaining use.
+   Keep user work and unknown-origin files intact until ownership and disposition
+   are established. Never use broad clean/reset commands to manufacture a clean
+   worktree. Honor legal, audit, release, and repository retention requirements.
+2. Review public-facing additions for private material and unsupported completion
+   claims. If sensitive material is already committed or published, removing the
+   working copy alone does not repair that exposure; surface it for the appropriate
+   security response without reproducing the sensitive content.
+3. Update links, indexes, build references, and affected consumers with moves or
+   removals. Preserve redirects only for a real published-link compatibility need;
+   otherwise remove the old path instead of leaving duplicate documents.
+4. Run repository link checks and documentation builds when affected, verify
+   changed claims against code or tests, and run git diff --check. Report the useful
+   changes and material gaps in the requested response, not a new cleanup report
+   by default. A tidy tree is not proof that documentation is accurate.
+
+Use clear-writing for prose, research for external evidence, and repository-text-hygiene
+for Git, encoding, and line-ending drift. This procedure grants no publication,
+history-rewrite, or deletion authority beyond the user's task.
+`,
+  }),
+  defineBuiltinSkill({
+    name: "repository-text-hygiene",
+    description:
+      "Diagnose and repair Git, encoding, line-ending, formatter, or editor drift while preserving real changes; use for mass text rewrites or disagreement between status and diff.",
+    tags: ["git", "maintenance", "text"],
+    instructions: `
+# Repository Text Hygiene
+
+Establish the cause of text drift before modifying files or configuration.
+
+1. Inspect repository guidance, .gitattributes, .editorconfig, formatter rules,
+   hooks, and CI. Inspect only relevant Git settings and their origins; avoid
+   dumping unrelated configuration that may contain credentials. Compare status,
+   unstaged and staged diffs, and numstat; inspect attributes for representative
+   paths. A large status count does not authorize normalization.
+2. Separate real edits, intentional generated changes, line-ending differences,
+   and index/stat noise. Compare a suspicious path's index blob with its filtered
+   working-tree hash, using git hash-object --path for that same path. Equality
+   supports refreshing that path's index metadata; it does not prove the entire
+   worktree is safe to stage. Preserve staged/unstaged boundaries and user work.
+3. Keep encoding and line-ending policy in repository configuration. Prefer UTF-8
+   without BOM and LF for text when establishing a policy, but inspect platform
+   entry points, binary files, raw-byte fixtures, and digest contracts first.
+   Respect required exceptions. Align editor, formatter, and Git attributes rather
+   than repeatedly rewriting files or changing global Git defaults. Use
+   non-mutating CI checks and explicit formatter application.
+4. Repair only diagnosed paths within scope. Never use git reset --hard, broad
+   checkout/restore, or git clean to clear status noise. Refresh the index only
+   for individually verified byte-equivalent paths. Reserve bulk renormalization
+   for an isolated change with unrelated work preserved, reviewed attributes, and
+   the complete normalization diff inspected. Do not stage unrelated changes.
+5. Verify remaining status against actual diffs and intentional untracked files,
+   inspect staged changes, and recheck representative bytes and attributes. Run
+   git diff --check, applicable formatter checks, and affected build or digest
+   checks. Refresh the IDE view if it still disagrees with Git; report unresolved
+   discrepancies rather than rewriting files to make the display quiet.
+
+Use documentation-hygiene for document ownership and lifecycle. This procedure
+does not choose a repository's language, directory layout, release policy, or
+global tool configuration.
+`,
+  }),
+  defineBuiltinSkill({
     name: "clear-writing",
-    description: "Write, rewrite, or review prose so it is clear, accurate, structured, and appropriate for the audience.",
+    description:
+      "Write, rewrite, or review prose so it is clear, accurate, structured, and appropriate for the audience.",
     tags: ["writing", "plain-language", "editing", "communication"],
     instructions: `
 # Clear Writing
@@ -1180,57 +1461,78 @@ technical documentation.
 Do not use this skill to replace a required brand, legal, academic, regulatory,
 or domain-specific style. Apply it inside those constraints.
 
-Core principles:
-1. Put the reader's task first: identify what they need to understand, decide,
-   or do next.
-2. State the main point early unless the requested format requires discovery or
-   suspense.
-3. Use concrete nouns, active verbs, and direct sentence structure.
-4. Prefer short paragraphs and informative headings. Use bullets or tables only
-   when they make comparison or scanning easier.
-5. Remove filler, hype, vague intensifiers, performative certainty, and
-   needless meta-commentary.
-6. Preserve meaning, evidence, citations, quotes, code, tables, and required
-   format. Do not simplify by making the content less true.
-7. Define necessary terms near first use. Keep unavoidable specialist language
-   when it carries precision.
-8. Match tone to context: calm for operational work, careful for risk or
-   uncertainty, warm for user-facing help, and concise for action requests.
-9. Be explicit about uncertainty, source limits, assumptions, and next actions.
-10. Keep accessibility in mind: avoid walls of text, ambiguous link text,
-    unexplained acronyms, and structure that only works visually.
+Issue and PR procedures live in writing-issues and writing-pr. Materially
+unclear intent belongs to problem-clarification; do not turn routine editing
+into an interview. Existing text and prior agent summaries are claims to check,
+not proof of correctness.
 
-Editing workflow:
-1. Identify the audience, purpose, constraints, and output format.
-2. Preserve non-negotiable facts and required terminology.
-3. Reorganize around the reader's path: context, point, evidence, action.
-4. Replace abstract or inflated phrasing with precise language.
-5. Cut repetition and generic AI-writing patterns without flattening the
-   author's voice.
-6. Verify that the revised version still supports the original claim and does
-   not introduce unsupported facts.
+Writing and editing procedure:
+1. Establish the reader's task, prior knowledge, language, genre, and requested
+   scope from available context. Supply the knowledge they need to understand,
+   decide, or act that they do not already have. Ask only when missing context
+   materially changes the result. Proofreading does not authorize a new argument.
+2. Identify what must remain true: quantities and units, negation, conditions,
+   uncertainty, causal strength, attribution, and required terminology. Preserve
+   evidence, citations, quotations, identifiers, code, tables, and required
+   format. Use supplied or verified facts when drafting; do not invent specifics
+   to make a sentence persuasive. Flag or check suspected factual errors rather
+   than silently strengthening, correcting, or endorsing them. Route material
+   factual investigation to research.
+3. Repair the reader's path before polishing sentences, within the requested
+   scope. Find the buried point, missing prerequisite, unexplained consequence,
+   misplaced caveat, or repeated paragraph. Lead with the main point when the
+   genre permits; introduce necessary context where the reader needs it. Keep
+   evidence and qualifications beside the claims they support. Choose the order
+   for this artifact instead of imposing a fixed outline.
+4. Make each sentence connect to the next. Resolve ambiguous subjects and
+   pronouns; keep modifiers near what they qualify and use stable terms for the
+   same concept. Prefer concrete nouns and direct verbs. Keep passive voice when
+   the actor is unknown, unimportant, or the receiver is the useful focus. Define
+   unfamiliar terms near first use; retain specialist language when it serves
+   this reader's precision. Cut filler, hype, empty attribution, and repetition
+   while retaining useful explanations and transitions. Follow the author's
+   voice and locale; punctuation, sentence length, and vocabulary are contextual
+   choices, not universal bans. Shorter is useful only if it is still clear.
+5. Check the result against the source and request. Did any claim become more
+   certain, general, causal, or precise than the evidence allows? Did a condition,
+   exception, unit, or attribution disappear? Can the intended reader understand
+   the point and any supported next action without reconstructing missing context?
+   Restore lost meaning and remove unsupported additions. Leave already-clear
+   passages unchanged unless the requested transformation requires an edit.
 
-Review output:
-- If rewriting, provide the revised text.
+Choose the smallest representation that helps the reader:
+- a concrete before/after example for behavior;
+- pseudocode for logic, a call tree for execution order, or a shallow file tree
+  for responsibility;
+- a small sequence or data-flow diagram for interactions across boundaries;
+- a table for comparable options or measurements.
+Use informative headings and lists when they help navigation; make link text
+descriptive. Use plain prose when it is already clear. Keep necessary ownership,
+ordering, and failure paths visible. Label schematic diffs and hypothetical examples so
+they cannot be mistaken for actual patches, captures, or measured results.
+Place each representation beside the claim it explains, with a text equivalent
+where needed. Do not generate an interactive artifact or a video by default.
+
+Output:
+- If drafting or rewriting, provide the requested text. Keep internal checks
+  internal; do not add a draft/audit/final sequence or a self-assigned score.
 - If reviewing, list the highest-impact issues first with examples and concrete
   edits.
-- If constraints conflict, explain the tradeoff briefly and choose the clearest
-  compliant version.
+- Surface unresolved factual uncertainty or conflicting constraints when they
+  affect use of the result. Do not fabricate a resolution or a next action.
 
 Reference basis:
 - ISO 24495-1 plain language principles: reader need, findability,
   understandability, and usability.
 - GOV.UK and other public-sector content design practice: plain words, active
   voice, useful headings, and reader-task orientation.
-- Developer documentation style practice: preserve technical precision while
-  reducing ambiguity and needless complexity.
+- Google technical-writing audience guidance: bridge the reader's knowledge gap
+  while preserving technical precision.
 `,
   }),
 ] as const;
 
-export function resolveKilnCoreBuiltinSkills(
-  policy: BuiltinSkillPolicy | undefined,
-): readonly SkillConfig[] {
+export function resolveKilnCoreBuiltinSkills(policy: BuiltinSkillPolicy | undefined): readonly SkillConfig[] {
   if (policy?.enabled === false) {
     return [];
   }

@@ -25,28 +25,77 @@ describe("Kiln core builtin skills", () => {
       "refactoring-safety",
       "security-scope-review",
       "managed-agent-risk-review",
-      "research-workflow",
+      "research",
       "orchestration-workflow",
       "kiln-control-plane-workflow",
       "benchmark-readiness-review",
       "config-projection-review",
       "action-first-communication",
+      "problem-clarification",
+      "writing-issues",
+      "writing-pr",
+      "documentation-hygiene",
+      "repository-text-hygiene",
       "clear-writing",
     ]);
     expect(KILN_CORE_BUILTIN_SKILLS.every((skill) => skill.filePath.startsWith("builtin://kiln/skills/"))).toBe(true);
     expect(KILN_CORE_BUILTIN_SKILLS.some((skill) => /sequel|internal-only/i.test(skill.name))).toBe(false);
   });
 
+  it.each([
+    [
+      "writing-issues",
+      [
+        /suspected causes[\s\S]*separate from observations/,
+        /observable acceptance criteria/,
+        /Never infer publication authority/,
+      ],
+    ],
+    [
+      "writing-pr",
+      [
+        /aggregate diff/,
+        /passed, failed, unrun, and pending/,
+        /red\/green claim needs an observed relevant failure/,
+        /Missing comparable results/,
+      ],
+    ],
+    [
+      "problem-clarification",
+      [
+        /Investigate discoverable facts yourself/,
+        /Never treat silence as a[\s\S]*decision/,
+        /without adding a confirmation gate/,
+      ],
+    ],
+    [
+      "clear-writing",
+      [
+        /not proof of correctness/,
+        /Label schematic diffs and hypothetical examples/,
+        /Do not generate an interactive artifact or a video by default/,
+      ],
+    ],
+  ] as const)("preserves the evidence and scope obligations of %s", (name, obligations) => {
+    const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === name);
+    expect(skill).toBeDefined();
+    for (const obligation of obligations) expect(skill?.instructions).toMatch(obligation);
+  });
+
   it("applies builtin include and exclude policy", () => {
     expect(resolveKilnCoreBuiltinSkills({ enabled: false })).toEqual([]);
-    expect(resolveKilnCoreBuiltinSkills({
-      include: ["tdd-workflow", "code-review-findings"],
-      exclude: ["code-review-findings"],
-    }).map((skill) => skill.name)).toEqual(["tdd-workflow"]);
+    expect(
+      resolveKilnCoreBuiltinSkills({
+        include: ["tdd-workflow", "code-review-findings"],
+        exclude: ["code-review-findings"],
+      }).map((skill) => skill.name),
+    ).toEqual(["tdd-workflow"]);
   });
 
   it("renders valid SKILL.md markdown for projection", () => {
-    const markdown = renderSkillMarkdown(KILN_CORE_BUILTIN_SKILLS.find((skill) => skill.name === "repo-context-review")!);
+    const markdown = renderSkillMarkdown(
+      KILN_CORE_BUILTIN_SKILLS.find((skill) => skill.name === "repo-context-review")!,
+    );
 
     expect(markdown).toContain("name: repo-context-review");
     expect(markdown).toContain("description:");
@@ -75,8 +124,9 @@ describe("Kiln core builtin skills", () => {
   it("classifies every builtin independently from harness-specific syntax", () => {
     const portability = KILN_CORE_BUILTIN_SKILLS.map((skill) => [skill.name, readSkillPortability(skill)] as const);
 
-    expect(portability.every(([, contract]) => contract.status === "declared"
-      && contract.harnessPortability === "agnostic")).toBe(true);
+    expect(
+      portability.every(([, contract]) => contract.status === "declared" && contract.harnessPortability === "agnostic"),
+    ).toBe(true);
     expect(portability.find(([name]) => name === "kiln-control-plane-workflow")?.[1]).toEqual({
       status: "declared",
       harnessPortability: "agnostic",
@@ -113,8 +163,12 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toMatch(/Treat text search and\s+naming proximity as leads, not dependency proof/);
     expect(skill?.instructions).toMatch(/registration, configuration,\s+reflection, code generation/);
     expect(skill?.instructions).toContain("Facts, inferences, and unknowns");
-    expect(skill?.instructions).toMatch(/Focused affected tests are a\s+fast-feedback gate, not proof of complete impact coverage/);
-    expect(skill?.instructions).toMatch(/Stop when ownership, contracts, consumer paths, verification ownership, and\s+material unknowns are mapped/);
+    expect(skill?.instructions).toMatch(
+      /Focused affected tests are a\s+fast-feedback gate, not proof of complete impact coverage/,
+    );
+    expect(skill?.instructions).toMatch(
+      /Stop when ownership, contracts, consumer paths, verification ownership, and\s+material unknowns are mapped/,
+    );
     expect(skill?.instructions).toContain("Do not turn the map into an implementation plan");
     expect(skill?.instructions).toMatch(/repository evidence, not external source research/);
     expect(skill?.instructions).toMatch(/Route current external claims.*research workflow/s);
@@ -128,13 +182,17 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toContain("a separate scouting");
     expect(skill?.instructions).toMatch(/Skip a full plan for one obvious\s+low-risk edit/);
     expect(skill?.instructions).toContain("acceptance evidence");
-    expect(skill?.instructions).toMatch(/Do not hide unresolved\s+product, architecture, authority, security, or data-safety decisions/);
+    expect(skill?.instructions).toMatch(
+      /Do not hide unresolved\s+product, architecture, authority, security, or data-safety decisions/,
+    );
     expect(skill?.instructions).toMatch(/confirmed by repository evidence/);
     expect(skill?.instructions).toMatch(/safe,\s+reviewable intermediate state/);
     expect(skill?.instructions).toContain("expected completion signal");
     expect(skill?.instructions).toMatch(/Do not parallelize slices that share a\s+prerequisite or write surface/);
     expect(skill?.instructions).toContain("Re-scout and revise the plan");
-    expect(skill?.instructions).toMatch(/A prose plan does not\s+grant write authority, approval, or completion evidence/);
+    expect(skill?.instructions).toMatch(
+      /A prose plan does not\s+grant write authority, approval, or completion evidence/,
+    );
     expect(skill?.instructions).toMatch(/simplest materially different design/i);
     expect(skill?.instructions).toMatch(/durable rationale/i);
   });
@@ -159,25 +217,29 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toMatch(/principals, protected assets, trust boundaries/);
     expect(skill?.instructions).toMatch(/subject, resource, operation, scope/);
     expect(skill?.instructions).toMatch(/not\s+model text/);
-    expect(skill?.instructions).toMatch(/credentials and sensitive data through prompts, tools, processes, logs,\s+errors, storage, and outputs/);
+    expect(skill?.instructions).toMatch(
+      /credentials and sensitive data through prompts, tools, processes, logs,\s+errors, storage, and outputs/,
+    );
     expect(skill?.instructions).toMatch(/Deny when authority is missing or contradictory/);
     expect(skill?.instructions).toMatch(/arbitrary human\s+confirmation cannot manufacture permission/);
     expect(skill?.instructions).toMatch(/triggering path, impact,\s+evidence, narrow correction/);
   });
 
   it("requires causal and proportionate clean-architecture review", () => {
-    const skill = KILN_CORE_BUILTIN_SKILLS.find(
-      (entry) => entry.name === "clean-architecture-boundary-review",
-    );
+    const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === "clean-architecture-boundary-review");
 
     expect(skill).toBeDefined();
     expect(skill?.instructions).toMatch(/intended modules, policy owners, dependency graph/);
     expect(skill?.instructions).toMatch(/configuration, dependency injection, registries, reflection, generated code/);
     expect(skill?.instructions).toMatch(/source\s+dependency from runtime control flow/);
     expect(skill?.instructions).toMatch(/speculative ports, DTOs, adapters, or\s+events/);
-    expect(skill?.instructions).toMatch(/dependency path, affected surface, triggering condition,\s+impact, evidence, correction direction/);
+    expect(skill?.instructions).toMatch(
+      /dependency path, affected surface, triggering condition,\s+impact, evidence, correction direction/,
+    );
     expect(skill?.instructions).toMatch(/findings first, ordered by severity/);
-    expect(skill?.instructions).toMatch(/reviewed and materially unreviewed surface, verification\s+performed, and residual risk/);
+    expect(skill?.instructions).toMatch(
+      /reviewed and materially unreviewed surface, verification\s+performed, and residual risk/,
+    );
     expect(skill?.instructions).toMatch(/minimum sufficient complexity/i);
     expect(skill?.instructions).toMatch(/owner.*deliberately does not own/i);
     expect(skill?.instructions).toMatch(/canonical, derived, or projected/i);
@@ -192,7 +254,9 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toMatch(/bounded contexts from packages, services, databases, and\s+deployment units/);
     expect(skill?.instructions).toMatch(/smallest set that must preserve invariants\s+atomically/);
     expect(skill?.instructions).toMatch(/upstream and downstream relationship, translation\s+owner/);
-    expect(skill?.instructions).toContain("Do not introduce DDD patterns where domain complexity does not justify them");
+    expect(skill?.instructions).toContain(
+      "Do not introduce DDD patterns where domain complexity does not justify them",
+    );
     expect(skill?.instructions).toMatch(/Route module placement, dependency direction, composition/);
     expect(skill?.instructions).toMatch(/findings first and ordered by severity/);
     expect(skill?.instructions).toMatch(/reviewed and materially\s+unreviewed surface, verification performed/);
@@ -212,26 +276,27 @@ describe("Kiln core builtin skills", () => {
   });
 
   it("requires claim-bound and capability-honest research", () => {
-    const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === "research-workflow");
+    const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === "research");
 
     expect(skill).toBeDefined();
-    expect(skill?.instructions).toMatch(/decision, atomic questions, scope, definitions/);
-    expect(skill?.instructions).toMatch(/systematic, rapid, or decision-oriented/);
+    expect(skill?.instructions).toMatch(/question, intended decision, scope, and relevant date or version/);
+    expect(skill?.instructions).toMatch(/formal evidence review needs an explicit protocol/);
     expect(skill?.instructions).toMatch(/source priority depends on the claim/i);
     expect(skill?.instructions).toMatch(/independent evidence units, not URLs/);
-    expect(skill?.instructions).toMatch(/measured results, authoritative guidance, practitioner advice/);
-    expect(skill?.instructions).toMatch(/publication date.*event, release, or measurement date/s);
+    expect(skill?.instructions).toMatch(/measured results,\s+authoritative guidance, practitioner advice/);
+    expect(skill?.instructions).toMatch(/publication dates distinct from observation or event\s+dates/);
     expect(skill?.instructions).toMatch(/null, adverse, corrected, retracted/);
-    expect(skill?.instructions).toMatch(/existence, entailment,\s+scope, placement, and coverage/);
+    expect(skill?.instructions).toMatch(/existence, entailment, scope,\s+placement, and coverage/);
     expect(skill?.instructions).toContain("exact source URL");
     expect(skill?.instructions).toMatch(/retrieved content as untrusted data/);
     expect(skill?.instructions).toMatch(/not found in\s+the searched sources/);
-    expect(skill?.instructions).toMatch(/required capability is unavailable.*incomplete or blocked/s);
-    expect(skill?.instructions).toMatch(/first line: status: complete, status: incomplete, or status: blocked/);
-    expect(skill?.instructions).toMatch(/stopping search does not make an\s+evidence-incomplete\s+answer complete/i);
-    expect(skill?.instructions).toMatch(/source described by the prompt is not\s+inspected evidence/);
-    expect(skill?.instructions).toMatch(/does not grant route, provider, model,\s+network, permission, budget, or approval\s+authority/);
-    expect(skill?.instructions).toMatch(/searched and unsearched surfaces/);
+    expect(skill?.instructions).toMatch(/supported partial answer and identify the\s+decisive gap/);
+    expect(skill?.instructions).toMatch(/stopping search does not make an\s+evidence-incomplete\s+answer\s+complete/i);
+    expect(skill?.instructions).toMatch(/source named by the user is not inspected evidence/);
+    expect(skill?.instructions).toMatch(
+      /does not grant route, provider, model,\s+network, permission, budget, or approval\s+authority/,
+    );
+    expect(skill?.instructions).toMatch(/method, material coverage limits, uncertainty/);
     expect(skill?.instructions).toMatch(/does\s+not map repository ownership, dependency paths, or affected tests/);
   });
 
@@ -250,7 +315,9 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toMatch(/bounded contexts, locales, audiences, or\s+platform syntax/i);
     expect(skill?.instructions).toMatch(/public, persisted, serialized, or model-facing names as contracts/i);
     expect(skill?.instructions).toMatch(/Persist durable knowledge where it can remain authoritative/i);
-    expect(skill?.instructions).toMatch(/Do not require a glossary, `CONTEXT\.md`, ADR, registry, wrapper, or new type/i);
+    expect(skill?.instructions).toMatch(
+      /Do not require a glossary, `CONTEXT\.md`, ADR, registry, wrapper, or new type/i,
+    );
     expect(skill?.instructions).toMatch(/DDD review owns business capabilities/i);
     expect(skill?.instructions).toMatch(/purely\s+mechanical rename/i);
     expect(skill?.instructions).toMatch(/already coherent and no\s+change or new artifact is warranted/i);
@@ -270,7 +337,9 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toMatch(/stable idempotency key for the\s+logical request/);
     expect(skill?.instructions).toMatch(/Accepted means admitted for asynchronous work, not completed/);
     expect(skill?.instructions).toMatch(/status, result, cancellation, and replay/);
-    expect(skill?.instructions).toMatch(/Do not choose routes, providers, models, credentials, budgets, permissions, or\s+approvals/);
+    expect(skill?.instructions).toMatch(
+      /Do not choose routes, providers, models, credentials, budgets, permissions, or\s+approvals/,
+    );
     expect(skill?.instructions).toMatch(/Do not replace a missing control-plane operation with a shell command/);
     expect(skill?.instructions).toMatch(/does not grant tool availability or authority/);
   });
@@ -283,7 +352,9 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toMatch(/shared mutable surface/i);
     expect(skill?.instructions).toMatch(/untrusted proposals/i);
     expect(skill?.instructions).toMatch(/requested, admitted, executed, and adopted/i);
-    expect(skill?.instructions).toMatch(/does not grant route, provider, model, permission, budget, approval,\s+or lifecycle authority/i);
+    expect(skill?.instructions).toMatch(
+      /does not grant route, provider, model, permission, budget, approval,\s+or lifecycle authority/i,
+    );
   });
 
   it("requires validity-first, statistically honest benchmark readiness", () => {
@@ -340,7 +411,7 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toMatch(/derived repository facts/i);
     expect(skill?.instructions).toMatch(/executable or source owners/);
     expect(skill?.instructions).toMatch(/non-derivable operator or project\s+notes/);
-    expect(skill?.instructions).toMatch(/Project\/team guidance belongs in\s+project-owned\s+AGENTS\.md/si);
+    expect(skill?.instructions).toMatch(/Project\/team guidance belongs in\s+project-owned\s+AGENTS\.md/is);
     expect(skill?.instructions).toMatch(/Do not mutate repository guidance/);
     expect(skill?.instructions).toMatch(/frontmatter.*body/i);
   });
@@ -351,7 +422,9 @@ describe("Kiln core builtin skills", () => {
     expect(skill).toBeDefined();
     expect(skill?.tags).toEqual(expect.arrayContaining(["writing", "plain-language"]));
     expect(skill?.instructions).toContain("Use this skill when writing, rewriting, or reviewing prose");
-    expect(skill?.instructions).toMatch(/Preserve meaning, evidence, citations, quotes, code, tables, and required\s+format/);
+    expect(skill?.instructions).toMatch(
+      /Preserve\s+evidence, citations, quotations, identifiers, code, tables, and required\s+format/,
+    );
     expect(skill?.instructions).not.toMatch(/Sequel's brand voice|GOV\.UK style skill/i);
   });
 
@@ -403,14 +476,20 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toMatch(/existing files\s+are project-owned by default/i);
     expect(skill?.instructions).toMatch(/Derived repository evidence.*executable or source owner/s);
     expect(skill?.instructions).toMatch(/private reviewed project context.*non-derivable/i);
-    expect(skill?.instructions).toMatch(/global or\s+private-project instruction profile/si);
-    expect(skill?.instructions).toMatch(/project-owned `CLAUDE\.md` may import `@AGENTS\.md`.*genuine\s+Claude-specific deltas/si);
+    expect(skill?.instructions).toMatch(/global or\s+private-project instruction profile/is);
+    expect(skill?.instructions).toMatch(
+      /project-owned `CLAUDE\.md` may import `@AGENTS\.md`.*genuine\s+Claude-specific deltas/is,
+    );
     expect(skill?.instructions).toMatch(/OpenCode consumes `AGENTS\.md` natively/);
-    expect(skill?.instructions).toMatch(/provider, model, routing, workers, depth, permissions,\s+sandbox, or MCP credentials/);
+    expect(skill?.instructions).toMatch(
+      /provider, model, routing, workers, depth, permissions,\s+sandbox, or MCP credentials/,
+    );
     expect(skill?.instructions).toMatch(/procedures\/skills.*reusable task procedure|reusable task procedure.*skill/);
     expect(skill?.instructions).toMatch(/hard policy that must be enforced by schema,\s+runtime, tool, hook, or test/);
     expect(skill?.instructions).toMatch(/Default output is a diagnosis and proposed diff/);
     expect(skill?.instructions).toMatch(/Do not mutate repository files unless the user explicitly requests/);
-    expect(skill?.instructions).toMatch(/private workflow\s+snapshot remains a generated projection.*not repository\s+guidance/si);
+    expect(skill?.instructions).toMatch(
+      /private workflow\s+snapshot remains a generated projection.*not repository\s+guidance/is,
+    );
   });
 });

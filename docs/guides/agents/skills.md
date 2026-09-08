@@ -125,13 +125,15 @@ Current core built-ins:
 - `refactoring-safety`
 - `security-scope-review`
 - `managed-agent-risk-review`
-- `research-workflow`
+- `research`
 - `orchestration-workflow`
 - `kiln-control-plane-workflow`
 - `benchmark-readiness-review`
 - `config-projection-review`
 - `action-first-communication`
 - `clear-writing`
+- `documentation-hygiene`
+- `repository-text-hygiene`
 
 `concept-modeling` is the neutral procedure for discovering and naming domain
 or technical concepts before they become cross-surface contracts. It owns the
@@ -349,7 +351,7 @@ Managed invocations may supply an explicit classification:
 The `research` task suitability class describes model/route capability; it does
 not choose a research procedure. A work classification with intent `research`
 and evidence scope `repository` recommends `codebase-scouting`. Scope
-`external` or `provided` recommends `research-workflow`; an explicit mixed
+`external` or `provided` recommends `research`; an explicit mixed
 scope recommends both. An unscoped research classification recommends neither,
 so Kiln does not silently turn repository analysis into web research or vice
 versa. Prose-like research output may additionally recommend `clear-writing`.

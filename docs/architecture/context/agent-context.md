@@ -368,7 +368,7 @@ list. It records explicit facets:
 Unknown explicit work classification facets fail closed. The `research` intent
 does not choose a procedure by itself: repository evidence recommends
 `codebase-scouting`, external or provided evidence recommends
-`research-workflow`, and an explicit mixed scope recommends both. An unscoped
+`research`, and an explicit mixed scope recommends both. An unscoped
 research classification recommends neither. Supported facets may recommend
 skills such as `clear-writing`, but only configured skills can be
 admitted and only when the selected policy allows auto-selection. Work
@@ -551,12 +551,17 @@ The built-in skill ids are:
 | `refactoring-safety` | Preserve behavior while removing dead code, redundancy, and avoidable complexity. | `refactoring-specialist` |
 | `security-scope-review` | Trace authority, untrusted data, credentials, and consequential effects to enforcement evidence. | `adversarial-reviewer`, `reviewer` |
 | `managed-agent-risk-review` | Audit delegated identity, attenuated authority, lifecycle settlement, evidence, and honest replay limits. | `architect`, `reviewer` |
-| `research-workflow` | Research external or provided evidence with claim-bound sources, explicit methods, contradiction handling, and calibrated uncertainty. | `researcher`, scoped research work |
+| `research` | Research external or provided evidence with claim-bound sources, explicit methods, contradiction handling, and calibrated uncertainty. | `researcher`, scoped research work |
 | `kiln-control-plane-workflow` | Discover and sequence admitted Kiln inspection and Agent Task tools without widening Runtime authority. | Any agent explicitly operating Kiln through a discovered control-plane surface |
 | `benchmark-readiness-review` | Judge benchmark validity, reproducibility, comparability, and tiered claim readiness. | `researcher`, `reviewer` |
 | `config-projection-review` | Review canonical intent, projection ownership, provenance, drift, and safe convergence. | `scout`, `architect` |
 | `action-first-communication` | Order outcomes, findings, state, and corrective actions without unsafe or invented brevity. | Any explicitly configured agent |
 | `clear-writing` | Write, rewrite, or review prose so it is clear, accurate, structured, and audience-appropriate. | Any writing or review agent |
+| `documentation-hygiene` | Place and maintain useful documentation; consolidate owners and retire temporary task artifacts. | Scoped documentation work and task closeout |
+| `repository-text-hygiene` | Diagnose Git, encoding, line-ending, formatter, and editor drift without losing real changes. | Scoped repository maintenance |
+| `problem-clarification` | Resolve consequential ambiguity using existing evidence and targeted questions; skip already clear routine work. | Explicit interviews or materially ambiguous requirements |
+| `writing-issues` | Describe a problem or unmet need with evidence and observable acceptance criteria, preserving uncertainty. | Issue, bug-report, and feature-request drafting |
+| `writing-pr` | Describe the current aggregate change with proportional explanation, relevant verification, and risks. | PR drafting and updates |
 
 Built-ins are the lowest precedence tier. Project skills override user skills;
 user skills override built-ins. A project or user may disable built-ins or
@@ -570,6 +575,21 @@ opinionated packs belong outside core. Future official packs such as web,
 backend, security, or an opinionated engineering pack may be installable
 content, but they must not become default product doctrine unless promoted
 through the same evaluation and documentation gate.
+
+Writing procedures share prose and representation guidance in `clear-writing`.
+`writing-issues` owns describing work to be done; `writing-pr` owns explaining
+delivered changes. `problem-clarification` owns only consequential unresolved
+intent, not a mandatory interview before writing. Existing skills, templates,
+and agent summaries are evidence to evaluate rather than proof of good design;
+applicable contracts remain effective until deliberately changed.
+
+These skills use existing admission, visibility, and native projection. They
+do not grant tracker writes, media uploads, or merge authority. Generic prose
+classification continues to recommend `clear-writing`; it does not infer an
+issue, PR, or interview from a broad writing intent. Named procedures can be
+selected through configured admission or native discovery. The bounded
+[writing smoke](../../evaluations/writing-skills-2026.md) records validation
+limits; no reviewer-performance improvement or new automatic route is claimed.
 
 `concept-modeling` is available for explicit selection and governed catalog
 admission, but it is not part of static `architecture-review` routing. That
