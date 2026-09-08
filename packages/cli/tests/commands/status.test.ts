@@ -1,3 +1,4 @@
+import { publishExecutionTargetBinding } from "../../src/config/execution-target-binding-store.js";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -19,10 +20,11 @@ import { bootstrapProjectAdoption } from "../../src/application/project-adoption
 function persistGlobalConfig(config: KilnGlobalConfig): void {
   const admitted = withSyntheticExecutionTargetEvidence(config);
   if (admitted.evidence) {
-    writeExecutionTargetEvidenceSnapshot({
+    const published = writeExecutionTargetEvidenceSnapshot({
       globalConfigPath: resolveGlobalConfigPath(),
       snapshot: admitted.evidence,
     });
+    publishExecutionTargetBinding(resolveGlobalConfigPath(), admitted.config.targetCatalog!, published.revision);
   }
   persistGlobalConfigFixture(admitted.config);
 }

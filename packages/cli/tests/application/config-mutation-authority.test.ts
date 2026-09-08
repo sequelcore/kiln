@@ -1,3 +1,4 @@
+import { publishExecutionTargetBinding, readExecutionTargetBinding } from "../../src/config/execution-target-binding-store.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, renameSync, symlinkSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -69,7 +70,6 @@ function emptyTargetState() {
     evidence,
     intent: {
       ...admitted.intent,
-      evidenceRevision: executionTargetEvidenceRevision(evidence),
       targets: [],
     } satisfies ExecutionTargetCatalogIntent,
   };
@@ -906,6 +906,7 @@ describe("config mutation authority", () => {
     const state = admittedTargetState();
     seedGlobalConfigWithTargetCatalog(state.intent);
     writeExecutionTargetEvidenceSnapshot({ globalConfigPath: globalConfigPath(), snapshot: state.evidence });
+    publishExecutionTargetBinding(globalConfigPath(), state.intent, executionTargetEvidenceRevision(state.evidence));
     const before = parse(readFileSync(globalConfigPath(), "utf-8")) as Record<string, unknown>;
     writeFileSync(globalConfigPath(), stringify({
       ...before,
@@ -1260,6 +1261,7 @@ describe("config mutation authority", () => {
     const state = admittedTargetState();
     seedGlobalConfigWithTargetCatalog(state.intent);
     writeExecutionTargetEvidenceSnapshot({ globalConfigPath: globalConfigPath(), snapshot: state.evidence });
+    publishExecutionTargetBinding(globalConfigPath(), state.intent, executionTargetEvidenceRevision(state.evidence));
 
     const record = propose("target.select", { targetId: "selected-target" });
     expect(record.proposal.status).toBe("valid");
@@ -1313,6 +1315,7 @@ describe("config mutation authority", () => {
     const current = emptyTargetState();
     seedGlobalConfigWithTargetCatalog(current.intent);
     writeExecutionTargetEvidenceSnapshot({ globalConfigPath: globalConfigPath(), snapshot: current.evidence });
+    publishExecutionTargetBinding(globalConfigPath(), current.intent, executionTargetEvidenceRevision(current.evidence));
     const expectedRevision = `sha256:${createHash("sha256").update(readFileSync(globalConfigPath(), "utf-8")).digest("hex")}`;
     const next = targetWithRevision(current.intent, "created-target");
     const nextEvidence = syntheticExecutionTargetEvidence(next.intent);
@@ -1340,13 +1343,14 @@ describe("config mutation authority", () => {
     expect(result.settlement.outcome).toBe("committed");
     const config = parse(readFileSync(globalConfigPath(), "utf-8")) as KilnGlobalConfig;
     expect(config.targetCatalog?.targets.map((target) => target.id)).toEqual(["created-target"]);
-    expect(config.targetCatalog?.evidenceRevision).toBe(nextEvidenceRevision);
+    expect(readExecutionTargetBinding(globalConfigPath(), config.targetCatalog!).evidenceRevision).toBe(nextEvidenceRevision);
   });
 
   it("rejects target creation when the fenced global revision is stale", () => {
     const current = emptyTargetState();
     seedGlobalConfigWithTargetCatalog(current.intent);
     writeExecutionTargetEvidenceSnapshot({ globalConfigPath: globalConfigPath(), snapshot: current.evidence });
+    publishExecutionTargetBinding(globalConfigPath(), current.intent, executionTargetEvidenceRevision(current.evidence));
     const next = targetWithRevision(current.intent, "stale-target");
     const nextEvidence = syntheticExecutionTargetEvidence(next.intent);
     const nextEvidenceRevision = executionTargetEvidenceRevision(nextEvidence);
@@ -1377,12 +1381,12 @@ describe("config mutation authority", () => {
     };
     const intent = {
       ...base.intent,
-      evidenceRevision: executionTargetEvidenceRevision(evidence),
       accounts: [originalAccount, secondAccount],
       targets: [originalTarget, otherTarget],
     } satisfies ExecutionTargetCatalogIntent;
     seedGlobalConfigWithTargetCatalog(intent);
     writeExecutionTargetEvidenceSnapshot({ globalConfigPath: globalConfigPath(), snapshot: evidence });
+    publishExecutionTargetBinding(globalConfigPath(), intent, executionTargetEvidenceRevision(evidence));
     const raw = readFileSync(globalConfigPath(), "utf-8");
     const before = raw.replace(/(\s+- id: selected-target-policy)/u, "    # Shared policy rationale must survive a different target rebind.\n$1")
       .replace(/(\s+- id: other-target)/u, "    # Unrelated target must retain its own YAML node.\n$1");
@@ -1441,6 +1445,7 @@ describe("config mutation authority", () => {
     const state = admittedTargetState();
     seedGlobalConfigWithTargetCatalog(state.intent);
     writeExecutionTargetEvidenceSnapshot({ globalConfigPath: globalConfigPath(), snapshot: state.evidence });
+    publishExecutionTargetBinding(globalConfigPath(), state.intent, executionTargetEvidenceRevision(state.evidence));
     const before = readFileSync(globalConfigPath(), "utf-8");
     const record = propose("target.update_account_policy", {
       targetId: "selected-target",
@@ -1457,10 +1462,60 @@ describe("config mutation authority", () => {
     expect(readFileSync(globalConfigPath(), "utf-8")).toBe(before);
   });
 
+  it("rejects approved target creation after evidence renewal without a YAML change", async () => {
+    const state = admittedTargetState();
+    seedGlobalConfigWithTargetCatalog(state.intent);
+    const path = globalConfigPath();
+    const before = readFileSync(path, "utf8");
+    const expectedRevision = `sha256:${createHash("sha256").update(before).digest("hex")}`;
+    const prior = writeExecutionTargetEvidenceSnapshot({ globalConfigPath: path, snapshot: state.evidence }).revision;
+    publishExecutionTargetBinding(path, state.intent, prior);
+    const target = { ...state.intent.targets[0]!, id: "another-target" };
+    const nextIntent = { ...state.intent, targets: [...state.intent.targets, target] };
+    const next = writeExecutionTargetEvidenceSnapshot({ globalConfigPath: path, snapshot: syntheticExecutionTargetEvidence(nextIntent) }).revision;
+    const create = propose("target.create", { target, evidenceRevision: next, expectedRevision });
+    expect(create.proposal.status).toBe("valid");
+    const createApproval = approveConfigMutation({ projectPath: tempDir, proposalId: create.proposal.proposalId });
+    const renewed = writeExecutionTargetEvidenceSnapshot({ globalConfigPath: path, snapshot: { ...state.evidence, targets: state.evidence.targets.map((entry) => ({ ...entry, discovery: { ...entry.discovery, evidenceRevision: `sha256:${"f".repeat(64)}` } })) } }).revision;
+    const refresh = propose("target.refresh_evidence", { evidenceRevision: renewed, priorEvidenceRevision: prior, expectedRevision });
+    expect(refresh.proposal.status).toBe("valid");
+    const approval = approveConfigMutation({ projectPath: tempDir, proposalId: refresh.proposal.proposalId });
+    const refreshed = await applyConfigMutation({ projectPath: tempDir, proposalId: refresh.proposal.proposalId, approvalId: approval.approvalId, requester: "operator", reconcile: reconcileOk, readEffectiveState: async () => undefined });
+    expect(refreshed.settlement.outcome).toBe("committed");
+    const rejected = await applyConfigMutation({ projectPath: tempDir, proposalId: create.proposal.proposalId, approvalId: createApproval.approvalId, requester: "operator", reconcile: reconcileOk, readEffectiveState: async () => undefined });
+    expect(rejected.settlement.outcome).toBe("rejected");
+    expect(readFileSync(path, "utf8")).toBe(before);
+    expect(readExecutionTargetBinding(path, state.intent).evidenceRevision).toBe(renewed);
+  });
+
+  it.each(["stale-config", "interrupted"])("fences and recovers binding renewal: %s", async (scenario) => {
+    const state = admittedTargetState();
+    seedGlobalConfigWithTargetCatalog(state.intent);
+    const path = globalConfigPath();
+    const before = readFileSync(path, "utf8");
+    const expectedRevision = `sha256:${createHash("sha256").update(before).digest("hex")}`;
+    const prior = writeExecutionTargetEvidenceSnapshot({ globalConfigPath: path, snapshot: state.evidence }).revision;
+    publishExecutionTargetBinding(path, state.intent, prior);
+    const renewed = writeExecutionTargetEvidenceSnapshot({ globalConfigPath: path, snapshot: { ...state.evidence, targets: state.evidence.targets.map((entry) => ({ ...entry, discovery: { ...entry.discovery, evidenceRevision: `sha256:${"f".repeat(64)}` } })) } }).revision;
+    const record = propose("target.refresh_evidence", { evidenceRevision: renewed, priorEvidenceRevision: prior, expectedRevision });
+    expect(record.proposal.status).toBe("valid");
+    const approval = approveConfigMutation({ projectPath: tempDir, proposalId: record.proposal.proposalId });
+    if (scenario === "stale-config") writeFileSync(path, `${before}# changed after proposal\n`);
+    else {
+      const write = record.writes[0]!;
+      mutationStore().writeProgressMarker({ proposalId: record.proposal.proposalId, path: write.path, intendedRevision: `sha256:${write.nextHash}`, startedAt: new Date().toISOString() });
+      writeFileSync(write.path, write.nextContent);
+    }
+    const result = await applyConfigMutation({ projectPath: tempDir, proposalId: record.proposal.proposalId, approvalId: approval.approvalId, requester: "operator", reconcile: reconcileOk, readEffectiveState: async () => undefined });
+    expect(result.settlement.outcome).toBe(scenario === "stale-config" ? "rejected" : "committed");
+    expect(readExecutionTargetBinding(path, state.intent).evidenceRevision).toBe(scenario === "stale-config" ? prior : renewed);
+  });
+
   it("refreshes only provenance-bound target evidence through explicit approval", async () => {
     const state = admittedTargetState();
     seedGlobalConfigWithTargetCatalog(state.intent);
     writeExecutionTargetEvidenceSnapshot({ globalConfigPath: globalConfigPath(), snapshot: state.evidence });
+    publishExecutionTargetBinding(globalConfigPath(), state.intent, executionTargetEvidenceRevision(state.evidence));
     const expectedRevision = `sha256:${createHash("sha256").update(readFileSync(globalConfigPath(), "utf-8")).digest("hex")}`;
     const renewedEvidence = {
       ...state.evidence,
@@ -1497,7 +1552,7 @@ describe("config mutation authority", () => {
 
     const record = propose("target.refresh_evidence", {
       evidenceRevision: renewedRevision,
-      priorEvidenceRevision: state.intent.evidenceRevision,
+      priorEvidenceRevision: executionTargetEvidenceRevision(state.evidence),
       expectedRevision,
     });
     expect(record.proposal.status).toBe("valid");
@@ -1516,8 +1571,9 @@ describe("config mutation authority", () => {
 
     expect(result.settlement.outcome).toBe("committed");
     const config = parse(readFileSync(globalConfigPath(), "utf-8")) as KilnGlobalConfig;
-    expect(config.targetCatalog?.evidenceRevision).toBe(renewedRevision);
+    expect(readExecutionTargetBinding(globalConfigPath(), config.targetCatalog!).evidenceRevision).toBe(renewedRevision);
     expect(config.targetCatalog?.targets).toEqual(state.intent.targets);
+    expect(`sha256:${createHash("sha256").update(readFileSync(globalConfigPath(), "utf8")).digest("hex")}`).toBe(expectedRevision);
   });
 
   it("derives native import approval from the permission delta and preserves YAML comments", async () => {

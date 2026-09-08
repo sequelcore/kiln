@@ -90,7 +90,6 @@ owner. Generated editor-schema and descriptor projections are committed under
 | `workGovernance.boundedWorkCeiling.minimumHarnessCapability` | GG | I | C | global minimum | turn | supported |
 | `engines.<id>.enabled` | G | I | H | engine default; no project override | reconcile | supported |
 | `engines.<id>.billing` | G | I | M | engine metadata | reconcile | supported |
-| `targetCatalog.evidenceRevision` | GR | I | C | exact SHA-256 evidence reference | session | supported |
 | `targetCatalog.accounts[].id` | GR | I | H | required, unique | session | supported |
 | `targetCatalog.accounts[].providerId` | GR | I | H | required | session | supported |
 | `targetCatalog.accounts[].credentialId` | GR | I | H ref | opaque reference | session | supported |
@@ -730,3 +729,9 @@ Dynamic external consumers remain unproven, but Kiln has no external consumers
 under the adopted project context. Those limits do not reopen Slice 0; later
 slices must update this ledger when they replace a property owner or
 disposition.
+
+Execution-target bindings are managed evidence. Each record under
+`evidence/execution-target-bindings/` contains `version`, `intentRevision`, and
+`evidenceRevision`; the filename derives from canonical target-catalog intent.
+Operator YAML contains none of these binding fields. Runtime revision capture
+and activation lineage include the exact binding observed alongside config.

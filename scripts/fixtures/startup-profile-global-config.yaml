@@ -33,7 +33,6 @@ components:
   include:
     - baseline:core
 targetCatalog:
-  evidenceRevision: "sha256:aba2c76ffa80dbf3d57e5139e6c84c48c480ddebe455bfbe883bf58562b335fd"
   accounts:
     - id: startup-profile-account
       providerId: opencode-go

@@ -28,7 +28,7 @@ import { bootstrapProjectAdoption } from "../../src/application/project-adoption
 import { resolveProjectStateBinding, type ProjectStateBinding } from "../../src/application/project-state-root.js";
 import { readRuntimeConfigurationRevision } from "../../src/application/runtime-configuration-revision.js";
 import { TranscriptStore } from "../../src/wrapper/session-store.js";
-import { persistGlobalConfigFixture } from "../config/global-config-fixture.js";
+import { persistAdmittedGlobalConfigFixture } from "../config/global-config-fixture.js";
 import { makeOperatorSurfaceGlobalConfig } from "../commands/operator-surface-config-fixture.js";
 
 const READ_AUTHORITY: AuthorityDescriptor = {
@@ -64,7 +64,7 @@ beforeEach(() => {
     "  sandbox: read-only",
     "",
   ].join("\n"), "utf8");
-  persistGlobalConfigFixture({
+  persistAdmittedGlobalConfigFixture({
     ...makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.4-mini", "codex-default"),
     permissions: { approval: "on-request", sandbox: "read-only" },
   });

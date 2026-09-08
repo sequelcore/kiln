@@ -17,7 +17,6 @@ The catalog separates:
 
 | Record | Owns |
 | --- | --- |
-| `targetCatalog.evidenceRevision` | Exact immutable managed-evidence snapshot admitted with this intent |
 | `targetCatalog.accounts` | Opaque credential reference, concurrency intent, and credit/overage posture |
 | `targetCatalog.accountPolicies` | Eligible accounts and deterministic automatic selection |
 | `targetCatalog.targets` | Destination, classification, account selection, and material execution constraints |
@@ -151,3 +150,10 @@ and [Multi-Tenant](multi-tenant.md).
 - [Provider credential pools](../../architecture/safety/provider-credential-pools.md)
 - [Model Gateway](../../architecture/providers/model-gateway.md)
 - [Coordination](../../architecture/coordination/coordination.md)
+
+Kiln stores the exact intent-to-evidence binding under
+`~/.kiln/evidence/execution-target-bindings/`. Target creation and account-policy
+updates admit the new binding before committing operator intent. Approved
+`kiln target refresh-evidence --approve` renews the binding without rewriting
+YAML. There is no fallback to a latest snapshot: a missing or mismatched binding
+blocks execution and must be restored or re-admitted through its owning workflow.

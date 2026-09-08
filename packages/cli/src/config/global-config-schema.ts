@@ -24,8 +24,8 @@ import type {
 } from "../kiln-yaml-types.js";
 import { KilnYamlError } from "../kiln-yaml-types.js";
 
-export const GLOBAL_CONFIG_SCHEMA_REVISION = 3;
-export const GLOBAL_CONFIG_SCHEMA_ID = "https://kiln.dev/schemas/global-config-v3.json";
+export const GLOBAL_CONFIG_SCHEMA_REVISION = 4;
+export const GLOBAL_CONFIG_SCHEMA_ID = "https://kiln.dev/schemas/global-config-v4.json";
 export const CANONICAL_GLOBAL_CONFIG_VERSION = "7" as const;
 
 export type GlobalConfigActivation = "hot" | "next-turn" | "next-session" | "reconcile" | "restart-required";

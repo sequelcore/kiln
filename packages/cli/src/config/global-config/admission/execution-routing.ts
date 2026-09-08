@@ -1,3 +1,4 @@
+import { readExecutionTargetBinding } from "../../execution-target-binding-store.js";
 import {
   validateManagedEconomicAmount,
   type ExecutionTargetCatalog,
@@ -25,10 +26,7 @@ import {
 export function validateTargetCatalog(value: unknown): void {
   if (value === undefined) return;
   if (!isRecord(value)) throw new KilnYamlError("targetCatalog must be an object");
-  rejectUnknownFields(value, ["evidenceRevision", "accounts", "accountPolicies", "targets"], "targetCatalog");
-  if (typeof value.evidenceRevision !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(value.evidenceRevision)) {
-    throw new KilnYamlError("targetCatalog.evidenceRevision must be a sha256 digest");
-  }
+  rejectUnknownFields(value, ["accounts", "accountPolicies", "targets"], "targetCatalog");
   if (!Array.isArray(value.accounts) || !Array.isArray(value.accountPolicies) || !Array.isArray(value.targets)) {
     throw new KilnYamlError("targetCatalog.accounts, targetCatalog.accountPolicies, and targetCatalog.targets must be arrays");
   }
@@ -115,7 +113,7 @@ export function projectDirectExecutionTargetCatalog(
   const catalog = config?.targetCatalog;
   if (!catalog) return undefined;
   if (!evidence || !evidenceRevision) {
-    throw new KilnYamlError(`Execution target catalog requires managed evidence revision ${catalog.evidenceRevision}.`);
+    throw new KilnYamlError(`Execution target catalog requires an exact managed evidence binding.`);
   }
   try {
     const executionCatalog = projectExecutionTargetCatalogFromIntent(catalog, evidence, evidenceRevision);
@@ -130,7 +128,7 @@ export function projectDirectExecutionTargetCatalog(
   }
 }
 
-/** Reads the exact managed-evidence revision referenced by operator intent and resolves Core runtime authority. */
+/** Reads the managed binding for exact operator intent and resolves Core runtime authority. */
 export function readGlobalExecutionTargetAuthority(
   config: KilnGlobalConfig | null | undefined,
   options: { readonly globalConfigPath?: string } = {},
@@ -140,11 +138,12 @@ export function readGlobalExecutionTargetAuthority(
 } | undefined {
   const intent = config?.targetCatalog;
   if (!intent) return undefined;
+  const revision = readExecutionTargetBinding(options.globalConfigPath ?? resolveGlobalConfigPath(), intent).evidenceRevision as ExecutionTargetEvidenceRevision;
   const evidence = readExecutionTargetEvidenceSnapshot({
     globalConfigPath: options.globalConfigPath ?? resolveGlobalConfigPath(),
-    revision: intent.evidenceRevision,
+    revision: revision,
   });
-  const executionCatalog = projectDirectExecutionTargetCatalog(config, evidence, intent.evidenceRevision);
+  const executionCatalog = projectDirectExecutionTargetCatalog(config, evidence, revision);
   if (!executionCatalog) return undefined;
   return { evidence, executionCatalog };
 }

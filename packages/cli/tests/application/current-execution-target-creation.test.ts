@@ -245,7 +245,6 @@ function fixture(): ExecutionTargetWizardAdmissionInput {
         targets: [],
       },
       targetIntent: {
-        evidenceRevision: `sha256:${"c".repeat(64)}` as `sha256:${string}`,
         accounts: [{ id: "account-a", providerId: "openai", credentialId: "opaque", maxConcurrency: 2, reservedAffinitySlots: 0, economics: { creditPosture: "disabled" as const, overagePosture: "disabled" as const } }],
         accountPolicies: [policy("policy-openai", ["account-a"])],
         targets: [],

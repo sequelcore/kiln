@@ -1,3 +1,5 @@
+import type { ExecutionTargetEvidenceRevision } from "../config/execution-target-evidence-store.js";
+import { readExecutionTargetBinding } from "../config/execution-target-binding-store.js";
 import readline from "node:readline";
 import {
   defaultGlobalConfig,
@@ -97,9 +99,10 @@ async function targetRefreshEvidenceCommand(args: readonly string[]): Promise<vo
   const snapshot = readGlobalConfigSnapshot();
   const intent = snapshot.config?.targetCatalog as ExecutionTargetCatalogIntent | undefined;
   if (!intent) throw new Error("Execution-target evidence refresh requires a configured target catalog.");
+  const evidenceRevision = readExecutionTargetBinding(resolveGlobalConfigPath(), intent).evidenceRevision as ExecutionTargetEvidenceRevision;
   const currentEvidence = readExecutionTargetEvidenceSnapshot({
     globalConfigPath: resolveGlobalConfigPath(),
-    revision: intent.evidenceRevision,
+    revision: evidenceRevision,
   });
   const { registry } = createDefaultRegistry({ kilnHome: resolveKilnHomePath() });
   const discovery = projectGuiProviderModelDiscovery(await resolveGuiOperatorDiscoveryResults(
@@ -136,7 +139,7 @@ async function targetRefreshEvidenceCommand(args: readonly string[]): Promise<vo
     "Execution-target evidence refresh:",
     `  targets: ${renewedEvidence.targets.length}`,
     "  authority material: unchanged",
-    `  current evidence: ${intent.evidenceRevision}`,
+    `  current evidence: ${evidenceRevision}`,
     `  renewed evidence: ${nextEvidenceRevision}`,
     `  earliest expiry: ${expiries[0] ?? "unknown"}`,
   ].join("\n"));
@@ -147,12 +150,12 @@ async function targetRefreshEvidenceCommand(args: readonly string[]): Promise<vo
   const result = await refreshExecutionTargetEvidence({
     projectPath: process.cwd(),
     expectedConfigurationRevision: snapshot.revision,
-    priorEvidenceRevision: intent.evidenceRevision,
+    priorEvidenceRevision: evidenceRevision,
     renewedEvidence,
     approvalSurface: "cli",
     operatorApproved: true,
   });
-  console.log(`  status: ${result.outcome}; activation: next-session; configuration: ${result.committedConfigurationRevision}`);
+  console.log(`  status: ${result.outcome}; activation: next-session; binding: ${result.committedBindingRevision}`);
 }
 
 async function selectTarget(targetId: string | undefined, operatorApproved: boolean): Promise<void> {

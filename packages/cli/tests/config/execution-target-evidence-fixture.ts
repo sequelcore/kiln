@@ -109,13 +109,7 @@ export function withSyntheticExecutionTargetEvidence(config: KilnGlobalConfig): 
   if (!config.targetCatalog) return { config };
   const evidence = syntheticExecutionTargetEvidence(config.targetCatalog);
   return {
-    config: {
-      ...config,
-      targetCatalog: {
-        ...config.targetCatalog,
-        evidenceRevision: executionTargetEvidenceRevision(evidence),
-      },
-    },
+    config,
     evidence,
   };
 }
@@ -126,7 +120,7 @@ export function syntheticExecutionTargetCatalog(config: KilnGlobalConfig): Execu
   return projectExecutionTargetCatalogFromIntent(
     admitted.config.targetCatalog,
     admitted.evidence,
-    admitted.config.targetCatalog.evidenceRevision,
+    executionTargetEvidenceRevision(admitted.evidence),
     { now: new Date("2026-08-20T00:00:00.000Z") },
   );
 }

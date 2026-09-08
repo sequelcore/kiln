@@ -100,8 +100,7 @@ export class GlobalConfigMutationError extends Error {
 }
 
 /** Holds the canonical config lock while a dependent synchronous write checks its source revision. */
-export function withGlobalConfigRevision<T>(expectedRevision: string | undefined, commit: () => T): T {
-  const configPath = resolveGlobalConfigPath();
+export function withGlobalConfigRevision<T>(expectedRevision: string | undefined, commit: () => T, configPath = resolveGlobalConfigPath()): T {
   const lockPath = configPath + ".lock";
   const lock = acquireGlobalConfigLock(configPath, lockPath);
   try {

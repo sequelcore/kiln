@@ -22,7 +22,6 @@ export function makeOperatorSurfaceGlobalConfig(
   const account = base.targetCatalog!.accounts[0]!;
   const target = base.targetCatalog!.targets[0]!;
   if (target.kind !== "direct") throw new Error("Operator surface fixture expects a direct target.");
-  const evidence = makeOperatorSurfaceTargetEvidence(providerId, providerModelId, targetId);
   return {
     ...base,
     version: "7",
@@ -35,7 +34,6 @@ export function makeOperatorSurfaceGlobalConfig(
       })),
     },
     targetCatalog: {
-      evidenceRevision: executionTargetEvidenceRevision(evidence),
       accounts: [{
         ...account,
         id: accountId,
@@ -104,7 +102,7 @@ export function makeOperatorSurfaceExecutionTargetCatalog(
   return projectExecutionTargetCatalogFromIntent(
     config.targetCatalog!,
     makeOperatorSurfaceTargetEvidence(providerId, providerModelId, targetId),
-    config.targetCatalog!.evidenceRevision,
+    executionTargetEvidenceRevision(makeOperatorSurfaceTargetEvidence(providerId, providerModelId, targetId)),
     { now: new Date("2026-08-20T00:00:00.000Z") },
   );
 }

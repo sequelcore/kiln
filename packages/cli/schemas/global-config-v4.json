@@ -1,5 +1,5 @@
 {
-  "$id": "https://kiln.dev/schemas/global-config-v3.json",
+  "$id": "https://kiln.dev/schemas/global-config-v4.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "Canonical structural schema for ~/.kiln/config.yaml.",
@@ -616,7 +616,7 @@
   "x-kiln-activation": "next-session",
   "x-kiln-authority-impact": "none",
   "x-kiln-default-posture": "omitted",
-  "x-kiln-schema-revision": 3,
+  "x-kiln-schema-revision": 4,
   "x-kiln-scope": "global",
   "x-kiln-semantic-owner": "global-configuration",
   "x-kiln-sensitivity": "public",

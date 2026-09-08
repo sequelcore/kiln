@@ -489,5 +489,7 @@ function summaryForState(state: ActivationStatusState, representative: Activatio
 function logicalPath(path: string): string {
   const normalized = path.replaceAll("\\", "/");
   if (normalized.endsWith("/config.yaml")) return "config.yaml";
+  const binding = normalized.match(/\/evidence\/execution-target-bindings\/([a-f0-9]{64}\.json)$/u);
+  if (binding) return `evidence/execution-target-bindings/${binding[1]}`;
   return "canonical";
 }

@@ -428,7 +428,7 @@ function degradedActivationRevisionSetId(
   return createRuntimeConfigurationRevisionSetId({
     global: globalState.revision,
     project: projectState.revision,
-    "execution-target-evidence": globalConfig?.targetCatalog?.evidenceRevision ?? "absent",
+    "execution-target-evidence": globalConfig?.targetCatalog ? "unavailable" : "absent",
   });
 }
 

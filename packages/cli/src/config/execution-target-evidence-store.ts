@@ -260,7 +260,6 @@ export interface HarnessExecutionTargetIntent {
 }
 
 export interface ExecutionTargetCatalogIntent {
-  readonly evidenceRevision: ExecutionTargetEvidenceRevision;
   readonly accounts: readonly ExecutionAccountIntent[];
   readonly accountPolicies: readonly ExecutionAccountPolicy[];
   readonly targets: readonly (DirectExecutionTargetIntent | HarnessExecutionTargetIntent)[];
@@ -421,8 +420,8 @@ export function projectExecutionTargetCatalogFromIntent(
 ): ExecutionTargetCatalog {
   const evidence = defineExecutionTargetEvidenceSnapshot(evidenceValue);
   const actualRevision = executionTargetEvidenceRevision(evidence);
-  if (actualRevision !== evidenceRevision || intent.evidenceRevision !== evidenceRevision) {
-    throw new Error(`Execution target evidence revision mismatch: intent=${intent.evidenceRevision}, supplied=${evidenceRevision}, actual=${actualRevision}.`);
+  if (actualRevision !== evidenceRevision) {
+    throw new Error(`Execution target evidence revision mismatch: supplied=${evidenceRevision}, actual=${actualRevision}.`);
   }
   const accountEvidence = exactEvidenceMap(
     intent.accounts.map(({ id }) => id),
@@ -554,4 +553,8 @@ function deepFreeze<T>(value: T): T {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function executionTargetIntentRevision(intent: ExecutionTargetCatalogIntent): ExecutionTargetEvidenceRevision {
+  return `sha256:${createHash("sha256").update(JSON.stringify(sortJson(intent))).digest("hex")}`;
 }

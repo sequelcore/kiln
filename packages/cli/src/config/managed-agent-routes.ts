@@ -82,7 +82,7 @@ import type {
   KilnTargetCatalogIntentConfig,
   KilnDeliberationPolicyConfig,
 } from "../kiln-yaml-types.js";
-import type { ExecutionTargetEvidenceSnapshot } from "./execution-target-evidence-store.js";
+import { executionTargetEvidenceRevision, type ExecutionTargetEvidenceSnapshot } from "./execution-target-evidence-store.js";
 import {
   deriveManagedAgentEconomicPolicies,
   type DerivedManagedAgentEconomicPolicy,
@@ -313,7 +313,7 @@ export async function projectManagedEconomicJobAdoption(
     managedAgents: managed,
     executionCatalog,
     defaultTargetId: config.targetRouting?.defaultTargetId,
-    targetEvidenceRevision: config.targetCatalog?.evidenceRevision,
+    targetEvidenceRevision: config.executionTargetEvidence ? executionTargetEvidenceRevision(config.executionTargetEvidence) : undefined,
   }).find((entry) =>
     entry.id === dispatch.economicPolicyId && entry.revision === dispatch.economicPolicyRevision);
   if (!managed || !policy || !executionCatalog) {
@@ -640,7 +640,7 @@ export async function resolveManagedInvocationToolOptions(
     managedAgents: config.managedAgents,
     executionCatalog: config.executionCatalog,
     defaultTargetId: config.targetRouting?.defaultTargetId,
-    targetEvidenceRevision: config.targetCatalog?.evidenceRevision,
+    targetEvidenceRevision: config.executionTargetEvidence ? executionTargetEvidenceRevision(config.executionTargetEvidence) : undefined,
   });
   const economicPolicyHealth = validateManagedAgentEconomicPolicyBindings(
     configuredAgentDefinitions,

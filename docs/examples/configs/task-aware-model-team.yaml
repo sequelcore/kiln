@@ -6,7 +6,6 @@ identity: { name: Alex, timezone: America/Tijuana }
 
 targetCatalog:
   # Example digest only. A real setup publishes the admitted snapshot first.
-  evidenceRevision: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   accounts:
     - id: codex-oauth-primary
       providerId: codex-oauth

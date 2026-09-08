@@ -36,7 +36,6 @@ export async function createExecutionTarget(input: {
   const nextEvidenceRevision = executionTargetEvidenceRevision(nextEvidence);
   const nextIntent: ExecutionTargetCatalogIntent = {
     ...input.currentIntent,
-    evidenceRevision: nextEvidenceRevision,
     targets: [...input.currentIntent.targets, input.draft.intent],
   };
   projectExecutionTargetCatalogFromIntent(nextIntent, nextEvidence, nextEvidenceRevision);

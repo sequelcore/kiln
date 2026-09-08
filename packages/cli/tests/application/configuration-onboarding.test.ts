@@ -1,3 +1,5 @@
+import { publishExecutionTargetBinding } from "../../src/config/execution-target-binding-store.js";
+import { executionTargetEvidenceRevision } from "../../src/config/execution-target-evidence-store.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -39,7 +41,6 @@ function globalConfig(defaultTargetId?: string): KilnGlobalConfig {
   return {
     version: "7",
     targetCatalog: {
-      evidenceRevision: `sha256:${"a".repeat(64)}`,
       accounts: [],
       accountPolicies: [],
       targets: [target] as never,
@@ -56,7 +57,6 @@ function globalConfigWithTargets(
   return {
     version: "7",
     targetCatalog: {
-      evidenceRevision: `sha256:${"a".repeat(64)}`,
       accounts: [],
       accountPolicies: [],
       targets: targets as never,
@@ -267,6 +267,7 @@ describe("configuration onboarding application", () => {
       globalConfigPath: globalPath,
       snapshot: makeOperatorSurfaceTargetEvidence("codex-oauth", "gpt-5.6-terra", "codex-default"),
     });
+    publishExecutionTargetBinding(globalPath, admittedGlobal.targetCatalog!, executionTargetEvidenceRevision(makeOperatorSurfaceTargetEvidence("codex-oauth", "gpt-5.6-terra", "codex-default")));
     const result = await applyOnboarding({
       projectPath,
       globalConfigPath: globalPath,
@@ -487,6 +488,7 @@ describe("configuration onboarding application", () => {
     const before = stringify(admitted.config);
     writeFileSync(globalPath, before, "utf8");
     writeExecutionTargetEvidenceSnapshot({ globalConfigPath: globalPath, snapshot: admitted.evidence! });
+    publishExecutionTargetBinding(globalPath, admitted.config.targetCatalog!, executionTargetEvidenceRevision(admitted.evidence!));
     writeProjectConfig([
       "version: '1'",
       "permissions:",

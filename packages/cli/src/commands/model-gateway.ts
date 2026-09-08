@@ -1,3 +1,4 @@
+import { executionTargetEvidenceRevision } from "../config/execution-target-evidence-store.js";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
@@ -31,7 +32,7 @@ import {
   type GovernedOneRoundAuthorityAdmissionPort,
 } from "@kilnai/runtime";
 import pkg from "../../package.json" with { type: "json" };
-import { CANONICAL_GLOBAL_CONFIG_VERSION, readGlobalConfig, readGlobalExecutionTargetCatalog, resolveGlobalConfigPath, resolveGlobalModelGatewayConfig, type KilnGlobalConfig } from "../config/global-config.js";
+import { CANONICAL_GLOBAL_CONFIG_VERSION, readGlobalConfig, readGlobalExecutionTargetAuthority, resolveGlobalConfigPath, resolveGlobalModelGatewayConfig, type KilnGlobalConfig } from "../config/global-config.js";
 import { resolveGlobalEconomicAuthorityDatabasePath } from "../config/global-economic-authority.js";
 import { syncGlobalOpenCodeModelGatewayProjection, type GlobalOpenCodeModelGatewayProjectionResult } from "../config/global-opencode-model-gateway-projection.js";
 import {
@@ -75,7 +76,7 @@ interface ModelGatewayCommandDependencies {
   readonly startModelGatewayListener: (options: StartModelGatewayListenerOptions) => Promise<{ close(): Promise<void>; readonly shutdownRequested: Promise<void> }>;
   readonly inspectModelGatewayListener: typeof inspectModelGatewayListener;
   readonly readGlobalConfig: () => KilnGlobalConfig | null;
-  readonly readExecutionTargetCatalog: (config: KilnGlobalConfig | null) => ExecutionTargetCatalog | undefined;
+  readonly readExecutionTargetAuthority: (config: KilnGlobalConfig) => { readonly executionCatalog: ExecutionTargetCatalog; readonly evidenceRevision: string } | undefined;
   readonly resolveGlobalConfigPath: () => string;
   readonly createSupervisor: (input: ConstructorParameters<typeof ModelGatewaySupervisor>[0]) => SupervisorSurface;
   readonly createAutostartAdapter: (input: { readonly runtimeDir: string; readonly userId: string }) => AutostartSurface;
@@ -103,7 +104,10 @@ const defaultDependencies: ModelGatewayCommandDependencies = {
   startModelGatewayListener,
   inspectModelGatewayListener,
   readGlobalConfig,
-  readExecutionTargetCatalog: readGlobalExecutionTargetCatalog,
+  readExecutionTargetAuthority: (config) => {
+    const authority = readGlobalExecutionTargetAuthority(config);
+    return authority ? { executionCatalog: authority.executionCatalog, evidenceRevision: executionTargetEvidenceRevision(authority.evidence) } : undefined;
+  },
   resolveGlobalConfigPath,
   createSupervisor: (input) => new ModelGatewaySupervisor(input),
   createAutostartAdapter: (input) => new WindowsModelGatewayAutostartAdapter(input),
@@ -366,11 +370,12 @@ async function startConfiguredModelGatewayListener(
   if (globalConfig?.version !== CANONICAL_GLOBAL_CONFIG_VERSION || !globalConfig.targetRouting) {
     throw new Error("Model gateway execution requires canonical global config with targetCatalog and targetRouting.");
   }
+  const targetAuthority = dependencies.readExecutionTargetAuthority(globalConfig);
   const composition = createModelGatewayExecutionComposition(
-    dependencies.readExecutionTargetCatalog(globalConfig),
+    targetAuthority?.executionCatalog,
     listener.databasePath,
     dependencies.env,
-    createModelGatewayExecutionConfigurationRevision(globalConfig, config),
+    createModelGatewayExecutionConfigurationRevision(globalConfig, config, targetAuthority?.evidenceRevision),
     globalConfig,
     dependencies.projectPath,
   );
@@ -474,9 +479,9 @@ function isPathWithin(root: string, candidate: string): boolean {
   return path === "" || (path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path));
 }
 
-function createModelGatewayExecutionConfigurationRevision(globalConfig: KilnGlobalConfig, config: ModelGatewayConfig): string {
+function createModelGatewayExecutionConfigurationRevision(globalConfig: KilnGlobalConfig, config: ModelGatewayConfig, targetEvidenceRevision: string | undefined): string {
   return createHash("sha256")
-    .update(JSON.stringify({ targetCatalog: globalConfig.targetCatalog, targetRouting: globalConfig.targetRouting, modelGateway: config }), "utf8")
+    .update(JSON.stringify({ targetCatalog: globalConfig.targetCatalog, targetEvidenceRevision, targetRouting: globalConfig.targetRouting, modelGateway: config }), "utf8")
     .digest("hex");
 }
 

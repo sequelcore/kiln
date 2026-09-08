@@ -394,7 +394,8 @@ export class ConfigMutationStore {
   private isGlobalPath(canonicalPath: string): boolean {
     return samePath(canonicalPath, this.globalConfigPath)
       || isWithin(join(dirname(this.globalConfigPath), "agents"), canonicalPath)
-      || isWithin(join(dirname(this.globalConfigPath), "skills"), canonicalPath);
+      || isWithin(join(dirname(this.globalConfigPath), "skills"), canonicalPath)
+      || isWithin(join(dirname(this.globalConfigPath), "evidence", "execution-target-bindings"), canonicalPath);
   }
 
   private markerPath(proposalId: string): string {

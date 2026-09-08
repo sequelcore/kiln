@@ -1,6 +1,8 @@
+import { parseExecutionTargetBinding, executionTargetBindingPath } from "../config/execution-target-binding-store.js";
+import type { ExecutionTargetCatalogIntent } from "../config/execution-target-evidence-store.js";
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import type { RuntimeConfigurationRevisionSnapshot } from "@kilnai/runtime";
 import { parse } from "yaml";
 import { resolveGlobalConfigPath } from "../config/global-config.js";
@@ -48,6 +50,7 @@ export function readRuntimeConfigurationRevision(
 
   for (let attempt = 0; attempt < MAX_CAPTURE_ATTEMPTS; attempt += 1) {
     const firstGlobal = readSource(globalPath);
+    const firstEvidence = managedEvidenceRevision(firstGlobal.bytes, globalPath);
     const firstGlobalAgents = captureGlobalAgentCatalogDigest(join(dirname(globalPath), "agents"));
     const firstProject = readSource(projectConfigPath);
     const firstAdoption = readAdoptionRevision(binding);
@@ -63,8 +66,10 @@ export function readRuntimeConfigurationRevision(
       projectConfigPath,
       firstGlobal.revision,
       firstProject.revision,
+      firstEvidence,
     );
     const secondGlobal = readSource(globalPath);
+    const secondEvidence = managedEvidenceRevision(secondGlobal.bytes, globalPath);
     const secondGlobalAgents = captureGlobalAgentCatalogDigest(join(dirname(globalPath), "agents"));
     const secondProject = readSource(projectConfigPath);
     const secondAdoption = readAdoptionRevision(binding);
@@ -80,9 +85,11 @@ export function readRuntimeConfigurationRevision(
       projectConfigPath,
       secondGlobal.revision,
       secondProject.revision,
+      secondEvidence,
     );
     if (
       firstGlobal.revision !== secondGlobal.revision ||
+      JSON.stringify(firstEvidence) !== JSON.stringify(secondEvidence) ||
       firstGlobalAgents !== secondGlobalAgents ||
       firstProject.revision !== secondProject.revision ||
       firstAdoption !== secondAdoption ||
@@ -97,7 +104,7 @@ export function readRuntimeConfigurationRevision(
       project: firstProject.revision,
       "project-state": firstProjectState,
       adoption: firstAdoption,
-      "execution-target-evidence": managedEvidenceRevision(firstGlobal.bytes),
+      "execution-target-evidence": firstEvidence.evidenceRevision,
     } as const;
     return {
       revisionSetId: createRuntimeConfigurationRevisionSetId(revisions),
@@ -152,11 +159,13 @@ function readActivationLineage(
   projectConfigPath: string,
   globalRevision: string,
   projectRevision: string,
+  targetBinding: ManagedTargetBindingRevision,
 ): readonly NonNullable<RuntimeConfigurationRevisionSnapshot["activationLineage"]>[number][] {
   const candidates = [
     readSettlementLineage(store, globalPath, globalRevision, "global", projectPath, projectConfigPath),
     readSettlementLineage(store, projectConfigPath, projectRevision, "project", projectPath, projectConfigPath),
   ];
+  if (targetBinding.path) candidates.push(readSettlementLineage(store, targetBinding.path, targetBinding.revision!, "global", projectPath, projectConfigPath));
   return candidates.filter((lineage): lineage is NonNullable<typeof lineage> => lineage !== undefined);
 }
 
@@ -200,6 +209,7 @@ function logicalCanonicalPath(
   projectConfigPath: string,
 ): string {
   if (scope === "project" && samePath(canonicalPath, projectConfigPath)) return "config.yaml";
+  if (scope === "global" && basename(dirname(canonicalPath)) === "execution-target-bindings") return `evidence/execution-target-bindings/${basename(canonicalPath)}`;
   if (scope === "global") return "config.yaml";
   const relativePath = relativePathWithinProject(projectPath, canonicalPath);
   return relativePath.length === 0 ? "." : relativePath;
@@ -241,14 +251,23 @@ function readSource(path: string): { readonly bytes: Buffer | null; readonly rev
   }
 }
 
-function managedEvidenceRevision(globalBytes: Buffer | null): string {
-  if (globalBytes === null) return "absent";
+interface ManagedTargetBindingRevision {
+  readonly evidenceRevision: string;
+  readonly path?: string;
+  readonly revision?: string;
+}
+
+function managedEvidenceRevision(globalBytes: Buffer | null, globalConfigPath: string): ManagedTargetBindingRevision {
+  if (globalBytes === null) return { evidenceRevision: "absent" };
   const value: unknown = parse(globalBytes.toString("utf8"));
-  if (!value || typeof value !== "object" || Array.isArray(value)) return "absent";
-  const targetCatalog = (value as Record<string, unknown>).targetCatalog;
-  if (!targetCatalog || typeof targetCatalog !== "object" || Array.isArray(targetCatalog)) return "absent";
-  const revision = (targetCatalog as Record<string, unknown>).evidenceRevision;
-  return typeof revision === "string" && /^sha256:[a-f0-9]{64}$/u.test(revision) ? revision : "absent";
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { evidenceRevision: "absent" };
+  const intent = (value as { targetCatalog?: ExecutionTargetCatalogIntent }).targetCatalog;
+  if (!intent) return { evidenceRevision: "absent" };
+  const path = executionTargetBindingPath(globalConfigPath, intent);
+  const source = readSource(path);
+  if (!source.bytes) throw new Error("Execution-target evidence binding is unavailable.");
+  const binding = parseExecutionTargetBinding(source.bytes.toString("utf8"), intent);
+  return { evidenceRevision: binding.evidenceRevision, path, revision: source.revision };
 }
 
 function isMissingError(error: unknown): boolean {

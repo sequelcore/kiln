@@ -22,7 +22,7 @@ describe("global configuration schema", () => {
   });
 
   it("owns one strict versioned global document boundary", () => {
-    expect(GLOBAL_CONFIG_SCHEMA.$id).toBe("https://kiln.dev/schemas/global-config-v3.json");
+    expect(GLOBAL_CONFIG_SCHEMA.$id).toBe("https://kiln.dev/schemas/global-config-v4.json");
     expect(GLOBAL_CONFIG_SCHEMA.additionalProperties).toBe(false);
     expect(parseGlobalConfigStructure({ version: "7" }, "fixtures/config.yaml")).toEqual({ version: "7" });
     expect(() => parseGlobalConfigStructure(
@@ -38,7 +38,7 @@ describe("global configuration schema", () => {
       semanticOwner: "global-configuration",
       scope: "global",
       activation: "next-session",
-      schemaRevision: 3,
+      schemaRevision: 4,
     }));
     expect(GLOBAL_CONFIG_FIELD_DESCRIPTORS).toContainEqual(expect.objectContaining({
       identity: "/modelGateway",
@@ -66,9 +66,9 @@ describe("global configuration schema", () => {
   });
 
   it("keeps committed editor-schema and descriptor projections current", () => {
-    expect(readFileSync(join(packageRoot, "schemas", "global-config-v3.json"), "utf8"))
+    expect(readFileSync(join(packageRoot, "schemas", "global-config-v4.json"), "utf8"))
       .toBe(serializeGlobalConfigEditorSchema());
-    expect(readFileSync(join(packageRoot, "schemas", "global-config-descriptors-v3.json"), "utf8"))
+    expect(readFileSync(join(packageRoot, "schemas", "global-config-descriptors-v4.json"), "utf8"))
       .toBe(serializeGlobalConfigDescriptors());
   });
 });

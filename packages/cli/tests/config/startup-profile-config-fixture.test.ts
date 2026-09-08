@@ -1,3 +1,4 @@
+import { parseExecutionTargetBinding } from "../../src/config/execution-target-binding-store.js";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parse } from "yaml";
@@ -70,11 +71,12 @@ describe("startup profile global configuration fixture", () => {
     const fixture = readFixture() as { targetCatalog: ExecutionTargetCatalogIntent };
     const evidence = JSON.parse(readFileSync(EVIDENCE_FIXTURE_PATH, "utf8")) as unknown;
 
-    expect(executionTargetEvidenceRevision(evidence)).toBe(fixture.targetCatalog.evidenceRevision);
+    const binding = parseExecutionTargetBinding(readFileSync(resolve(FIXTURE_PATH, "..", "startup-profile-execution-target-binding.json"), "utf8"), fixture.targetCatalog);
+    expect(binding.evidenceRevision).toBe(executionTargetEvidenceRevision(evidence));
     expect(projectExecutionTargetCatalogFromIntent(
       fixture.targetCatalog,
       evidence,
-      fixture.targetCatalog.evidenceRevision,
+      executionTargetEvidenceRevision(evidence),
       { now: new Date("2026-08-20T00:00:00.000Z") },
     ).targets).toHaveLength(1);
   });

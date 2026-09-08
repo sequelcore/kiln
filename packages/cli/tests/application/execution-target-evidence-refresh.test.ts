@@ -70,7 +70,7 @@ describe("refreshExecutionTargetEvidence", () => {
     expect(result).toEqual({
       outcome: "committed",
       evidenceRevision,
-      committedConfigurationRevision: "sha256:next",
+      committedBindingRevision: "sha256:next",
     });
   });
 

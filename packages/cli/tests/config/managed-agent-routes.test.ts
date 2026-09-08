@@ -1,3 +1,4 @@
+import { executionTargetEvidenceRevision } from "../../src/config/execution-target-evidence-store.js";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
@@ -525,7 +526,6 @@ function baseConfig(overrides: ManagedConfigFixture = {}): KilnGlobalConfig & Ma
     version: "7",
     executionCatalog,
     targetCatalog: {
-      evidenceRevision: `sha256:${"f".repeat(64)}`,
       accounts: executionCatalog.accounts.map((account) => ({
         id: account.id,
         providerId: account.providerId,
@@ -3210,7 +3210,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     const policy = deriveManagedAgentEconomicPolicies({
       managedAgents: config.managedAgents,
       executionCatalog: config.executionCatalog,
-      targetEvidenceRevision: config.targetCatalog?.evidenceRevision,
+      targetEvidenceRevision: config.executionTargetEvidence ? executionTargetEvidenceRevision(config.executionTargetEvidence) : undefined,
     })[0];
     expect(policy).toBeDefined();
 
@@ -3321,7 +3321,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     const policy = deriveManagedAgentEconomicPolicies({
       managedAgents: config.managedAgents,
       executionCatalog: config.executionCatalog,
-      targetEvidenceRevision: config.targetCatalog?.evidenceRevision,
+      targetEvidenceRevision: config.executionTargetEvidence ? executionTargetEvidenceRevision(config.executionTargetEvidence) : undefined,
     })[0];
     if (!policy) throw new Error("Expected the economic policy fixture to resolve.");
 

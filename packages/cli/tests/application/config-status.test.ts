@@ -38,7 +38,7 @@ import {
   createRuntimePermissionObservationStore,
   deriveCodexRuntimePermissionRequest,
 } from "../../src/wrapper/runtime-permission-observation.js";
-import { persistGlobalConfigFixture } from "../config/global-config-fixture.js";
+import { persistAdmittedGlobalConfigFixture } from "../config/global-config-fixture.js";
 import { makeOperatorSurfaceGlobalConfig } from "../commands/operator-surface-config-fixture.js";
 import { resolveProjectStateBinding, type ProjectStateBinding } from "../../src/application/project-state-root.js";
 
@@ -76,7 +76,7 @@ function writeProjectConfig(_projectPath: string): void {
     "  sandbox: read-only",
     "",
   ].join("\n"), "utf-8");
-  persistGlobalConfigFixture({
+  persistAdmittedGlobalConfigFixture({
     ...makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.4-mini", "codex-default"),
     permissions: { approval: "on-request", sandbox: "read-only" },
   });
@@ -153,7 +153,7 @@ describe("config-status", () => {
       name: "status-project",
       scripts: { test: "bun test" },
     }), "utf-8");
-    persistGlobalConfigFixture({
+    persistAdmittedGlobalConfigFixture({
       ...makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.4-mini", "codex-default"),
       permissions: { approval: "on-request", sandbox: "read-only" },
     });
@@ -382,7 +382,7 @@ describe("config-status", () => {
       "        state: admitted",
       "",
     ].join("\n"), "utf-8");
-    persistGlobalConfigFixture({
+    persistAdmittedGlobalConfigFixture({
       ...makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.4-mini", "codex-default"),
       permissions: { approval: "on-request", sandbox: "read-only" },
       mcp: {
@@ -458,7 +458,7 @@ describe("config-status", () => {
       "  sandbox: workspace-write",
       "",
     ].join("\n"), "utf-8");
-    persistGlobalConfigFixture({
+    persistAdmittedGlobalConfigFixture({
       ...makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.4-mini", "codex-default"),
       permissions: { approval: "on-request", sandbox: "read-only" },
     });
@@ -529,7 +529,7 @@ describe("config-status", () => {
       "          allow: [echo]",
       "",
     ].join("\n"), "utf-8");
-    persistGlobalConfigFixture((current) => {
+    persistAdmittedGlobalConfigFixture((current) => {
       if (!current) throw new Error("expected the fixture global config to exist");
       return {
         ...current,
@@ -596,7 +596,7 @@ describe("config-status", () => {
       "      admission: { state: admitted }",
       "",
     ].join("\n"), "utf-8");
-    persistGlobalConfigFixture((current) => {
+    persistAdmittedGlobalConfigFixture((current) => {
       if (!current) throw new Error("expected the fixture global config to exist");
       return {
         ...current,
@@ -630,7 +630,7 @@ describe("config-status", () => {
       "      admission: { state: admitted }",
       "",
     ].join("\n"), "utf-8");
-    persistGlobalConfigFixture((current) => {
+    persistAdmittedGlobalConfigFixture((current) => {
       if (!current) throw new Error("expected the fixture global config to exist");
       return {
         ...current,
@@ -1617,7 +1617,7 @@ describe("config-status", () => {
 
   it("reports missing global Claude concise projection from canonical communication intent", async () => {
     writeProjectConfig(tempDir);
-    persistGlobalConfigFixture((current) => {
+    persistAdmittedGlobalConfigFixture((current) => {
       if (!current) throw new Error("expected the fixture global config to exist");
       return {
         ...current,

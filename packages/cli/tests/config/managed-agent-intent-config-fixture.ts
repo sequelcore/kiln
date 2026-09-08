@@ -14,7 +14,6 @@ import {
  * same valid fixture rather than two independently drifting copies.
  */
 export function managedAgentIntentConfig(): KilnGlobalConfig {
-  const evidence = managedAgentTargetEvidence();
   return {
     version: "7",
     workGovernance: {
@@ -42,7 +41,6 @@ export function managedAgentIntentConfig(): KilnGlobalConfig {
       memory: { access: "read-only" },
     }],
     targetCatalog: {
-      evidenceRevision: executionTargetEvidenceRevision(evidence),
       accounts: [{
         id: "codex-account",
         providerId: "codex-oauth",
@@ -167,7 +165,7 @@ export function managedAgentExecutionTargetCatalog() {
   return projectExecutionTargetCatalogFromIntent(
     config.targetCatalog!,
     managedAgentTargetEvidence(),
-    config.targetCatalog!.evidenceRevision,
+    executionTargetEvidenceRevision(managedAgentTargetEvidence()),
     { now: new Date("2026-08-20T00:00:00.000Z") },
   );
 }

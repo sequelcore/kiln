@@ -282,9 +282,13 @@ async function seedGlobalConfiguration(): Promise<string> {
   const configHome = await mkdtemp(join(tmpdir(), "kiln-startup-profile-config-"));
   const kilnHome = join(configHome, "kiln");
   const sourceConfigPath = resolve(repoRoot, "scripts", "fixtures", "startup-profile-global-config.yaml");
-  const configSource = await readFile(sourceConfigPath, "utf8");
-  const evidenceRevision = configSource.match(/^[ \t]*evidenceRevision:[ \t]*["']?(sha256:[a-f0-9]{64})["']?[ \t]*$/mu)?.[1];
-  if (!evidenceRevision) throw new Error("Startup profile fixture does not declare an execution-target evidence revision.");
+  const bindingSourcePath = resolve(repoRoot, "scripts", "fixtures", "startup-profile-execution-target-binding.json");
+  const binding: { intentRevision: string; evidenceRevision: string } = JSON.parse(await readFile(bindingSourcePath, "utf8"));
+  if (![binding.intentRevision, binding.evidenceRevision].every((value) => /^sha256:[a-f0-9]{64}$/u.test(value))) throw new Error("Invalid startup profile binding fixture.");
+  const evidenceRevision = binding.evidenceRevision;
+  const bindingDirectory = join(kilnHome, "evidence", "execution-target-bindings");
+  await mkdir(bindingDirectory, { recursive: true });
+  await copyFile(bindingSourcePath, join(bindingDirectory, `${binding.intentRevision.slice(7)}.json`));
   const evidenceDirectory = join(kilnHome, "evidence", "execution-targets");
   await mkdir(evidenceDirectory, { recursive: true });
   await copyFile(

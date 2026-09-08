@@ -12,7 +12,7 @@ import { ConfigMutationStore } from "./config-mutation-store.js";
 export interface ExecutionTargetEvidenceRefreshResult {
   readonly outcome: "committed" | "committed-reconciliation-failed";
   readonly evidenceRevision: ExecutionTargetEvidenceRevision;
-  readonly committedConfigurationRevision: string;
+  readonly committedBindingRevision: string;
 }
 
 export async function refreshExecutionTargetEvidence(input: {
@@ -70,6 +70,6 @@ export async function refreshExecutionTargetEvidence(input: {
   return {
     outcome: settlement.outcome,
     evidenceRevision,
-    committedConfigurationRevision: settlement.committedRevision,
+    committedBindingRevision: settlement.committedRevision,
   };
 }

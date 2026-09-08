@@ -164,7 +164,7 @@ function completeDraft() {
 
 function creationInput() {
   const currentEvidence = emptyEvidence();
-  const currentIntent = emptyIntent(executionTargetEvidenceRevision(currentEvidence));
+  const currentIntent = emptyIntent();
   return {
     draft: completeDraft(),
     expectedRevision: "sha256:expected",
@@ -182,9 +182,8 @@ function creationInput() {
   };
 }
 
-function emptyIntent(evidenceRevision: `sha256:${string}`) {
+function emptyIntent() {
   return {
-    evidenceRevision,
     accounts: [{ id: "account", providerId: "provider", credentialId: "opaque-ref", maxConcurrency: 1, reservedAffinitySlots: 0, economics: { creditPosture: "disabled" as const, overagePosture: "disabled" as const } }],
     accountPolicies: [{ id: "account-policy", accountIds: ["account"], strategy: "economic-least-pressure" as const }],
     targets: [],

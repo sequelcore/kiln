@@ -922,7 +922,6 @@ function createDeterministicOperatorRouting(): {
   });
   const initialRevision = executionTargetEvidenceRevision(targetEvidence);
   let targetIntent: ExecutionTargetCatalogIntent = {
-    evidenceRevision: initialRevision,
     accounts: [{
       id: accountId,
       providerId: "codex-oauth",
@@ -1120,7 +1119,6 @@ function createDeterministicOperatorRouting(): {
         const nextRevision = executionTargetEvidenceRevision(nextEvidence);
         const nextIntent: ExecutionTargetCatalogIntent = {
           ...currentIntent,
-          evidenceRevision: nextRevision,
           targets: [...currentIntent.targets, draft.intent],
         };
         const nextExecutionTargetCatalog = projectExecutionTargetCatalogFromIntent(

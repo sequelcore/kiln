@@ -1,3 +1,4 @@
+import { readExecutionTargetBinding, executionTargetBindingPath, serializeExecutionTargetBinding } from "../config/execution-target-binding-store.js";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
@@ -788,6 +789,7 @@ function normalizeTargetCreate(
   const path = context.globalConfigPath;
   const document = readValidGlobalDocument(path, diagnostics);
   let nextContent = "";
+  let priorEvidenceRevision: ExecutionTargetEvidenceRevision | undefined;
   if (document && evidenceRevision) {
     const actualRevision = existsSync(path) ? `sha256:${hashText(readFileSync(path, "utf-8"))}` : "absent";
     if (expectedRevision !== actualRevision) {
@@ -795,9 +797,10 @@ function normalizeTargetCreate(
     }
     const current = parse(document.toString()) as Record<string, unknown>;
     const currentIntent = asRecord(current.targetCatalog) as unknown as ExecutionTargetCatalogIntent;
-    if (!currentIntent || typeof currentIntent.evidenceRevision !== "string") {
+    priorEvidenceRevision = readBoundRevision(context, currentIntent, diagnostics);
+    if (!priorEvidenceRevision) {
       diagnostics.push({ severity: "error", field: "targetCatalog", message: "Global config must declare targetCatalog before creating a target." });
-    } else if (currentIntent.evidenceRevision === evidenceRevision) {
+    } else if (priorEvidenceRevision === evidenceRevision) {
       diagnostics.push({ severity: "error", field: "evidenceRevision", message: "Target creation must reference a newly published evidence revision, not the revision already bound to canonical config." });
     } else if (currentIntent.targets.some((entry) => entry.id === targetId)) {
       diagnostics.push({ severity: "error", field: "target.id", message: `Execution target '${targetId}' is already configured.` });
@@ -811,14 +814,13 @@ function normalizeTargetCreate(
       }
       const nextIntent: ExecutionTargetCatalogIntent = {
         ...currentIntent,
-        evidenceRevision,
         targets: [...currentIntent.targets, target],
       };
       try {
         // This proves the evidence owner published a complete snapshot that
         // contains every configured account/target and the new route identity.
         projectExecutionTargetCatalogFromIntent(nextIntent, evidence, evidenceRevision);
-        document.setIn(["targetCatalog", "evidenceRevision"], evidenceRevision);
+
         document.setIn(["targetCatalog", "targets"], nextIntent.targets);
         nextContent = document.toString();
         admitGlobalStructure(nextContent, diagnostics);
@@ -829,7 +831,7 @@ function normalizeTargetCreate(
   }
   return {
     scope: "global",
-    payload: { target, evidenceRevision, expectedRevision },
+    payload: { target, evidenceRevision, expectedRevision, priorEvidenceRevision },
     path,
     nextContent,
     diagnostics,
@@ -937,6 +939,7 @@ function normalizeTargetAccountPolicyUpdate(
   const path = context.globalConfigPath;
   const document = readValidGlobalDocument(path, diagnostics);
   let nextContent = "";
+  let priorEvidenceRevision: ExecutionTargetEvidenceRevision | undefined;
   if (document && targetId && policy.id) {
     const actualRevision = existsSync(path) ? `sha256:${hashText(readFileSync(path, "utf-8"))}` : "absent";
     if (expectedRevision !== actualRevision) {
@@ -945,7 +948,8 @@ function normalizeTargetAccountPolicyUpdate(
     const current = parse(document.toString()) as Record<string, unknown>;
     const currentIntent = asRecord(current.targetCatalog) as unknown as ExecutionTargetCatalogIntent;
     const target = currentIntent.targets?.find((entry) => entry.id === targetId);
-    if (!currentIntent || typeof currentIntent.evidenceRevision !== "string") {
+    priorEvidenceRevision = readBoundRevision(context, currentIntent, diagnostics);
+    if (!priorEvidenceRevision) {
       diagnostics.push({ severity: "error", field: "targetCatalog", message: "Global config must declare targetCatalog before updating an account policy." });
     } else if (!target) {
       diagnostics.push({ severity: "error", field: "targetId", message: `Execution target '${targetId}' is not configured.` });
@@ -969,7 +973,7 @@ function normalizeTargetAccountPolicyUpdate(
         try {
           const evidence = readExecutionTargetEvidenceSnapshot({
             globalConfigPath: context.globalConfigPath,
-            revision: currentIntent.evidenceRevision,
+            revision: priorEvidenceRevision,
           });
           const nextIntent: ExecutionTargetCatalogIntent = {
             ...currentIntent,
@@ -978,7 +982,7 @@ function normalizeTargetAccountPolicyUpdate(
               ? { ...entry, accountPolicyId: policy.id }
               : entry),
           };
-          projectExecutionTargetCatalogFromIntent(nextIntent, evidence, currentIntent.evidenceRevision);
+          projectExecutionTargetCatalogFromIntent(nextIntent, evidence, priorEvidenceRevision);
           const targetIndex = currentIntent.targets.findIndex((entry) => entry.id === targetId);
           if (!existingPolicy) document.addIn(["targetCatalog", "accountPolicies"], policy);
           document.setIn(["targetCatalog", "targets", targetIndex, "accountPolicyId"], policy.id);
@@ -992,7 +996,7 @@ function normalizeTargetAccountPolicyUpdate(
   }
   return {
     scope: "global",
-    payload: { targetId, policy, expectedRevision },
+    payload: { targetId, policy, expectedRevision, priorEvidenceRevision },
     path,
     nextContent,
     diagnostics,
@@ -1046,7 +1050,7 @@ function normalizeTargetEvidenceRefresh(
   const evidenceRevision = requireEvidenceRevision(payload.evidenceRevision, diagnostics);
   const priorEvidenceRevision = requireEvidenceRevision(payload.priorEvidenceRevision, diagnostics);
   const expectedRevision = requireConfigRevision(payload.expectedRevision, diagnostics);
-  const path = context.globalConfigPath;
+  let path = context.globalConfigPath;
   const document = readValidGlobalDocument(path, diagnostics);
   let nextContent = "";
   if (document && evidenceRevision && priorEvidenceRevision) {
@@ -1056,9 +1060,10 @@ function normalizeTargetEvidenceRefresh(
     }
     const current = parse(document.toString()) as Record<string, unknown>;
     const currentIntent = asRecord(current.targetCatalog) as unknown as ExecutionTargetCatalogIntent;
-    if (!currentIntent || typeof currentIntent.evidenceRevision !== "string") {
+    const boundRevision = readBoundRevision(context, currentIntent, diagnostics);
+    if (!boundRevision) {
       diagnostics.push({ severity: "error", field: "targetCatalog", message: "Global config must declare targetCatalog before refreshing target evidence." });
-    } else if (currentIntent.evidenceRevision !== priorEvidenceRevision) {
+    } else if (boundRevision !== priorEvidenceRevision) {
       diagnostics.push({ severity: "error", field: "priorEvidenceRevision", message: "Target-evidence refresh does not match the currently bound evidence revision." });
     } else if (evidenceRevision === priorEvidenceRevision) {
       diagnostics.push({ severity: "error", field: "evidenceRevision", message: "Target-evidence refresh must bind a newly published observation revision." });
@@ -1073,11 +1078,10 @@ function normalizeTargetEvidenceRefresh(
           revision: evidenceRevision,
         });
         assertExecutionTargetEvidenceRenewal(priorEvidence, renewedEvidence);
-        const nextIntent: ExecutionTargetCatalogIntent = { ...currentIntent, evidenceRevision };
-        projectExecutionTargetCatalogFromIntent(nextIntent, renewedEvidence, evidenceRevision);
-        document.setIn(["targetCatalog", "evidenceRevision"], evidenceRevision);
-        nextContent = document.toString();
-        admitGlobalStructure(nextContent, diagnostics);
+        projectExecutionTargetCatalogFromIntent(currentIntent, renewedEvidence, evidenceRevision);
+
+        path = executionTargetBindingPath(context.globalConfigPath, currentIntent);
+        nextContent = serializeExecutionTargetBinding(currentIntent, evidenceRevision);
       } catch (error) {
         diagnostics.push({ severity: "error", field: "evidenceRevision", message: errorMessage(error) });
       }
@@ -1722,4 +1726,13 @@ function stableStringify(value: unknown): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function readBoundRevision(context: ConfigMutationContext, intent: ExecutionTargetCatalogIntent, diagnostics: KilnConfigValidationDiagnostic[]): ExecutionTargetEvidenceRevision | undefined {
+  try {
+    return readExecutionTargetBinding(context.globalConfigPath, intent).evidenceRevision as ExecutionTargetEvidenceRevision;
+  } catch (error) {
+    diagnostics.push({ severity: "error", field: "targetCatalog", message: errorMessage(error) });
+    return undefined;
+  }
 }

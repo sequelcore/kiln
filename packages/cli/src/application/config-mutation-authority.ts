@@ -1,3 +1,6 @@
+import { parse } from "yaml";
+import { executionTargetBindingPath, publishExecutionTargetBinding, readExecutionTargetBinding } from "../config/execution-target-binding-store.js";
+import { assertExecutionTargetEvidenceRenewal, readExecutionTargetEvidenceSnapshot, projectExecutionTargetCatalogFromIntent, type ExecutionTargetCatalogIntent, type ExecutionTargetEvidenceRevision } from "../config/execution-target-evidence-store.js";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import type {
@@ -278,6 +281,7 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
         replayDiagnostics.push(diagnostic(write.path, "The settled proposal is no longer the effective canonical revision; create a new proposal."));
       }
     }
+    try { assertProposalTargetBinding(record.proposal, globalConfigPath); } catch (error) { replayDiagnostics.push(diagnostic("targetCatalog", error instanceof Error ? error.message : String(error))); }
     if (replayDiagnostics.length > 0) {
       return rejected(input, attemptedAt, record.proposal.scope, replayDiagnostics, record.proposal);
     }
@@ -362,9 +366,12 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
           });
           const isGlobalAgent = proposal.scope === "global"
             && dirname(resolve(write.path)) === resolve(dirname(globalConfigPath), "agents");
-          if (!isGlobalAgent) markCommitStarted();
+          if (proposal.scope === "global" && resolve(write.path) === resolve(globalConfigPath)) prepareTargetBinding(write, proposal, globalConfigPath);
+          if (!isGlobalAgent && proposal.operation !== "target.refresh_evidence") markCommitStarted();
           commitOutcome = proposal.scope === "global" && resolve(write.path) === resolve(globalConfigPath)
             ? commitGlobalWrite(record.writes, proposal.baseRevision)
+            : proposal.operation === "target.refresh_evidence"
+              ? commitTargetEvidenceBinding(record.writes, proposal, globalConfigPath, markCommitStarted)
             : proposal.scope === "global" && dirname(resolve(write.path)) === resolve(dirname(globalConfigPath), "agents")
               ? withGlobalConfigRevision(
                   proposal.operation === "agent.update_authority_profile"
@@ -381,6 +388,8 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
         return rejected(input, attemptedAt, proposal.scope, [diagnostic("write", commitErrorMessage(error))], proposal);
       }
 
+      const bindingDiagnostics: KilnConfigValidationDiagnostic[] = [];
+      try { assertProposalTargetBinding(proposal, globalConfigPath); } catch (error) { bindingDiagnostics.push(diagnostic("targetCatalog", error instanceof Error ? error.message : String(error), "warning")); }
       const { appliedWrites, committedRevision } = commitOutcome;
       const recoveryDiagnostics: readonly KilnConfigValidationDiagnostic[] = commitOutcome.invalidBackupPath
         ? [diagnostic("configuration", `Previous invalid configuration backed up to ${commitOutcome.invalidBackupPath}`, "warning")]
@@ -397,7 +406,7 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
       const settledAt = nextSettlementTime(store, write.path, input.now ?? new Date());
       const approval = input.approvalId ? store.readApproval(input.approvalId) : null;
 
-      const reconciliationState = reconciliationEffects.some((effect) => effect.status === "failed")
+      const reconciliationState = bindingDiagnostics.length > 0 || reconciliationEffects.some((effect) => effect.status === "failed")
         ? "failed"
         : reconciliationEffects.some((effect) => effect.status === "skipped")
           ? "superseded"
@@ -427,6 +436,7 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
         reconciliationEffects,
         diagnostics: [
           ...recoveryDiagnostics,
+          ...bindingDiagnostics,
           ...reconciliationEffects.flatMap((effect) => effect.errors.map((error) => diagnostic(effect.target, error, "warning"))),
         ],
         rollbackToken: proposal.proposalId,
@@ -903,6 +913,10 @@ function validateWritePath(input: {
   if (input.scope === "global") {
     if (resolvedPath === resolve(input.globalConfigPath)) return [];
     const globalRoot = resolve(dirname(input.globalConfigPath));
+    const bindingRoot = resolve(join(globalRoot, "evidence", "execution-target-bindings"));
+    if (input.operation === "target.refresh_evidence" && dirname(resolvedPath) === bindingRoot
+      && /^[a-f0-9]{64}\.json$/u.test(resolvedPath.slice(bindingRoot.length + 1))
+      && isPhysicallyInsideRoot(globalRoot, resolvedPath)) return [];
     const globalAgentsRoot = resolve(join(globalRoot, "agents"));
     if (
       (input.operation === "agent.update_authority_profile" || input.operation === "mutation.rollback") &&
@@ -1045,3 +1059,47 @@ function diagnostic(
 }
 
 export type { KilnConfigReconciliationEffect, KilnConfigReconciliationTarget };
+
+function prepareTargetBinding(write: ConfigMutationWrite, proposal: KilnConfigMutationProposal, globalConfigPath: string): void {
+  if (proposal.operation !== "target.create" && proposal.operation !== "target.update_account_policy") return;
+  if (proposal.baseRevision !== proposal.normalizedPayload.expectedRevision) throw new Error("Configuration changed during target proposal admission.");
+  const current = (parse(readFileSync(globalConfigPath, "utf8")) as { targetCatalog: ExecutionTargetCatalogIntent }).targetCatalog;
+  const prior = readExecutionTargetBinding(globalConfigPath, current).evidenceRevision;
+  if (prior !== proposal.normalizedPayload.priorEvidenceRevision) throw new Error("Target evidence changed after the proposal was approved.");
+  const next = (parse(write.nextContent) as { targetCatalog: ExecutionTargetCatalogIntent }).targetCatalog;
+  const revision = (proposal.operation === "target.create" ? proposal.normalizedPayload.evidenceRevision : prior) as ExecutionTargetEvidenceRevision;
+  if (!isPhysicallyInsideRoot(dirname(globalConfigPath), executionTargetBindingPath(globalConfigPath, next))) {
+    throw new Error("Target binding escapes the global Kiln state directory.");
+  }
+  publishExecutionTargetBinding(globalConfigPath, next, revision);
+}
+
+function assertProposalTargetBinding(proposal: KilnConfigMutationProposal, globalConfigPath: string): void {
+  if (proposal.operation !== "target.create" && proposal.operation !== "target.update_account_policy" && proposal.operation !== "target.refresh_evidence") return;
+  const current = (parse(readFileSync(globalConfigPath, "utf8")) as { targetCatalog: ExecutionTargetCatalogIntent }).targetCatalog;
+  const revision = readExecutionTargetBinding(globalConfigPath, current).evidenceRevision;
+  const expected = proposal.operation === "target.update_account_policy" ? proposal.normalizedPayload.priorEvidenceRevision : proposal.normalizedPayload.evidenceRevision;
+  if (revision !== expected) throw new Error("The approved target evidence is no longer the active binding; create a new proposal.");
+}
+
+function commitTargetEvidenceBinding(
+  writes: readonly ConfigMutationWrite[],
+  proposal: KilnConfigMutationProposal,
+  globalConfigPath: string,
+  markCommitStarted: () => void,
+): CommitOutcome {
+  return withGlobalConfigRevision(String(proposal.normalizedPayload.expectedRevision), () => {
+    const intent = (parse(readFileSync(globalConfigPath, "utf8")) as { targetCatalog: ExecutionTargetCatalogIntent }).targetCatalog;
+    if (resolve(executionTargetBindingPath(globalConfigPath, intent)) !== resolve(writes[0]!.path)) {
+      throw new Error("Target intent changed after evidence renewal was proposed.");
+    }
+    const prior = readExecutionTargetBinding(globalConfigPath, intent).evidenceRevision as ExecutionTargetEvidenceRevision;
+    if (prior !== proposal.normalizedPayload.priorEvidenceRevision) throw new Error("Target evidence changed after renewal was proposed.");
+    const next = proposal.normalizedPayload.evidenceRevision as ExecutionTargetEvidenceRevision;
+    const renewed = readExecutionTargetEvidenceSnapshot({ globalConfigPath, revision: next });
+    assertExecutionTargetEvidenceRenewal(readExecutionTargetEvidenceSnapshot({ globalConfigPath, revision: prior }), renewed);
+    projectExecutionTargetCatalogFromIntent(intent, renewed, next);
+    markCommitStarted();
+    return commitProjectWrites(writes, dirname(globalConfigPath));
+  }, globalConfigPath);
+}

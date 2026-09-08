@@ -33,7 +33,7 @@ describe("bounded managed-agent intent", () => {
     const evidence = managedAgentTargetEvidence();
     const revision = executionTargetEvidenceRevision(evidence);
     const executionCatalog = projectDirectExecutionTargetCatalog(
-      { ...config, targetCatalog: { ...config.targetCatalog!, evidenceRevision: revision } },
+      config,
       evidence,
       revision,
     );
@@ -73,7 +73,7 @@ describe("bounded managed-agent intent", () => {
     const [policy] = deriveManagedAgentEconomicPolicies({
       managedAgents: config.managedAgents,
       executionCatalog,
-      targetEvidenceRevision: config.targetCatalog?.evidenceRevision,
+      targetEvidenceRevision: executionTargetEvidenceRevision(managedAgentTargetEvidence()),
     });
     expect(policy?.candidates).toHaveLength(0);
     expect(policy?.unavailableReason).toMatch(/cannot enforce.*monetary cap|cap cannot be enforced/);
@@ -89,7 +89,7 @@ describe("bounded managed-agent intent", () => {
     const [policy] = deriveManagedAgentEconomicPolicies({
       managedAgents: config.managedAgents,
       executionCatalog,
-      targetEvidenceRevision: config.targetCatalog?.evidenceRevision,
+      targetEvidenceRevision: executionTargetEvidenceRevision(managedAgentTargetEvidence()),
     });
     expect(policy?.candidates).toHaveLength(0);
     expect(policy?.unavailableReason).toMatch(/account and economic evidence/);

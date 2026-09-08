@@ -26,10 +26,7 @@ surface persistence, prompts, logs, events, or fixtures.
 
 ## Target Catalog
 
-The V4 intent catalog has three distinct concepts plus one exact evidence reference:
-
-- `evidenceRevision`: the immutable managed snapshot containing current
-  capacity, discovery, data-policy, adapter, and price facts.
+The intent catalog has three distinct concepts:
 
 - `accounts`: configured execution identities. Each has `id`, `providerId`,
   `credentialId`, concurrency intent, and credit/overage posture.
@@ -124,3 +121,11 @@ catalog of their own. Managed agents use the same target identity and a
 separate `authorityProfileId`.
 Both therefore share the same candidate admission, capacity, fence, and
 credential-revision validation as direct operator sessions.
+
+Exact discovery, data-policy, adapter, and price facts remain in immutable
+managed snapshots. Kiln owns the intent-to-snapshot binding separately from
+operator configuration. Renewal fences the global configuration revision and
+the prior binding, then atomically replaces the binding file. Creation prepares
+a binding for the new intent before the YAML commit; a failed YAML commit leaves
+an inactive prepared binding. Resume the same approved mutation to recover.
+No operation silently selects newer evidence or claims multi-file atomicity.

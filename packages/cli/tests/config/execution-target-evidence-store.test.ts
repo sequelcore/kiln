@@ -15,11 +15,11 @@ describe("execution target managed evidence", () => {
   it("resolves minimal operator intent through one exact managed-evidence revision", () => {
     const evidence = evidenceSnapshot();
     const revision = executionTargetEvidenceRevision(evidence);
-    const catalog = projectExecutionTargetCatalogFromIntent(targetIntent(revision), evidence, revision);
+    const catalog = projectExecutionTargetCatalogFromIntent(targetIntent(), evidence, revision);
 
-    expect(targetIntent(revision).targets[0]).not.toHaveProperty("dataPolicyEvidence");
-    expect(targetIntent(revision).targets[0]?.economics).not.toHaveProperty("priceEvidence");
-    expect(targetIntent(revision).accounts[0]?.economics).toEqual({
+    expect(targetIntent().targets[0]).not.toHaveProperty("dataPolicyEvidence");
+    expect(targetIntent().targets[0]?.economics).not.toHaveProperty("priceEvidence");
+    expect(targetIntent().accounts[0]?.economics).toEqual({
       creditPosture: "disabled",
       overagePosture: "disabled",
     });
@@ -38,17 +38,16 @@ describe("execution target managed evidence", () => {
 
   it("rejects missing, extra, mismatched, and revision-drifted evidence", () => {
     const evidence = evidenceSnapshot();
-    const revision = executionTargetEvidenceRevision(evidence);
 
     expect(() => projectExecutionTargetCatalogFromIntent(
-      targetIntent(`sha256:${"f".repeat(64)}`),
+      targetIntent(),
       evidence,
-      revision,
+      `sha256:${"f".repeat(64)}`,
     )).toThrow(/revision/u);
     const missing = { ...evidence, targets: [] };
     const missingRevision = executionTargetEvidenceRevision(missing);
     expect(() => projectExecutionTargetCatalogFromIntent(
-      targetIntent(missingRevision),
+      targetIntent(),
       missing,
       missingRevision,
     )).toThrow(/fixture-target.*evidence/u);
@@ -58,7 +57,7 @@ describe("execution target managed evidence", () => {
     };
     const extraRevision = executionTargetEvidenceRevision(extra);
     expect(() => projectExecutionTargetCatalogFromIntent(
-      targetIntent(extraRevision),
+      targetIntent(),
       extra,
       extraRevision,
     )).toThrow(/unconfigured-target/u);
@@ -71,7 +70,7 @@ describe("execution target managed evidence", () => {
     };
     const mismatchedRevision = executionTargetEvidenceRevision(mismatched);
     expect(() => projectExecutionTargetCatalogFromIntent(
-      targetIntent(mismatchedRevision),
+      targetIntent(),
       mismatched,
       mismatchedRevision,
     )).toThrow(/provider model/u);
@@ -144,9 +143,8 @@ describe("execution target managed evidence", () => {
   });
 });
 
-function targetIntent(evidenceRevision: `sha256:${string}`) {
+function targetIntent() {
   return {
-    evidenceRevision,
     accounts: [{
       id: "fixture-account",
       providerId: "fixture-provider",

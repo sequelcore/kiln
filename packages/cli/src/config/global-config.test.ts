@@ -1,3 +1,4 @@
+import { validateGlobalConfig } from "./global-config/admission/index.js";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
@@ -91,7 +92,6 @@ function canonicalV7GlobalYaml(): string {
   return [
     'version: "7"',
     "targetCatalog:",
-    `  evidenceRevision: sha256:${"a".repeat(64)}`,
     "  accounts: [{ id: codex-account, providerId: codex-oauth, credentialId: codex-credential, maxConcurrency: 1, reservedAffinitySlots: 0, economics: { creditPosture: disabled, overagePosture: disabled } }]",
     "  accountPolicies: [{ id: codex-policy, accountIds: [codex-account], strategy: economic-least-pressure }]",
     "  targets:",
@@ -110,6 +110,10 @@ function canonicalV7GlobalYaml(): string {
 }
 
 describe("global-config", () => {
+  it("rejects operator-authored target evidence bindings", () => {
+    expect(() => validateGlobalConfig({ version: "7", targetCatalog: { evidenceRevision: `sha256:${"a".repeat(64)}`, accounts: [], accountPolicies: [], targets: [] } })).toThrow(/evidenceRevision/);
+  });
+
   const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
 
   beforeEach(() => {
@@ -178,7 +182,6 @@ describe("global-config", () => {
       [
         'version: "7"',
         "targetCatalog:",
-        `  evidenceRevision: sha256:${"a".repeat(64)}`,
         "  accounts:",
         "    - { id: codex-primary, providerId: codex-oauth, credentialId: codex-primary, maxConcurrency: 2, reservedAffinitySlots: 1, economics: { creditPosture: disabled, overagePosture: disabled } }",
         "  accountPolicies:",
@@ -202,7 +205,6 @@ describe("global-config", () => {
     expect(config).toEqual({
       version: "7",
       targetCatalog: {
-        evidenceRevision: `sha256:${"a".repeat(64)}`,
         accounts: [
           {
             id: "codex-primary",
@@ -584,7 +586,7 @@ describe("global-config", () => {
     ["legacy direct models", 'version: "7"\ndirectModels: []', "Unknown global config field: directModels"],
     [
       "secret",
-      `version: "7"\ntargetCatalog: { evidenceRevision: sha256:${"a".repeat(64)}, accounts: [{ id: account, providerId: codex-oauth, credentialId: credential, maxConcurrency: 1, reservedAffinitySlots: 0, economics: { creditPosture: disabled, overagePosture: disabled }, token: raw-secret }], accountPolicies: [], targets: [] }`,
+      `version: "7"\ntargetCatalog: { accounts: [{ id: account, providerId: codex-oauth, credentialId: credential, maxConcurrency: 1, reservedAffinitySlots: 0, economics: { creditPosture: disabled, overagePosture: disabled }, token: raw-secret }], accountPolicies: [], targets: [] }`,
       "Unknown targetCatalog.accounts[0] field: token",
     ],
   ])("rejects %s", (_case, yaml, message) => {
@@ -599,7 +601,6 @@ describe("global-config", () => {
       [
         'version: "7"',
         "targetCatalog:",
-        `  evidenceRevision: sha256:${"a".repeat(64)}`,
         "  accounts: [{ id: work, providerId: codex-oauth, credentialId: work, maxConcurrency: 1, reservedAffinitySlots: 0, economics: { creditPosture: disabled, overagePosture: disabled } }]",
         "  accountPolicies: [{ id: work-policy, accountIds: [work], strategy: economic-least-pressure }]",
         "  targets: [{ id: terra, kind: direct, label: Terra, providerId: codex-oauth, providerModelId: gpt-5.6-terra, dataClassification: internal, accountPolicyId: work-policy, economics: { authBillingChannel: subscription, executionMode: direct, serviceTier: default, fallbackPosture: disabled, overagePosture: disabled, executionEnvelope: { limits: [] } } }]",
@@ -1083,7 +1084,6 @@ describe("global-config", () => {
     const valid = [
       'version: "7"',
       "targetCatalog:",
-      `  evidenceRevision: sha256:${"a".repeat(64)}`,
       "  accounts: [{ id: account, providerId: codex-oauth, credentialId: credential, maxConcurrency: 1, reservedAffinitySlots: 0, economics: { creditPosture: disabled, overagePosture: disabled } }]",
       "  accountPolicies: [{ id: policy, accountIds: [account], strategy: economic-least-pressure }]",
       "  targets: [{ id: route, kind: direct, label: Route, providerId: codex-oauth, providerModelId: gpt-5.6-terra, dataClassification: internal, accountPolicyId: policy, economics: { authBillingChannel: subscription, executionMode: direct, serviceTier: default, fallbackPosture: disabled, overagePosture: disabled, executionEnvelope: { limits: [] } } }]",
@@ -1322,7 +1322,6 @@ describe("global-config", () => {
       [
         'version: "7"',
         "targetCatalog:",
-        `  evidenceRevision: sha256:${"a".repeat(64)}`,
         "  accounts: []",
         "  accountPolicies: []",
         "  targets:",
@@ -1349,7 +1348,6 @@ describe("global-config", () => {
       [
         'version: "7"',
         "targetCatalog:",
-        `  evidenceRevision: sha256:${"a".repeat(64)}`,
         "  accounts: []",
         "  accountPolicies: []",
         "  targets:",
@@ -1373,7 +1371,6 @@ describe("global-config", () => {
       [
         'version: "7"',
         "targetCatalog:",
-        `  evidenceRevision: sha256:${"a".repeat(64)}`,
         "  accounts: []",
         "  accountPolicies: []",
         "  targets:",
@@ -1397,7 +1394,6 @@ describe("global-config", () => {
       [
         'version: "7"',
         "targetCatalog:",
-        `  evidenceRevision: sha256:${"a".repeat(64)}`,
         "  accounts: []",
         "  accountPolicies: []",
         "  targets:",

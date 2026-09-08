@@ -35,7 +35,6 @@ function globalConfig(): KilnGlobalConfig {
   return {
     ...defaultGlobalConfig(),
     targetCatalog: {
-      evidenceRevision: `sha256:${"a".repeat(64)}`,
       accounts: [],
       accountPolicies: [],
       targets: [target] as never,

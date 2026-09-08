@@ -14,7 +14,6 @@ const baseConfig: KilnGlobalConfig = {
     opencode: { enabled: true, billing: "free" },
   },
   targetCatalog: {
-    evidenceRevision: `sha256:${"a".repeat(64)}`,
     accounts: [],
     accountPolicies: [],
     targets: [{

@@ -1,3 +1,6 @@
+import { makeOperatorSurfaceGlobalConfig, makeOperatorSurfaceTargetEvidence } from "../commands/operator-surface-config-fixture.js";
+import { executionTargetBindingPath, serializeExecutionTargetBinding, publishExecutionTargetBinding } from "../../src/config/execution-target-binding-store.js";
+import { writeExecutionTargetEvidenceSnapshot } from "../../src/config/execution-target-evidence-store.js";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -54,13 +57,36 @@ afterEach(() => {
 });
 
 describe("runtime configuration revision", () => {
+  it("changes effective authority identity when only the managed binding renews", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-binding-revision-"));
+    const home = mkdtempSync(join(tmpdir(), "kiln-binding-revision-home-"));
+    roots.push(root, home);
+    const globalPath = join(home, "config.yaml");
+    const config = makeOperatorSurfaceGlobalConfig();
+    const intent = config.targetCatalog!;
+    const evidence = makeOperatorSurfaceTargetEvidence();
+    const first = writeExecutionTargetEvidenceSnapshot({ globalConfigPath: globalPath, snapshot: evidence }).revision;
+    publishExecutionTargetBinding(globalPath, intent, first);
+    const yaml = JSON.stringify(config);
+    writeFileSync(globalPath, yaml);
+    const binding = setupPrivateProject(root, join(home, "project-state"), 'version: "1"\n');
+    const before = readRuntimeConfigurationRevision(root, { globalConfigPath: globalPath, projectStateBinding: binding });
+    const renewed = writeExecutionTargetEvidenceSnapshot({ globalConfigPath: globalPath, snapshot: { ...evidence, targets: evidence.targets.map((target) => ({ ...target, discovery: { ...target.discovery, evidenceRevision: `sha256:${"f".repeat(64)}` } })) } }).revision;
+    writeFileSync(executionTargetBindingPath(globalPath, intent), serializeExecutionTargetBinding(intent, renewed));
+    const after = readRuntimeConfigurationRevision(root, { globalConfigPath: globalPath, projectStateBinding: binding });
+    expect(after.revisions.global).toBe(before.revisions.global);
+    expect(after.revisions["execution-target-evidence"]).toBe(renewed);
+    expect(after.revisionSetId).not.toBe(before.revisionSetId);
+  });
+
   it("binds exact global, project, and managed-evidence revisions into one secret-free identity", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-runtime-revision-"));
     const home = mkdtempSync(join(tmpdir(), "kiln-runtime-revision-home-"));
     roots.push(root, home);
     mkdirSync(join(home, "kiln"), { recursive: true });
-    const evidenceRevision = `sha256:${"e".repeat(64)}`;
-    const globalBytes = `version: "7"\ntargetCatalog:\n  evidenceRevision: ${evidenceRevision}\n  accounts: []\n  accountPolicies: []\n  targets: []\n`;
+    const evidenceRevision = writeExecutionTargetEvidenceSnapshot({ globalConfigPath: join(home, "kiln", "config.yaml"), snapshot: { version: 1, accounts: [], targets: [] } }).revision;
+    publishExecutionTargetBinding(join(home, "kiln", "config.yaml"), { accounts: [], accountPolicies: [], targets: [] }, evidenceRevision);
+    const globalBytes = `version: "7"\ntargetCatalog:\n  accounts: []\n  accountPolicies: []\n  targets: []\n`;
     const projectBytes = `version: "1"\nprojectName: fixture\n`;
     writeFileSync(join(home, "kiln", "config.yaml"), globalBytes, "utf8");
     const binding = setupPrivateProject(root, join(home, "project-state"), projectBytes);
@@ -136,7 +162,7 @@ describe("runtime configuration revision", () => {
     roots.push(root, home, mutationRoot);
     mkdirSync(join(home, "kiln"), { recursive: true });
     const globalPath = join(home, "kiln", "config.yaml");
-    const globalBytes = `version: "7"\ntargetCatalog:\n  evidenceRevision: sha256:${"e".repeat(64)}\n`;
+    const globalBytes = `version: "7"\n`;
     const projectBytes = 'version: "1"\nprojectName: fixture\n';
     writeFileSync(globalPath, globalBytes, "utf8");
     const binding = setupPrivateProject(root, join(home, "project-state"), projectBytes);

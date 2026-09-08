@@ -1,7 +1,8 @@
+import { executionTargetBindingPath, serializeExecutionTargetBinding } from "../../src/config/execution-target-binding-store.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   deriveProviderModelEligibility,
   type ProviderModelEligibilityRequirements,
@@ -33,11 +34,13 @@ function persistGlobalConfig(
       globalConfigPath: resolveGlobalConfigPath(),
       snapshot: evidence,
     });
+    const bindingPath = executionTargetBindingPath(resolveGlobalConfigPath(), admitted.config.targetCatalog!);
+    mkdirSync(dirname(bindingPath), { recursive: true });
+    writeFileSync(bindingPath, serializeExecutionTargetBinding(admitted.config.targetCatalog!, published.revision));
     persistGlobalConfigFixture({
       ...admitted.config,
       targetCatalog: {
         ...admitted.config.targetCatalog!,
-        evidenceRevision: published.revision,
       },
     });
     return;
@@ -414,7 +417,6 @@ function nativeCodexDeliberationConfig(): KilnGlobalConfig {
       requiredEvidence: [],
     },
     targetCatalog: {
-      evidenceRevision: `sha256:${"a".repeat(64)}`,
       accounts: [],
       accountPolicies: [],
       targets: [{

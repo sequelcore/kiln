@@ -80,8 +80,8 @@ descriptors, and generated editor schema. Named validators in
 cross-resource admission for imported Core and CLI contracts. The document
 store performs one YAML parse and returns only the schema-admitted value;
 `global-config.ts` remains their public boundary. The committed projections are
-`packages/cli/schemas/global-config-v3.json` and
-`packages/cli/schemas/global-config-descriptors-v3.json`. Regenerate them with
+`packages/cli/schemas/global-config-v4.json` and
+`packages/cli/schemas/global-config-descriptors-v4.json`. Regenerate them with
 `bun run --cwd packages/cli config:schema:generate` after changing the owner.
 
 The main V7 fields are:
@@ -90,7 +90,7 @@ The main V7 fields are:
 | --- | --- |
 | `version` | Must be `"5"`. Older or partial global documents are rejected. |
 | `ui.appearance` | Atomic color-scheme mode and light/dark theme selections for operator surfaces. |
-| `targetCatalog` | Minimal account and target intent plus the exact admitted `evidenceRevision`. |
+| `targetCatalog` | Account, account-policy, and target intent. Exact evidence bindings are managed separately. |
 | `targetRouting.defaultTargetId` | Default target for operator sessions. |
 | `authorityProfiles` | Reusable tool, workspace, memory, timeout, approval, and optional voice authority. |
 | `managedAgents` | Managed-child enablement, default authority, worktree policy, approval posture, and economic policies. |
@@ -222,14 +222,12 @@ package is never a public dataset or npm publish surface.
 A target is the one operator-facing execution choice. It has a stable ID and
 names one physical provider/model destination. A direct target also declares
 how Runtime selects an account and its material execution constraints. A
-harness target declares its native boundary. Both bind managed facts through
-`targetCatalog.evidenceRevision`.
+harness target declares its native boundary. Kiln binds both to exact managed facts outside the YAML document.
 
 ```yaml
 version: "7"
 
 targetCatalog:
-  evidenceRevision: sha256:<exact-admitted-snapshot>
   accounts:
     - id: codex-primary
       providerId: codex-oauth

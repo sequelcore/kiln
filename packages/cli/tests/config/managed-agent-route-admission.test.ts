@@ -51,7 +51,6 @@ describe("managed agent route admission", () => {
       version: "1",
       authorityProfiles,
       targetCatalog: {
-        evidenceRevision: `sha256:${"a".repeat(64)}`,
         accounts: [{
           id: "openai-account",
           providerId: "openai",

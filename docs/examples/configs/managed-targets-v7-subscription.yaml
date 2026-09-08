@@ -21,7 +21,6 @@ authorityProfiles:
     memory: { access: read-only }
 
 targetCatalog:
-  evidenceRevision: sha256:6e3969ffb56729551646a4ea540aa8b6dac4ecf4e6b58e02a6331209b3cd67d0
   accounts:
     - id: codex-account
       providerId: codex-oauth

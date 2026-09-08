@@ -30,7 +30,7 @@ function modelGatewayCommand(
   overrides: Parameters<typeof runModelGatewayCommand>[1] = {},
 ): Promise<void> {
   return runModelGatewayCommand(args, {
-    readExecutionTargetCatalog: () => executionCatalog,
+    readExecutionTargetAuthority: () => ({ executionCatalog, evidenceRevision: `sha256:${"f".repeat(64)}` }),
     resolveModelGatewayHost: async () => TEST_MODEL_GATEWAY_HOST,
     inspectCodexNativeClient: () => ({ executable: "codex.exe", version: "0.147.0", nativeCatalog: { models: [{ slug: "gpt-native" }] } }),
     createAutostartAdapter: () => ({
@@ -112,7 +112,6 @@ const executionCatalog = defineExecutionTargetCatalog({
 const globalConfig = {
   version: "7" as const,
   targetCatalog: {
-    evidenceRevision: `sha256:${"f".repeat(64)}` as const,
     accounts: executionCatalog.accounts.map((account) => ({
       id: account.id,
       providerId: account.providerId,
