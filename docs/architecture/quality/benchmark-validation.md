@@ -53,6 +53,20 @@ notices, and diagnostics are routed away from command stdout so benchmark
 consumers can treat stdout as command status and the baseline artifact as the
 scored evidence record.
 
+Internal benchmark execution observes the earliest of `--deadline-at` (an
+absolute Unix millisecond timestamp), the execution envelope elapsed limit, and
+any formal-screening wall-clock limit. The executor propagates cancellation
+through the normal session path, then awaits terminal cleanup and reporting.
+A cooperative expiry is recorded as an invalid timeout, preserving observed
+attempt identity and provider evidence.
+
+The context-efficiency collector passes that absolute deadline across CLI
+startup and grants a separate 30-second terminal drain allowance. This allowance
+does not extend provider or tool execution authority. If the final process fence
+is reached, collection records `command_timeout` with unknown dispatch evidence;
+a killed process is not proof of cleanup or zero provider consumption. Diagnostic
+subprocesses launch with hidden Windows consoles.
+
 ## Benchmark-Facing Profiles
 
 Kiln defines benchmark-facing profiles in `@kilnai/core`. They are frozen

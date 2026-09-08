@@ -5,7 +5,7 @@ export class RuntimeSessionApprovalGate {
   private readonly pendingApprovals = new Map<string, {
     sessionId: string;
     resolve: (decision: { approved: boolean; reason?: string }) => void;
-    promise: Promise<{ approved: boolean; reason?: string }>;
+    removeAbortListener: () => void;
   }>();
 
   constructor(private readonly eventBus?: EventBus) {}
@@ -28,10 +28,10 @@ export class RuntimeSessionApprovalGate {
 
   emitApprovalReceived(approved: boolean, reason: string | undefined, approvalId: string): void {
     const pending = this.pendingApprovals.get(approvalId);
-    if (pending) {
-      pending.resolve({ approved, reason });
-      this.pendingApprovals.delete(approvalId);
-    }
+    if (!pending) return;
+    this.pendingApprovals.delete(approvalId);
+    pending.removeAbortListener();
+    pending.resolve({ approved, reason });
     const event: ApprovalReceivedEvent = {
       type: "approval_received",
       approvalId,
@@ -39,7 +39,7 @@ export class RuntimeSessionApprovalGate {
       approved,
       reason,
       timestamp: new Date(),
-      sessionId: pending?.sessionId ?? "",
+      sessionId: pending.sessionId,
     };
     this.eventBus?.emit(event);
   }
@@ -47,7 +47,7 @@ export class RuntimeSessionApprovalGate {
   /**
    * Records a full approval-request/approval-received lifecycle for a mutation
    * that requires confirmation but has no live approval channel to grant it
-   * (no operator-configured authority source). Emits both canonical events for
+   * or authority source. Emits both canonical events for
    * replay/audit, then resolves immediately as denied instead of leaving a
    * pending approval nothing can ever answer.
    */
@@ -78,20 +78,26 @@ export class RuntimeSessionApprovalGate {
   requestApproval(
     sessionId: string,
     description: string,
+    abortSignal?: AbortSignal,
   ): Promise<{ approved: boolean; reason?: string }> {
-    let resolveApproval!: (decision: { approved: boolean; reason?: string }) => void;
-    const promise = new Promise<{ approved: boolean; reason?: string }>((resolve) => {
-      resolveApproval = resolve;
-    });
-
+    const cancellationReason = "Runtime turn cancelled while awaiting approval.";
+    if (abortSignal?.aborted) {
+      return Promise.resolve(this.requestImmediateDenial(sessionId, description, cancellationReason));
+    }
     const approvalId = this.nextApprovalId(sessionId);
-    this.pendingApprovals.set(approvalId, {
-      sessionId,
-      resolve: resolveApproval,
-      promise,
+    return new Promise((resolve) => {
+      const onAbort = (): void => this.emitApprovalReceived(false, cancellationReason, approvalId);
+      this.pendingApprovals.set(approvalId, {
+        sessionId,
+        resolve,
+        removeAbortListener: () => abortSignal?.removeEventListener("abort", onAbort),
+      });
+      abortSignal?.addEventListener("abort", onAbort, { once: true });
+      try {
+        this.emitApprovalRequested(description, sessionId, approvalId);
+      } catch {
+        this.emitApprovalReceived(false, "Approval request delivery failed.", approvalId);
+      }
     });
-
-    this.emitApprovalRequested(description, sessionId, approvalId);
-    return promise;
   }
 }

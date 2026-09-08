@@ -1120,6 +1120,47 @@ describe("context efficiency diagnostic collector", () => {
     }
   });
 
+  it("passes the execution deadline and reserves drain time without retrying a forced timeout", async () => {
+    const before = Date.now();
+    const calls: Array<{ readonly command: readonly string[]; readonly timeoutMs: number }> = [];
+    const dispatcher = createProductionContextEfficiencyDispatcher({
+      repositoryRoot: resolve(import.meta.dirname, ".."),
+      manifest: { schemaVersion: "kiln-context-efficiency-post-fix-manifest-v1", identity: {
+        targetId: "codex-luna", providerId: "codex-oauth", modelId: "gpt-5.6-luna",
+        deliberationLevel: "low", plusAccountPolicy: PLUS_ACCOUNT_POLICY,
+      } },
+      commandRunner: { run: async (input) => {
+        calls.push(input);
+        return { exitCode: 1, stdout: "", stderr: "", timedOut: true };
+      } },
+    });
+    try {
+      await expect(dispatcher.runInternalBenchmark({
+        trial: {
+          taskId: "child", executionStrategy: "internal_benchmark_managed_child", condition: "cold", repetition: 1,
+          invalidRetryLimit: 0, timeoutMs: 1_000,
+          budgets: { maximumProviderRequests: 8, maximumToolCalls: 32, maximumManagedChildren: 1,
+            maximumCumulativeInputTokens: 100, maximumCumulativeOutputTokens: 50 },
+        },
+        task: { authority: "read_only", oracle: {
+          kind: "managed_child_settlement", dataset: "fixture.jsonl",
+        } },
+      })).rejects.toMatchObject({
+        reason: "infrastructure_failure", diagnostic: "command_timeout", dispatchEvidence: "unknown",
+      });
+      expect(calls).toHaveLength(1);
+      const call = calls[0];
+      if (!call) throw new Error("Expected one diagnostic command");
+      const deadline = Number(call.command[call.command.indexOf("--deadline-at") + 1]);
+      expect(deadline).toBeGreaterThanOrEqual(before + 1_000);
+      expect(deadline).toBeLessThanOrEqual(Date.now() + 1_000);
+      expect(call.timeoutMs).toBeGreaterThan(1_000);
+      expect(call.timeoutMs).toBeLessThanOrEqual(31_000);
+    } finally {
+      await dispatcher.cleanup();
+    }
+  });
+
   it("keeps canonical invalidity separate from a model-task failure", async () => {
     const root = mkdtempSync(resolve(tmpdir(), "kiln-context-efficiency-test-"));
     const artifactPath = resolve(root, "benchmark.json");

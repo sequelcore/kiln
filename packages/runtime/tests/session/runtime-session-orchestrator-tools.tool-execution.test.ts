@@ -448,6 +448,7 @@ describe("RuntimeSessionOrchestrator - tool execution", () => {
         tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([["get_data", toolFn]]),
         eventBus,
+        approvalChannel: "event-bus",
         capabilityMap: makeCapabilityMap({ effectEnvelope: MUTATION_EFFECT }),
         toolAuthorizer: authorizer,
       });
@@ -488,6 +489,7 @@ describe("RuntimeSessionOrchestrator - tool execution", () => {
         tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([["get_data", toolFn]]),
         eventBus,
+        approvalChannel: "event-bus",
         capabilityMap: makeCapabilityMap({ effectEnvelope: MUTATION_EFFECT }),
         toolAuthorizer: {
           authorize: vi.fn().mockReturnValue({
@@ -555,6 +557,7 @@ describe("RuntimeSessionOrchestrator - tool execution", () => {
         tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([["get_data", toolFn]]),
         eventBus,
+        approvalChannel: "event-bus",
         capabilityMap: makeCapabilityMap({ effectEnvelope: MUTATION_EFFECT }),
         toolAuthorizer: authorizer,
       });

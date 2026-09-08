@@ -199,3 +199,49 @@ sandbox files (53 tests), two CLI claim-store/direct-adapter files (20 tests),
 and two diagnostic/report-integrity files (51 tests). Focused post-integration
 checks and `bun run docs:check` also passed. No live provider call was made for
 this repair.
+
+
+## Follow-up diagnostic: unattended approval and terminal deadline
+
+The next single cold diagnostic on 2026-09-08 froze source `e3742529`.
+The collector terminated its CLI process after the 180-second trial limit;
+startup and termination took approximately 186 seconds overall. No canonical
+terminal run artifact was available. Durable claims showed six successful
+parent model rounds and two successful child rounds, but those claims alone
+cannot establish the complete physical transport count. The eight-request
+reservation remains uncertain. No further live trial was run for this repair.
+
+The child checkpoint remained running with cleanup pending, and its tool claim
+store contained no executed tool claims. Source investigation identified an
+approval gate that treated a configured authority source as proof of a live
+approval response channel. Direct children had a telemetry event bus but no
+approval responder. A composed direct-child regression reproduces that wait
+when parent admission requires approval. Temporarily restoring the former gate
+made the regression time out; the repaired gate denies the unattended request,
+keeps the protected tool unexecuted, and lets the child finish.
+
+Runtime now requires an explicit response bridge for interactive approval.
+Pending approvals observe turn cancellation and deny exactly once; late approval
+responses cannot revive them. The normal provider-session surface supplies its
+existing bridge. Direct children remain noninteractive.
+
+The diagnostic previously killed the process at the same deadline at which it
+needed to settle. Nonformal benchmark sessions did not install a cooperative
+abort timer. The collector now passes an absolute execution deadline to the
+CLI, whose timer also respects the stricter execution-envelope limit. Terminal
+cleanup and artifact writing have a separate bounded drain period. Forced
+termination remains an infrastructure failure with unknown dispatch, never
+synthetic no-dispatch or successful cleanup evidence.
+
+The operator configuration was restored exactly after the failed live attempt.
+Its original report and pending child checkpoint remain private evidence; this
+code repair does not retroactively settle that invocation or release its
+uncertain economic commitment. Further live validation needs a new authorized
+request allocation. Offline tests use synthetic providers only.
+
+Verification passed the full workspace typecheck, 102 Runtime session and
+managed-agent/approval files (1,127 tests), the CLI executor/provider-session
+suites (107 tests) and benchmark command suite (21 tests), and three diagnostic
+collector/process/report suites (55 tests). The direct-child regression failed
+with an approval timeout when the old gate was temporarily restored and passed
+again after restoration. Documentation validation also passed.

@@ -21,6 +21,7 @@ import {
   getProjectContextArtifactCache,
   ProviderModelRouteHealthStore,
   RuntimeProviderTransportBudgetAuthority,
+  resolveRuntimeExecutionEnvelope,
   discoverClaudeCliModelDiscovery,
   discoverCodexCliModelDiscovery,
   discoverGuiDirectProviderModelDiscovery,
@@ -201,6 +202,8 @@ export interface BenchmarkSessionExecutorFlags {
   /** Explicit operator turn authority for an internal benchmark run. */
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly executionEnvelope?: import("@kilnai/runtime").RuntimeExecutionEnvelope;
+  /** Absolute Unix epoch deadline for cooperative benchmark termination. */
+  readonly deadlineAt?: number;
 }
 
 export interface BenchmarkSessionExecutorOptions {
@@ -260,6 +263,27 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     const executionEnvelope: import("@kilnai/runtime").RuntimeExecutionEnvelope = isFormalScreening
       ? FORMAL_SCREENING_EXECUTION_ENVELOPE
       : options.flags?.executionEnvelope ?? BENCHMARK_EXECUTION_ENVELOPE;
+    const explicitDeadlineAt = options.flags?.deadlineAt;
+    assertBenchmarkDeadlineAt(explicitDeadlineAt);
+    const resolvedExecutionEnvelope = resolveRuntimeExecutionEnvelope(executionEnvelope);
+    const formalDeadlineAt = isFormalScreening
+      ? startedAt + FORMAL_SCREENING_BUDGET.wallClockMs
+      : undefined;
+    const deadlineAt = Math.min(
+      ...(explicitDeadlineAt === undefined ? [] : [explicitDeadlineAt]),
+      startedAt + resolvedExecutionEnvelope.convergence.elapsedMs,
+      ...(formalDeadlineAt === undefined ? [] : [formalDeadlineAt]),
+    );
+    const benchmarkAbortController = new AbortController();
+    let benchmarkDeadlineExpired = false;
+    let formalWallClockTimedOut = false;
+    const expireBenchmarkDeadline = (): void => {
+      benchmarkDeadlineExpired = true;
+      if (formalDeadlineAt !== undefined && Date.now() >= formalDeadlineAt) formalWallClockTimedOut = true;
+      benchmarkAbortController.abort(new Error("Benchmark cooperative deadline expired."));
+    };
+    const clearBenchmarkDeadline = installBenchmarkDeadline(deadlineAt, expireBenchmarkDeadline);
+    try {
     const providerTransportAdmission = executionEnvelope.physicalProviderRequests === undefined
       ? undefined
       : new RuntimeProviderTransportBudgetAuthority(executionEnvelope.physicalProviderRequests);
@@ -657,8 +681,6 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         canonicalSessionId,
       ),
     };
-    const formalAbortController = isFormalScreening ? new AbortController() : undefined;
-    let formalWallClockTimedOut = false;
     const runInput = {
       registry,
       cleanupRegistry: benchmarkCleanupRegistry,
@@ -673,7 +695,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       sessionId,
       env,
       sessionHooks,
-      ...(formalAbortController ? { abortSignal: formalAbortController.signal } : {}),
+      abortSignal: benchmarkAbortController.signal,
       toolSandbox: createBoundHostToolSandbox({
         policy: new SandboxPolicy({
           projectPath: writeLease?.rootPath ?? cwd,
@@ -693,12 +715,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       operatorAdoption,
     };
     let accountFallbackCount = 0;
-    const formalWallClockTimer = formalAbortController
-      ? setTimeout(() => {
-          formalWallClockTimedOut = true;
-          formalAbortController.abort();
-        }, FORMAL_SCREENING_BUDGET.wallClockMs)
-      : undefined;
+    if (Date.now() >= deadlineAt) expireBenchmarkDeadline();
     const result = await (configuredRouteCandidates.length > 0 && directExecutionTargetCatalog
       ? (async () => {
           if (!configuredRouteCandidate) {
@@ -738,6 +755,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
                 : {}),
             });
             try {
+              if (Date.now() >= deadlineAt) expireBenchmarkDeadline();
               const dispatched = await dispatcher.dispatch(runInput);
               accountFallbackCount = index;
               return dispatched;
@@ -754,7 +772,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
           ...runInput,
           routeCandidates: routeCandidates.length > 0 ? routeCandidates : undefined,
         })).finally(async () => {
-      if (formalWallClockTimer !== undefined) clearTimeout(formalWallClockTimer);
+      clearBenchmarkDeadline();
       await benchmarkCleanupRegistry.runAll();
       await manager.cleanupWorktree(sessionContext);
       closeBuiltinResources(configuredBuiltinToolOptions);
@@ -903,7 +921,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       outputTokens: result.outputTokens,
       trial: boundedFixture && observedVerification && "infrastructureFailure" in observedVerification && observedVerification.infrastructureFailure
         ? { status: "invalid", reason: "verifier-infrastructure" }
-        : formalWallClockTimedOut
+        : benchmarkDeadlineExpired
         ? { status: "invalid", reason: "timeout" }
         : budgetExceeded
           ? { status: "invalid", reason: "budget" }
@@ -923,8 +941,8 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         activeAgentId: context.profile.id,
         runIndex: context.runIndex,
         repeatIndex: recordedRepeatIndex,
-        providerId: result.successfulProviderId,
-        modelId: result.successfulModelId,
+        providerId: result.successfulProviderId ?? result.attempts.at(-1)?.providerId,
+        modelId: result.successfulModelId ?? result.attempts.at(-1)?.model,
         // The route the trial asked for, recorded alongside the route it got.
         // A benchmark comparing conditions assumes the model was held fixed, and
         // a silent fallback would otherwise be indistinguishable from a clean run.
@@ -1070,6 +1088,34 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         }
       }
     }
+    } finally {
+      clearBenchmarkDeadline();
+    }
+  };
+}
+
+function assertBenchmarkDeadlineAt(value: number | undefined): void {
+  if (value !== undefined && (!Number.isSafeInteger(value) || value <= 0)) {
+    throw new Error("benchmark deadlineAt must be a positive safe integer Unix millisecond timestamp.");
+  }
+}
+
+function installBenchmarkDeadline(deadlineAt: number, onExpire: () => void): () => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let cleared = false;
+  const arm = (): void => {
+    if (cleared) return;
+    const remainingMs = deadlineAt - Date.now();
+    if (remainingMs <= 0) {
+      onExpire();
+      return;
+    }
+    timer = setTimeout(arm, Math.min(remainingMs, 2_147_483_647));
+  };
+  arm();
+  return () => {
+    cleared = true;
+    if (timer !== undefined) clearTimeout(timer);
   };
 }
 

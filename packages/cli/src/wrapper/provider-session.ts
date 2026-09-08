@@ -865,6 +865,7 @@ export class ProviderSession implements IKilnSession {
         : {}),
       builtinTools: isTextOnly ? new Map() : this.builtinTools,
       eventBus: this.eventBus,
+      approvalChannel: "event-bus",
       toolAuthorizer: authorizer,
       capabilityMap: isTextOnly ? new Map() : new Map([...this.capabilityMap, ...externalCapabilityMap]),
       ...(!isTextOnly && this.capabilityGeneration ? { capabilityGeneration: this.capabilityGeneration } : {}),

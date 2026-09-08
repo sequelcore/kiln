@@ -12,7 +12,7 @@ import {
   type ProviderAdapter,
   type ToolDefinition,
 } from "@kilnai/core/agents";
-import { textParts, type AuthorityDescriptor, type Capability } from "@kilnai/core/engine";
+import { textParts, type AuthorityDescriptor, type Capability, type InvocationAdmission } from "@kilnai/core/engine";
 import { createSessionBuiltinToolOptions } from "@kilnai/core/tools";
 import { createBoundHostToolSandbox, SandboxPolicy } from "@kilnai/core/sandbox";
 import {
@@ -193,7 +193,7 @@ function directTestAdmission(
   });
 }
 
-function directTestHostAdmission(request: ManagedAgentInvocationRequest): {
+function directTestHostAdmission(request: ManagedAgentInvocationRequest, parentAdmission?: InvocationAdmission): {
   readonly bundle: EffectiveAuthorityAdmissionBundle;
   readonly runtimeHostToolEnforcement: ReturnType<typeof createRuntimeHostToolEnforcement>;
 } {
@@ -237,7 +237,7 @@ function directTestHostAdmission(request: ManagedAgentInvocationRequest): {
   };
   return {
     bundle,
-    runtimeHostToolEnforcement: createRuntimeHostToolEnforcement({ bundle, sandbox, invocationAdmission }),
+    runtimeHostToolEnforcement: createRuntimeHostToolEnforcement({ bundle, sandbox, invocationAdmission: parentAdmission ?? invocationAdmission }),
   };
 }
 
@@ -567,6 +567,30 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     expect(result.status).toBe("completed");
     expect(read).toHaveBeenCalledOnce();
     expect(provider.createMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it("settles a child approval requirement without an unattended approval wait", async () => {
+    const childRequest = request();
+    const hostAdmission = directTestHostAdmission(childRequest, {
+      authorize: () => ({ level: 3, allowed: false, requiresApproval: true, reason: "Protected file requires approval" }),
+    });
+    const provider = providerWithResponses([
+      response("read", [{ id: "protected-read", name: "read", input: {} }]),
+      response("The file requires operator approval."),
+    ]);
+    const read = vi.fn(async () => "must not read");
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai", model: "gpt-test", provider,
+      tools: [READ_TOOL], builtinTools: new Map([["read", read]]),
+    });
+    const result = await invokeManaged(new RuntimeManagedAgentInvocationService(), childRequest, adapter, {
+      childAuthorityAdmission: { bundle: hostAdmission.bundle },
+      runtimeHostToolEnforcement: hostAdmission.runtimeHostToolEnforcement,
+    });
+    expect(result.status).toBe("completed");
+    expect(read).not.toHaveBeenCalled();
+    expect(provider.createMessage).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(result)).toContain("No live approval channel");
   });
 
   it("rejects a host-bound child before its provider is called when the capability is missing", async () => {

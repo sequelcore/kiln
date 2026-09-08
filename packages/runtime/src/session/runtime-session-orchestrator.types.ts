@@ -161,6 +161,8 @@ export interface OrchestratorDeps {
   readonly mcpClients?: readonly KilnMcpClient[];
   readonly builtinTools?: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
   readonly eventBus?: EventBus;
+  /** Explicit live response bridge; the event bus alone is only an observation sink. */
+  readonly approvalChannel?: "event-bus";
   readonly escalationDetector?: EscalationDetector;
   readonly capabilityMap?: ReadonlyMap<string, Capability>;
   readonly toolAuthorizer?: ToolAuthorizer;

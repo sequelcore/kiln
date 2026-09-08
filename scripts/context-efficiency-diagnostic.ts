@@ -1,3 +1,8 @@
+import {
+  createContextEfficiencyCommandRunner,
+  type ContextEfficiencyCommandRunner,
+} from "./context-efficiency-command-runner.js";
+import { BENCHMARK_TERMINAL_DRAIN_MS } from "../packages/cli/src/application/benchmark-session-deadline.js";
 import { projectContextEfficiencyProviderEvidence, hasSettledContextEfficiencyProviderEvidence } from "./context-efficiency-provider-evidence.js";
 import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
@@ -84,6 +89,7 @@ export type ContextEfficiencyInvalidDiagnostic =
   | "account_admission_failed"
   | "execution_envelope_invalid"
   | "credential_unavailable"
+  | "command_timeout"
   | "unstructured_command_failure"
   | "unclassified_predispatch_failure";
 
@@ -145,20 +151,6 @@ export interface ContextEfficiencyStrategyDispatcher {
   }): Promise<ContextEfficiencyStrategyResult>;
 }
 
-export interface ContextEfficiencyCommandResult {
-  readonly exitCode: number;
-  readonly stdout: string;
-  readonly stderr: string;
-}
-
-export interface ContextEfficiencyCommandRunner {
-  run(input: {
-    readonly command: readonly string[];
-    readonly cwd: string;
-    readonly timeoutMs: number;
-  }): Promise<ContextEfficiencyCommandResult>;
-}
-
 export interface ProductionContextEfficiencyDispatcher extends ContextEfficiencyStrategyDispatcher {
   cleanup(): Promise<void>;
 }
@@ -209,6 +201,7 @@ export function buildInternalBenchmarkCommand(input: {
   readonly trial: ContextEfficiencyScheduledTrial;
   readonly task: Readonly<Record<string, unknown>>;
   readonly executionEnvelopePath?: string;
+  readonly deadlineAt?: number;
 }): readonly string[] {
   const oracle = input.task.oracle;
   if (!isRecord(oracle)) throw new Error("Internal benchmark task oracle is missing.");
@@ -241,31 +234,9 @@ export function buildInternalBenchmarkCommand(input: {
     requireString(input.identity.deliberationLevel, "deliberation level"),
     "--authority",
     requireString(input.task.authority, "task authority"),
+    ...(input.deadlineAt === undefined ? [] : ["--deadline-at", String(input.deadlineAt)]),
     ...(input.executionEnvelopePath ? ["--execution-envelope", input.executionEnvelopePath] : []),
   ];
-}
-
-export function createBunContextEfficiencyCommandRunner(): ContextEfficiencyCommandRunner {
-  return {
-    async run(input) {
-      const process = Bun.spawn([...input.command], {
-        cwd: input.cwd,
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      const timeout = setTimeout(() => process.kill(), input.timeoutMs);
-      try {
-        const [exitCode, stdout, stderr] = await Promise.all([
-          process.exited,
-          new Response(process.stdout).text(),
-          new Response(process.stderr).text(),
-        ]);
-        return { exitCode, stdout, stderr };
-      } finally {
-        clearTimeout(timeout);
-      }
-    },
-  };
 }
 
 async function computeGitWorktreeFingerprint(repositoryRoot: string): Promise<string> {
@@ -292,6 +263,7 @@ async function runGitForFingerprint(repositoryRoot: string, args: readonly strin
       cwd: repositoryRoot,
       encoding: "utf8",
       maxBuffer: 32 * 1024 * 1024,
+      windowsHide: true,
     });
     return stdout;
   } catch (error) {
@@ -332,7 +304,7 @@ export function createProductionContextEfficiencyDispatcher(input: {
 }): ProductionContextEfficiencyDispatcher {
   const repositoryRoot = resolve(input.repositoryRoot);
   const identity = readManifestIdentity(input.manifest);
-  const commandRunner = input.commandRunner ?? createBunContextEfficiencyCommandRunner();
+  const commandRunner = input.commandRunner ?? createContextEfficiencyCommandRunner();
   const worktreeFingerprint = input.worktreeFingerprint
     ?? (() => computeGitWorktreeFingerprint(repositoryRoot));
   const now = input.now ?? (() => Math.floor(performance.now()));
@@ -347,6 +319,14 @@ export function createProductionContextEfficiencyDispatcher(input: {
     acceptRunEnvelopeOnFailure = false,
   ): Promise<unknown> => {
     const result = await commandRunner.run({ command, cwd: repositoryRoot, timeoutMs });
+    if (result.timedOut) {
+      throw new ContextEfficiencyInvalidTrialError(
+        "infrastructure_failure",
+        "Diagnostic command exceeded its terminal drain deadline; dispatch and cleanup remain unknown.",
+        "command_timeout",
+        { dispatchEvidence: "unknown" },
+      );
+    }
     let parsed: unknown;
     try {
       parsed = parseJsonOutput(result.stdout, "diagnostic command");
@@ -525,13 +505,15 @@ export function createProductionContextEfficiencyDispatcher(input: {
     },
 
     async runInternalBenchmark({ trial, task }) {
+      const deadlineAt = Date.now() + trial.timeoutMs;
       const executionEnvelopePath = await resolveExecutionEnvelopePath(trial, task);
       const summary = await runCommand(buildInternalBenchmarkCommand({
         identity,
         trial,
         task,
         executionEnvelopePath,
-      }), trial.timeoutMs);
+        deadlineAt,
+      }), Math.max(0, deadlineAt - Date.now()) + BENCHMARK_TERMINAL_DRAIN_MS);
       const summaryRecord = requireRecord(summary, "internal benchmark command output");
       const outputPath = resolve(requireString(summaryRecord.outputPath, "internal benchmark output path"));
       let projected: RunEnvelope;
@@ -1848,7 +1830,7 @@ async function main(args: readonly string[]): Promise<void> {
     const template = requireRecord(JSON.parse(await readFile(resolve(readFlag(args, "--manifest")), "utf8")), "preregistered protocol");
     const templateIdentity = requireRecord(template.identity, "preregistered identity");
     buildContextEfficiencySchedule(template);
-    const runner = createBunContextEfficiencyCommandRunner();
+    const runner = createContextEfficiencyCommandRunner();
     const compiledPackages = ["operator-appearance", "gateway-contracts", "tools", "core", "runtime", "sdk", "cli", "tui"];
     for (const packageName of compiledPackages) {
       const outputDirectory = resolve(repositoryRoot, "packages", packageName, "dist");
@@ -2082,7 +2064,7 @@ async function verifyCurrentContextEfficiencyIdentity(input: {
   if (digestCanonicalValue(identity.hardware) !== digestCanonicalValue(actualHardware)) {
     throw new Error("Frozen hardware identity differs from this execution host.");
   }
-  const identityRunner = createBunContextEfficiencyCommandRunner();
+  const identityRunner = createContextEfficiencyCommandRunner();
   await verifyCommittedContextEfficiencyCheckout({
     repositoryRoot: input.repositoryRoot,
     commandRunner: identityRunner,
@@ -2106,7 +2088,7 @@ export async function verifyCommittedContextEfficiencyCheckout(input: {
   readonly repositoryRoot: string;
   readonly commandRunner?: ContextEfficiencyCommandRunner;
 }): Promise<void> {
-  const runner = input.commandRunner ?? createBunContextEfficiencyCommandRunner();
+  const runner = input.commandRunner ?? createContextEfficiencyCommandRunner();
   const status = await runner.run({
     command: ["git", "status", "--porcelain=v1", "--untracked-files=all", "--ignore-submodules=none"],
     cwd: input.repositoryRoot,

@@ -240,6 +240,13 @@ display, and audit context only. They must not be used as the approval decision
 key because a session can contain multiple approval gates across turns and
 surfaces.
 
+Runtime tool approval requires both a configured authority source and an explicit
+live response bridge. An event bus alone is an observation sink, not an approval
+channel. Sessions without that bridge deny the request immediately and record
+the approval lifecycle. Pending approvals observe turn cancellation, resolve as
+denied exactly once, and ignore late responses. Direct managed children do not
+inherit an interactive approval bridge from their parent.
+
 Assistant text does not create approval state. When a response says work needs
 approval but no `approval_requested` event exists in the session, surfaces must
 treat it as a blocked explanation, not as a pending approval. Runtime prompts

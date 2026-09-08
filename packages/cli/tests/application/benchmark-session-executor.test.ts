@@ -102,6 +102,7 @@ vi.mock("@kilnai/runtime", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@kilnai/runtime")>();
   return {
     deriveRuntimeConvergencePolicyInput: actual.deriveRuntimeConvergencePolicyInput,
+    resolveRuntimeExecutionEnvelope: actual.resolveRuntimeExecutionEnvelope,
     projectProviderRequestObservation: actual.projectProviderRequestObservation,
     discoverClaudeCliModelDiscovery: benchmarkExecutorMocks.discoverClaudeCliModelDiscovery,
     discoverCodexCliModelDiscovery: benchmarkExecutorMocks.discoverCodexCliModelDiscovery,
@@ -702,6 +703,67 @@ describe("createBenchmarkSessionExecutor", () => {
   afterEach(() => {
     rmSync(FORMAL_LEASE_ROOT, { recursive: true, force: true });
     vi.restoreAllMocks();
+  });
+
+  it("aborts a nonformal managed benchmark at its cooperative deadline and clears the timer", async () => {
+    vi.useFakeTimers({ now: 1_000 });
+    try {
+      const defaultRun = benchmarkExecutorMocks.runSession.getMockImplementation()!;
+      let observedAbortSignal: AbortSignal | undefined;
+      benchmarkExecutorMocks.runSession.mockImplementationOnce(async (options: {
+        readonly abortSignal?: AbortSignal;
+      }) => {
+        observedAbortSignal = options.abortSignal;
+        await new Promise<void>((resolve) => {
+          if (options.abortSignal?.aborted) {
+            resolve();
+          } else {
+            options.abortSignal?.addEventListener("abort", () => resolve(), { once: true });
+          }
+        });
+        const baseline = await defaultRun(options as never);
+        return {
+          ...baseline,
+          attempts: [{ providerId: "codex", model: "benchmark-model", succeeded: false, error: "Cancelled" }],
+          successfulProviderId: undefined,
+          successfulModelId: undefined,
+          sessionSucceeded: false,
+          lastError: "benchmark cooperative deadline expired",
+        };
+      });
+      const executor = createBenchmarkSessionExecutor({
+        appConfig: MOCK_APP_CONFIG,
+        flags: {
+          deadlineAt: 1_010,
+          executionEnvelope: {
+            convergence: {
+              ...BENCHMARK_EXECUTION_ENVELOPE.convergence!,
+              elapsedMs: 100_000,
+            },
+          },
+        },
+      });
+      const execution = executor("Run managed work.", makeBenchmarkContext({
+        id: "managed-deadline",
+        input: "Run managed work.",
+      }, { id: "kiln-tool-agent" }));
+      for (let index = 0; index < 100 && benchmarkExecutorMocks.runSession.mock.calls.length === 0; index += 1) {
+        await Promise.resolve();
+      }
+      expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledOnce();
+      expect(observedAbortSignal?.aborted).toBe(false);
+      const timerCountBeforeDeadline = vi.getTimerCount();
+      await vi.advanceTimersByTimeAsync(10);
+      const result = await execution;
+      expect(observedAbortSignal?.aborted).toBe(true);
+      expect(result.trial).toEqual({ status: "invalid", reason: "timeout" });
+      expect(benchmarkExecutorMocks.runCleanup).toHaveBeenCalledOnce();
+      expect(benchmarkExecutorMocks.cleanupWorktree).toHaveBeenCalledOnce();
+      expect(result.metadata).toMatchObject({ sessionSucceeded: false, providerId: "codex", modelId: "benchmark-model" });
+      expect(vi.getTimerCount()).toBe(timerCountBeforeDeadline - 1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("routes benchmark item sessions through a non-human output sink without writing assistant or tool text to stdout", async () => {

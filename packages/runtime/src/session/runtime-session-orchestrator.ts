@@ -226,6 +226,9 @@ export class RuntimeSessionOrchestrator {
     private readonly deps: OrchestratorDeps,
     approvalGate?: RuntimeSessionApprovalGate,
   ) {
+    if (deps.approvalChannel === "event-bus" && !deps.eventBus) {
+      throw new TypeError("An event-bus approval channel requires its response bridge event bus.");
+    }
     this.executionEnvelope = resolveRuntimeExecutionEnvelope(deps.executionEnvelope);
     this.providerTransportAdmission = deps.providerTransportAdmission
       ?? (this.executionEnvelope.physicalProviderRequests === undefined
@@ -531,12 +534,14 @@ export class RuntimeSessionOrchestrator {
       },
       this.deps.eventBus,
       (sessionId, description, hasLiveAuthoritySource = true) =>
-        hasLiveAuthoritySource
-          ? this.approvalGate.requestApproval(sessionId, description)
+        hasLiveAuthoritySource && this.deps.approvalChannel === "event-bus"
+          ? this.approvalGate.requestApproval(sessionId, description, perCallConfig?.abortSignal)
           : Promise.resolve(this.approvalGate.requestImmediateDenial(
               sessionId,
               description,
-              "No approval authority is configured for this capability",
+              hasLiveAuthoritySource
+                ? "No live approval channel is configured for this session"
+                : "No approval authority is configured for this capability",
             )),
       (sessionId, message) => this.telemetry.emitError(sessionId, message),
       effectiveBuiltinTools,

@@ -140,7 +140,7 @@ function printHelp(): void {
     "  kiln benchmark tracks",
     "  kiln benchmark readiness --baseline <path>",
     "  kiln benchmark report --baseline <path> --output <path> [--publication-manifest <path>] [--repository-root <path>]",
-    "  kiln benchmark run-internal --profile <id> [--dataset <path>] [--k <n>] [--max-invalid-attempts <n>] [--output <path>] [--target <execution-target-id>] [--accounts <id,id,...>] [--authority <auto|read_only|audited|destructive>] [--deliberation-level <id> | --deliberation-level-sweep <ids>] [--execution-envelope <path>]",
+    "  kiln benchmark run-internal --profile <id> [--dataset <path>] [--k <n>] [--max-invalid-attempts <n>] [--output <path>] [--target <execution-target-id>] [--accounts <id,id,...>] [--authority <auto|read_only|audited|destructive>] [--deliberation-level <id> | --deliberation-level-sweep <ids>] [--execution-envelope <path>] [--deadline-at <unix-ms>]",
     "  kiln benchmark run-internal --profile kiln-formal-verification-pilot --k 2 --target <execution-target-id> --accounts <single-account-id>",
     "  kiln benchmark prepare-verifiers",
     "  kiln benchmark project-bfcl --input <path> --output <path>",
@@ -1182,6 +1182,10 @@ function readExecutorFlags(
   benchmarkEvidenceRoot?: string,
 ): BenchmarkSessionExecutorFlags {
   const requestedAuthority = readBenchmarkRequestedAuthority(args);
+  const deadlineAtValue = readFlag(args, "--deadline-at");
+  if (args.includes("--deadline-at") && deadlineAtValue === undefined) {
+    throw new Error("--deadline-at requires a Unix millisecond timestamp.");
+  }
   return {
     targetId: readFlag(args, "--target"),
     ...(accountOverrideIds && accountOverrideIds.length > 0 ? { accountOverrideIds } : {}),
@@ -1190,6 +1194,7 @@ function readExecutorFlags(
     skipGitRepoCheck: args.includes("--skip-git-repo-check"),
     deliberationLevel,
     ...(requestedAuthority === undefined ? {} : { requestedAuthority }),
+    ...(deadlineAtValue === undefined ? {} : { deadlineAt: parsePositiveSafeInteger(deadlineAtValue, "--deadline-at") }),
     ...(readFlag(args, "--execution-envelope")
       ? {
           executionEnvelope: JSON.parse(
@@ -1278,6 +1283,14 @@ function parsePositiveInteger(value: string, flag: string): number {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isInteger(parsed) || parsed < 1) {
     throw new Error(`${flag} must be a positive integer.`);
+  }
+  return parsed;
+}
+
+function parsePositiveSafeInteger(value: string, flag: string): number {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`${flag} must be a positive safe integer.`);
   }
   return parsed;
 }
