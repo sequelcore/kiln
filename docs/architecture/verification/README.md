@@ -81,14 +81,13 @@ Dafny and Gentle AI remain externally supplied. Dafny binds the complete
 installation tree; Gentle AI binds its exact executable:
 
 ```yaml
-version: "6"
+version: "7"
 verification:
   formal:
     dafny:
       executable: C:/tools/dafny.exe
       installationRoot: C:/tools/dafny
       expectedVersion: 4.11.0
-      expectedInstallationDigest: sha256:<published-installation-digest>
   static:
     oxlint: { enabled: true }
     quality:
@@ -100,15 +99,23 @@ verification:
     gentleAi:
       executable: C:/tools/gentle-ai.exe
       expectedVersion: 2.5.0-rc.1
-      expectedExecutableDigest: sha256:<published-executable-digest>
 ```
+
+After selecting an external verifier, run `kiln verifier review dafny` or
+`kiln verifier review gentle-ai` in an interactive terminal. Review requires
+trust in the installation's origin; Kiln inspects bytes without executing them.
+Approval is stored under `~/.kiln/evidence/verifiers/`, bound to the exact
+verifier, selected paths, and version. Dafny approval covers the complete
+installation tree; Gentle AI approval covers the executable. Selection or
+byte changes require review again. Missing or invalid approval prevents even
+the version probe. Restart the consuming Runtime after approval.
 
 Each producer class may be configured independently. For Oxlint, Kiln resolves
 only the exact platform package shipped with its release, verifies the
 materialized binary digest, fixed profile configuration digest, and declared
 version; it never falls back to `PATH` or another platform. Dafny is admitted
 only when the canonical digest of every regular file under its installation
-root matches. Symlinks and non-regular entries fail closed. Gentle AI retains
+root matches the separately stored approval. Symlinks and non-regular entries fail closed. Gentle AI retains
 its executable digest contract. A failed resolution omits the tool.
 The tools remain deferred rather than always present in model context.
 `quality_analyze` has no external executable to probe and is registered only

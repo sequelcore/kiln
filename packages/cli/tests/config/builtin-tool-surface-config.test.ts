@@ -1,9 +1,10 @@
+import { readVerifierApproval } from "../../src/config/verification/approval-store.js";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDefaultBuiltinToolSurface, ToolCatalogSearchTool } from "@kilnai/core/tools";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 import {
   assertConfiguredInvocationAdmission,
@@ -15,6 +16,9 @@ import {
 import type { KilnGlobalConfig } from "../../src/config/global-config.js";
 import { digestDafnyInstallation } from "../../src/config/verification/dafny.js";
 import type { KilnAppConfig } from "../../src/config.js";
+
+vi.mock("../../src/config/verification/approval-store.js", () => ({ readVerifierApproval: vi.fn() }));
+beforeEach(() => { vi.mocked(readVerifierApproval).mockImplementation((selection) => ({ version: 1, selection, digest: selection.verifier === "dafny" ? DAFNY_DIGEST : `sha256:${"a".repeat(64)}` })); });
 
 vi.mock("@kilnai/runtime", () => ({
   createSqliteMemoryRepository: vi.fn((options: { readonly dbPath: string }) => ({ options })),
@@ -94,7 +98,6 @@ describe("builtin tool surface config", () => {
               executable: "C:/tools/dafny.exe",
               installationRoot: "C:/tools",
               expectedVersion: "4.11.0",
-              expectedInstallationDigest: DAFNY_DIGEST,
             },
           },
         },
@@ -129,7 +132,6 @@ describe("builtin tool surface config", () => {
                 executable: "C:/tools/dafny.exe",
                 installationRoot: "C:/tools",
                 expectedVersion: "4.11.0",
-                expectedInstallationDigest: DAFNY_DIGEST,
               },
             },
           },
@@ -183,14 +185,12 @@ describe("builtin tool surface config", () => {
                 executable: "C:\\Users\\operator\\bin\\dafny.exe",
                 installationRoot: "C:\\Users\\operator\\bin",
                 expectedVersion: "4.11.0",
-                expectedInstallationDigest: DAFNY_DIGEST,
               },
             },
             inferential: {
               gentleAi: {
                 executable: executablePath,
                 expectedVersion: "2.5.0-rc.1",
-                expectedExecutableDigest: expectedDigest,
               },
             },
           },
@@ -287,6 +287,7 @@ describe("builtin tool surface config", () => {
       const bytes = "gentle-ai fixture";
       writeFileSync(executable, bytes);
       const expectedExecutableDigest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+      vi.mocked(readVerifierApproval).mockImplementation((selection) => ({ version: 1, selection, digest: expectedExecutableDigest }));
       const globalConfig: KilnGlobalConfig = {
         version: "7",
         verification: {
@@ -294,7 +295,6 @@ describe("builtin tool surface config", () => {
             gentleAi: {
               executable,
               expectedVersion: "2.5.0-rc.1",
-              expectedExecutableDigest,
             },
           },
         },

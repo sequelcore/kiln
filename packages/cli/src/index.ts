@@ -75,6 +75,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     plan: planCommand?.description ?? "Start a planning session before execution (3-phase workflow)",
     project: "Scout or adopt canonical repo context for generated project shims",
     status: "Show current phase, tasks, and costs",
+    verifier: "Review and approve the exact bytes of a configured verifier",
     doctor: "Diagnose local harness installation, path, version, auth, and model readiness",
     memory: "Browse and search memory layers",
     config: "Inspect global authority and edit admitted project restrictions",
@@ -221,6 +222,12 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
   if (command === "status") {
     const { statusCommand } = await import("./commands/status.js");
     statusCommand(config);
+    return;
+  }
+
+  if (command === "verifier") {
+    const { verifierCommand } = await import("./commands/verifier.js");
+    await verifierCommand(args.slice(1));
     return;
   }
 

@@ -73,6 +73,8 @@ export const VERIFICATION_PRODUCER_DIAGNOSTIC_CODES = [
   "version_probe_failed",
   "version_unparseable",
   "version_mismatch",
+  "approval_missing",
+  "approval_invalid",
   "digest_probe_failed",
   "digest_mismatch",
   "profile_invalid",

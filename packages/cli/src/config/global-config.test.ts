@@ -60,7 +60,6 @@ const statSyncMock = statSync as unknown as ReturnType<typeof vi.fn>;
 const chmodSyncMock = chmodSync as unknown as ReturnType<typeof vi.fn>;
 const fsyncSyncMock = fsyncSync as unknown as ReturnType<typeof vi.fn>;
 const homedirMock = homedir as unknown as ReturnType<typeof vi.fn>;
-const EXECUTABLE_DIGEST = `sha256:${"a".repeat(64)}`;
 
 function revisionOf(raw: string | null): string {
   if (raw === null) return "absent";
@@ -261,7 +260,6 @@ describe("global-config", () => {
         "      executable: /opt/dafny/dafny",
         "      installationRoot: /opt/dafny",
         "      expectedVersion: 4.11.0",
-        `      expectedInstallationDigest: ${EXECUTABLE_DIGEST}`,
       ].join("\n"),
     );
 
@@ -271,7 +269,6 @@ describe("global-config", () => {
           executable: "/opt/dafny/dafny",
           installationRoot: "/opt/dafny",
           expectedVersion: "4.11.0",
-          expectedInstallationDigest: EXECUTABLE_DIGEST,
         },
       },
     });
@@ -288,7 +285,6 @@ describe("global-config", () => {
         "      executable: /opt/dafny/dafny",
         "      installationRoot: /opt/dafny",
         "      expectedVersion: 4.11.0",
-        `      expectedInstallationDigest: ${EXECUTABLE_DIGEST}`,
         "    screening:",
         "      packagePath: /private/kiln-formal-screening",
         "      lemmaScript:",
@@ -339,7 +335,6 @@ describe("global-config", () => {
       "      executable: /opt/dafny/dafny",
       "      installationRoot: /opt/dafny",
       "      expectedVersion: 4.11.0",
-      `      expectedInstallationDigest: ${EXECUTABLE_DIGEST}`,
       "    screening:",
       "      packagePath: /private/kiln-formal-screening",
       "      lemmaScript:",

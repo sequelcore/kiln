@@ -1,5 +1,5 @@
 {
-  "$id": "https://kiln.dev/schemas/global-config-v2.json",
+  "$id": "https://kiln.dev/schemas/global-config-v3.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "Canonical structural schema for ~/.kiln/config.yaml.",
@@ -409,26 +409,24 @@
               "properties": {
                 "executable": {
                   "minLength": 1,
-                  "type": "string"
-                },
-                "expectedInstallationDigest": {
-                  "pattern": "^sha256:[a-f0-9]{64}$",
+                  "pattern": "\\S",
                   "type": "string"
                 },
                 "expectedVersion": {
                   "minLength": 1,
+                  "pattern": "\\S",
                   "type": "string"
                 },
                 "installationRoot": {
                   "minLength": 1,
+                  "pattern": "\\S",
                   "type": "string"
                 }
               },
               "required": [
                 "executable",
                 "installationRoot",
-                "expectedVersion",
-                "expectedInstallationDigest"
+                "expectedVersion"
               ],
               "type": "object"
             },
@@ -483,21 +481,18 @@
               "properties": {
                 "executable": {
                   "minLength": 1,
-                  "type": "string"
-                },
-                "expectedExecutableDigest": {
-                  "pattern": "^sha256:[a-f0-9]{64}$",
+                  "pattern": "\\S",
                   "type": "string"
                 },
                 "expectedVersion": {
                   "minLength": 1,
+                  "pattern": "\\S",
                   "type": "string"
                 }
               },
               "required": [
                 "executable",
-                "expectedVersion",
-                "expectedExecutableDigest"
+                "expectedVersion"
               ],
               "type": "object"
             }
@@ -621,7 +616,7 @@
   "x-kiln-activation": "next-session",
   "x-kiln-authority-impact": "none",
   "x-kiln-default-posture": "omitted",
-  "x-kiln-schema-revision": 2,
+  "x-kiln-schema-revision": 3,
   "x-kiln-scope": "global",
   "x-kiln-semantic-owner": "global-configuration",
   "x-kiln-sensitivity": "public",

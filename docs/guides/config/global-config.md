@@ -80,8 +80,8 @@ descriptors, and generated editor schema. Named validators in
 cross-resource admission for imported Core and CLI contracts. The document
 store performs one YAML parse and returns only the schema-admitted value;
 `global-config.ts` remains their public boundary. The committed projections are
-`packages/cli/schemas/global-config-v2.json` and
-`packages/cli/schemas/global-config-descriptors-v2.json`. Regenerate them with
+`packages/cli/schemas/global-config-v3.json` and
+`packages/cli/schemas/global-config-descriptors-v3.json`. Regenerate them with
 `bun run --cwd packages/cli config:schema:generate` after changing the owner.
 
 The main V7 fields are:
@@ -150,7 +150,6 @@ verification:
       executable: /opt/dafny/dafny
       installationRoot: /opt/dafny
       expectedVersion: 4.11.0
-      expectedInstallationDigest: sha256:<published-installation-digest>
   static:
     oxlint: { enabled: true }
     quality:
@@ -162,15 +161,21 @@ verification:
     gentleAi:
       executable: C:/tools/gentle-ai.exe
       expectedVersion: 2.5.0-rc.1
-      expectedExecutableDigest: sha256:<published-platform-artifact-digest>
 ```
+
+After configuring Dafny or Gentle AI, run `kiln verifier review dafny` or
+`kiln verifier review gentle-ai` in an interactive terminal, then restart the
+consuming Runtime. The command records approval of the exact selected bytes
+separately under `~/.kiln/evidence/verifiers/`. Changing the selected path,
+version, or bytes requires another review. Missing or invalid approval blocks
+the verifier before its version probe.
 
 The `formal`, `static`, and `inferential` arms are independent and optional.
 Oxlint is distributed by Kiln for each supported platform. `enabled: true`
 admits only that release-owned artifact after its executable digest and
 version are verified; no user installation, project path, or ambient `PATH`
 lookup is involved. Dafny and Gentle AI remain external capabilities. Dafny's
-operator-owned digest covers the canonical paths and bytes of its complete
+approval covers the canonical paths and bytes of its complete
 installation tree; Gentle AI retains an exact executable digest. Exact
 versions are required for both. On Windows, command shims remain ineligible.
 

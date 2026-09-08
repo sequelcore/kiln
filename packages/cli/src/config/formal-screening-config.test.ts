@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -82,7 +81,6 @@ function configFor(fixture: ReturnType<typeof createFixture>): KilnGlobalConfig 
           executable: fixture.dafny,
           installationRoot: fixture.root,
           expectedVersion: "4.11.0",
-          expectedInstallationDigest: `sha256:${createHash("sha256").update("dafny installation").digest("hex")}`,
         },
         screening: {
           packagePath: fixture.privatePackage,

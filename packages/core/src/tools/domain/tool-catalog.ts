@@ -41,6 +41,8 @@ export type ToolCatalogConfigurationDiagnosticCode =
   | "version_probe_failed"
   | "version_unparseable"
   | "version_mismatch"
+  | "approval_missing"
+  | "approval_invalid"
   | "digest_probe_failed"
   | "digest_mismatch";
 

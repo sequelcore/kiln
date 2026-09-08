@@ -14,8 +14,15 @@ import {
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 describe("global configuration schema", () => {
+  it.each([
+    { formal: { dafny: { executable: "C:/tools/Dafny.exe", installationRoot: "C:/tools", expectedVersion: "4.11.0", expectedInstallationDigest: `sha256:${"ab".repeat(32)}` } } },
+    { inferential: { gentleAi: { executable: "C:/tools/gentle-ai.exe", expectedVersion: "2.5.0-rc.1", expectedExecutableDigest: `sha256:${"ab".repeat(32)}` } } },
+  ])("rejects verifier approval pins in operator configuration", (verification) => {
+    expect(() => parseGlobalConfigStructure({ version: "7", verification }, "config.yaml")).toThrow(KilnYamlError);
+  });
+
   it("owns one strict versioned global document boundary", () => {
-    expect(GLOBAL_CONFIG_SCHEMA.$id).toBe("https://kiln.dev/schemas/global-config-v2.json");
+    expect(GLOBAL_CONFIG_SCHEMA.$id).toBe("https://kiln.dev/schemas/global-config-v3.json");
     expect(GLOBAL_CONFIG_SCHEMA.additionalProperties).toBe(false);
     expect(parseGlobalConfigStructure({ version: "7" }, "fixtures/config.yaml")).toEqual({ version: "7" });
     expect(() => parseGlobalConfigStructure(
@@ -31,7 +38,7 @@ describe("global configuration schema", () => {
       semanticOwner: "global-configuration",
       scope: "global",
       activation: "next-session",
-      schemaRevision: 2,
+      schemaRevision: 3,
     }));
     expect(GLOBAL_CONFIG_FIELD_DESCRIPTORS).toContainEqual(expect.objectContaining({
       identity: "/modelGateway",
@@ -59,9 +66,9 @@ describe("global configuration schema", () => {
   });
 
   it("keeps committed editor-schema and descriptor projections current", () => {
-    expect(readFileSync(join(packageRoot, "schemas", "global-config-v2.json"), "utf8"))
+    expect(readFileSync(join(packageRoot, "schemas", "global-config-v3.json"), "utf8"))
       .toBe(serializeGlobalConfigEditorSchema());
-    expect(readFileSync(join(packageRoot, "schemas", "global-config-descriptors-v2.json"), "utf8"))
+    expect(readFileSync(join(packageRoot, "schemas", "global-config-descriptors-v3.json"), "utf8"))
       .toBe(serializeGlobalConfigDescriptors());
   });
 });

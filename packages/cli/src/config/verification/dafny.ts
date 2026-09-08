@@ -1,3 +1,4 @@
+import { readVerifierApproval, type VerifierApproval } from "./approval-store.js";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { closeSync, lstatSync, openSync, readSync, realpathSync, readdirSync } from "node:fs";
@@ -7,6 +8,8 @@ import type { KilnGlobalConfig } from "../global-config.js";
 
 export type FormalVerificationConfigurationDiagnosticCode =
   | "not_configured"
+  | "approval_missing"
+  | "approval_invalid"
   | "executable_unavailable"
   | "version_probe_failed"
   | "version_unparseable"
@@ -36,6 +39,7 @@ export interface FormalVerificationConfigurationResolution {
 export interface ResolveFormalVerificationConfigurationInput {
   readonly globalConfig?: KilnGlobalConfig | null;
   readonly platform?: NodeJS.Platform;
+  readonly readApproval?: typeof readVerifierApproval;
   /** Test seam for observing `dafny --version`. */
   readonly runVersion?: (executable: string) => string;
   /** Test seam for binding the complete admitted installation tree. */
@@ -89,6 +93,15 @@ export function resolveFormalVerificationConfiguration(
     });
   }
 
+  let approval: VerifierApproval | undefined;
+  try {
+    approval = (input.readApproval ?? readVerifierApproval)({ verifier: "dafny", config: dafny });
+  } catch (error) {
+    return { diagnostic: { code: "approval_invalid", message: `Verifier approval could not be read: ${error instanceof Error ? error.message : String(error)}` } };
+  }
+  if (!approval) return { diagnostic: { code: "approval_missing", message: "Run kiln verifier review dafny to approve the selected verifier." } };
+  const expectedInstallationDigest = approval.digest;
+
   let observedInstallationDigest: `sha256:${string}`;
   try {
     observedInstallationDigest = (input.observeInstallationDigest ?? observeDafnyInstallationDigest)(
@@ -101,16 +114,16 @@ export function resolveFormalVerificationConfiguration(
       message: `Configured Dafny installation could not be bound: ${errorMessage(error)}`,
       executable,
       expectedVersion: dafny.expectedVersion,
-      expectedInstallationDigest: dafny.expectedInstallationDigest,
+      expectedInstallationDigest,
     });
   }
-  if (observedInstallationDigest !== dafny.expectedInstallationDigest) {
+  if (observedInstallationDigest !== expectedInstallationDigest) {
     return resolveFailure({
       code: "digest_mismatch",
-      message: `Configured Dafny installation digest ${observedInstallationDigest} does not match configured ${dafny.expectedInstallationDigest}.`,
+      message: `Configured Dafny installation digest ${observedInstallationDigest} does not match approved ${expectedInstallationDigest}.`,
       executable,
       expectedVersion: dafny.expectedVersion,
-      expectedInstallationDigest: dafny.expectedInstallationDigest,
+      expectedInstallationDigest,
       observedInstallationDigest,
     });
   }
@@ -155,7 +168,7 @@ export function resolveFormalVerificationConfiguration(
     },
     identity: {
       version: observedVersion,
-      installationDigest: dafny.expectedInstallationDigest as `sha256:${string}`,
+      installationDigest: observedInstallationDigest,
     },
   };
 }

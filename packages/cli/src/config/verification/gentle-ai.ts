@@ -1,3 +1,4 @@
+import { readVerifierApproval, type VerifierApproval } from "./approval-store.js";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { isAbsolute } from "node:path";
@@ -7,6 +8,8 @@ import type { KilnGlobalConfig } from "../global-config.js";
 
 export type GentleAiConfigurationDiagnosticCode =
   | "not_configured"
+  | "approval_missing"
+  | "approval_invalid"
   | "executable_unavailable"
   | "version_probe_failed"
   | "version_unparseable"
@@ -25,6 +28,7 @@ export interface ResolveGentleAiConfigurationInput {
   readonly globalConfig?: KilnGlobalConfig | null;
   readonly repositoryRoot: string;
   readonly platform?: NodeJS.Platform;
+  readonly readApproval?: typeof readVerifierApproval;
   readonly runVersion?: (executable: string) => string;
   readonly readExecutable?: (executable: string) => Uint8Array;
 }
@@ -69,6 +73,15 @@ export function resolveGentleAiConfiguration(
     }
   }
 
+  let approval: VerifierApproval | undefined;
+  try {
+    approval = (input.readApproval ?? readVerifierApproval)({ verifier: "gentle-ai", config: config });
+  } catch (error) {
+    return { diagnostic: { code: "approval_invalid", message: `Verifier approval could not be read: ${error instanceof Error ? error.message : String(error)}` } };
+  }
+  if (!approval) return { diagnostic: { code: "approval_missing", message: "Run kiln verifier review gentle-ai to approve the selected verifier." } };
+  const expectedExecutableDigest = approval.digest;
+
   let bytes: Uint8Array;
   try {
     bytes = (input.readExecutable ?? readFileSync)(reference);
@@ -81,11 +94,11 @@ export function resolveGentleAiConfiguration(
     };
   }
   const observedDigest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
-  if (observedDigest !== config.expectedExecutableDigest)
+  if (observedDigest !== expectedExecutableDigest)
     return {
       diagnostic: {
         code: "digest_mismatch",
-        message: `Gentle AI executable digest ${observedDigest} does not match configured ${config.expectedExecutableDigest}.`,
+        message: `Gentle AI executable digest ${observedDigest} does not match approved ${expectedExecutableDigest}.`,
       },
     };
 
@@ -120,7 +133,7 @@ export function resolveGentleAiConfiguration(
     options: {
       executable: reference,
       expectedVersion: config.expectedVersion,
-      expectedExecutableDigest: config.expectedExecutableDigest,
+      expectedExecutableDigest,
       repositoryRoot: input.repositoryRoot,
     },
   };

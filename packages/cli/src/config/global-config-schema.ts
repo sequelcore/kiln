@@ -1,3 +1,4 @@
+import { DAFNY_SELECTION_SCHEMA, GENTLE_AI_SELECTION_SCHEMA } from "./verification/selection-schema.js";
 import type { DeepReadonly } from "./deep-readonly.js";
 import { externalSkillCatalogPolicySchema } from "./external-skill-policy.js";
 import type { CommunicationIntent } from "@kilnai/core/agents";
@@ -23,8 +24,8 @@ import type {
 } from "../kiln-yaml-types.js";
 import { KilnYamlError } from "../kiln-yaml-types.js";
 
-export const GLOBAL_CONFIG_SCHEMA_REVISION = 2;
-export const GLOBAL_CONFIG_SCHEMA_ID = "https://kiln.dev/schemas/global-config-v2.json";
+export const GLOBAL_CONFIG_SCHEMA_REVISION = 3;
+export const GLOBAL_CONFIG_SCHEMA_ID = "https://kiln.dev/schemas/global-config-v3.json";
 export const CANONICAL_GLOBAL_CONFIG_VERSION = "7" as const;
 
 export type GlobalConfigActivation = "hot" | "next-turn" | "next-session" | "reconcile" | "restart-required";
@@ -105,12 +106,6 @@ const web = strictObject({
   searchFallbackProviders: Type.ReadonlyOptional(Type.Array(Type.Unsafe<KilnYamlWebSearchProvider>(Type.Unknown()))),
   extractProvider: Type.ReadonlyOptional(Type.Unsafe<KilnYamlWebExtractProvider>(Type.Unknown())),
 });
-const dafny = strictObject({
-  executable: Type.Readonly(nonEmptyString),
-  installationRoot: Type.Readonly(nonEmptyString),
-  expectedVersion: Type.Readonly(nonEmptyString),
-  expectedInstallationDigest: Type.Readonly(Type.String({ pattern: "^sha256:[a-f0-9]{64}$" })),
-});
 const lemmaScript = strictObject({
   packageRoot: Type.Readonly(nonEmptyString),
   entrypoint: Type.Readonly(nonEmptyString),
@@ -121,7 +116,7 @@ const formalScreening = strictObject({
   lemmaScript: Type.Readonly(lemmaScript),
 });
 const formalVerification = strictObject({
-  dafny: Type.Readonly(dafny),
+  dafny: Type.Readonly(DAFNY_SELECTION_SCHEMA),
   screening: Type.ReadonlyOptional(formalScreening),
 });
 const oxlint = strictObject({
@@ -143,12 +138,7 @@ const staticAnalysis = strictObject(
   { oxlint: Type.ReadonlyOptional(oxlint), quality: Type.ReadonlyOptional(qualityAnalysis) },
   { minProperties: 1 },
 );
-const gentleAi = strictObject({
-  executable: Type.Readonly(nonEmptyString),
-  expectedVersion: Type.Readonly(nonEmptyString),
-  expectedExecutableDigest: Type.Readonly(Type.String({ pattern: "^sha256:[a-f0-9]{64}$" })),
-});
-const inferentialReview = strictObject({ gentleAi: Type.Readonly(gentleAi) });
+const inferentialReview = strictObject({ gentleAi: Type.Readonly(GENTLE_AI_SELECTION_SCHEMA) });
 const verification = strictObject(
   {
     formal: Type.ReadonlyOptional(formalVerification),

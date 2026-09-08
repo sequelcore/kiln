@@ -29,7 +29,6 @@ function globalConfig(
           executable,
           installationRoot,
           expectedVersion,
-          expectedInstallationDigest,
         },
       },
     },
@@ -37,6 +36,16 @@ function globalConfig(
 }
 
 describe("formal-verification-config", () => {
+  it.each(["missing", "invalid"])("does not execute with %s approval evidence", (state) => {
+    const runVersion = vi.fn();
+    const result = resolveFormalVerificationConfiguration({
+      globalConfig: globalConfig(), platform: "win32", runVersion,
+      readApproval: () => { if (state === "invalid") throw new Error("corrupt evidence"); return undefined; },
+    });
+    expect(result.diagnostic?.code).toBe(`approval_${state}`);
+    expect(runVersion).not.toHaveBeenCalled();
+  });
+
   it("parses a Dafny build version to its canonical version", () => {
     expect(parseObservedDafnyVersion("Dafny 4.11.0+build.123\n")).toBe("4.11.0");
     expect(parseObservedDafnyVersion("4.11.0\r\n")).toBe("4.11.0");
@@ -47,6 +56,7 @@ describe("formal-verification-config", () => {
 
     const result = resolveFormalVerificationConfiguration({
       globalConfig: globalConfig("C:/tools/dafny.exe"),
+      readApproval: (selection) => ({ version: 1, selection, digest: expectedInstallationDigest }),
       platform: "win32",
       runVersion,
       observeInstallationDigest: () => expectedInstallationDigest,
@@ -68,6 +78,7 @@ describe("formal-verification-config", () => {
   it("returns a typed diagnostic without registration when the version mismatches", () => {
     const result = resolveFormalVerificationConfiguration({
       globalConfig: globalConfig("/opt/dafny/dafny", "4.11.0", "/opt/dafny"),
+      readApproval: (selection) => ({ version: 1, selection, digest: expectedInstallationDigest }),
       platform: "linux",
       runVersion: () => "Dafny 4.3.0",
       observeInstallationDigest: () => expectedInstallationDigest,
@@ -93,6 +104,7 @@ describe("formal-verification-config", () => {
     const runVersion = vi.fn(() => "Dafny 4.11.0");
     const result = resolveFormalVerificationConfiguration({
       globalConfig: globalConfig("dafny"),
+      readApproval: (selection) => ({ version: 1, selection, digest: expectedInstallationDigest }),
       platform: "win32",
       runVersion,
       observeInstallationDigest: () => expectedInstallationDigest,
@@ -107,6 +119,7 @@ describe("formal-verification-config", () => {
     const runVersion = vi.fn(() => "Dafny 4.11.0");
     const result = resolveFormalVerificationConfiguration({
       globalConfig: globalConfig("C:/tools/dafny.exe"),
+      readApproval: (selection) => ({ version: 1, selection, digest: expectedInstallationDigest }),
       platform: "win32",
       runVersion,
       observeInstallationDigest: () => digestDafnyInstallation([

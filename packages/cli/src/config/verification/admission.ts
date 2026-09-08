@@ -21,7 +21,7 @@ function validateInferentialReview(value: unknown): void {
   if (!isRecord(value.gentleAi)) throw new KilnYamlError("verification.inferential.gentleAi must be an object");
   rejectUnknownFields(
     value.gentleAi,
-    ["executable", "expectedVersion", "expectedExecutableDigest"],
+    ["executable", "expectedVersion"],
     "verification.inferential.gentleAi",
   );
   if (typeof value.gentleAi.executable !== "string" || value.gentleAi.executable.trim().length === 0)
@@ -29,11 +29,6 @@ function validateInferentialReview(value: unknown): void {
   validateAbsolutePath(value.gentleAi.executable, "verification.inferential.gentleAi.executable");
   if (typeof value.gentleAi.expectedVersion !== "string" || !isCanonicalSemver(value.gentleAi.expectedVersion))
     throw new KilnYamlError("verification.inferential.gentleAi.expectedVersion must be a canonical version");
-  if (
-    typeof value.gentleAi.expectedExecutableDigest !== "string" ||
-    !/^sha256:[a-f0-9]{64}$/u.test(value.gentleAi.expectedExecutableDigest)
-  )
-    throw new KilnYamlError("verification.inferential.gentleAi.expectedExecutableDigest must be a sha256 digest");
 }
 
 function validateFormalVerification(value: unknown): void {
@@ -44,7 +39,7 @@ function validateFormalVerification(value: unknown): void {
   }
   rejectUnknownFields(
     value.dafny,
-    ["executable", "installationRoot", "expectedVersion", "expectedInstallationDigest"],
+    ["executable", "installationRoot", "expectedVersion"],
     "verification.formal.dafny",
   );
   if (typeof value.dafny.executable !== "string" || value.dafny.executable.trim().length === 0) {
@@ -54,12 +49,6 @@ function validateFormalVerification(value: unknown): void {
   validateAbsolutePath(value.dafny.installationRoot, "verification.formal.dafny.installationRoot");
   if (typeof value.dafny.expectedVersion !== "string" || !isCanonicalVersion(value.dafny.expectedVersion)) {
     throw new KilnYamlError("verification.formal.dafny.expectedVersion must be a canonical version");
-  }
-  if (
-    typeof value.dafny.expectedInstallationDigest !== "string" ||
-    !/^sha256:[a-f0-9]{64}$/u.test(value.dafny.expectedInstallationDigest)
-  ) {
-    throw new KilnYamlError("verification.formal.dafny.expectedInstallationDigest must be a sha256 digest");
   }
   const screening = value.screening;
   if (screening === undefined) return;

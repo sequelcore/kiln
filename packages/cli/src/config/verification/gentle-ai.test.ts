@@ -13,6 +13,18 @@ afterEach(() => {
 });
 
 describe("Gentle AI configuration", () => {
+  it.each(["missing", "invalid"])("does not execute with %s approval evidence", (state) => {
+    const runVersion = vi.fn();
+    const result = resolveGentleAiConfiguration({
+      globalConfig: { version: "7", verification: { inferential: { gentleAi: { executable: "C:/tools/gentle-ai.exe", expectedVersion: "2.5.0-rc.1" } } } },
+      repositoryRoot: "C:/project", platform: "win32", runVersion,
+      readExecutable: () => new Uint8Array(),
+      readApproval: () => { if (state === "invalid") throw new Error("corrupt evidence"); return undefined; },
+    });
+    expect(result.diagnostic?.code).toBe(`approval_${state}`);
+    expect(runVersion).not.toHaveBeenCalled();
+  });
+
   it("resolves only an exact prerelease version and executable digest", () => {
     root = mkdtempSync(join(tmpdir(), "kiln-gentle-config-"));
     const executable = join(root, "gentle-ai.exe");
@@ -25,7 +37,6 @@ describe("Gentle AI configuration", () => {
           gentleAi: {
             executable,
             expectedVersion: "2.5.0-rc.1",
-            expectedExecutableDigest,
           },
         },
       },
@@ -33,6 +44,7 @@ describe("Gentle AI configuration", () => {
     const resolution = resolveGentleAiConfiguration({
       globalConfig,
       repositoryRoot: root,
+      readApproval: (selection) => ({ version: 1, selection, digest: expectedExecutableDigest }),
       platform: "win32",
       runVersion: () => "gentle-ai 2.5.0-rc.1",
     });
@@ -60,7 +72,6 @@ describe("Gentle AI configuration", () => {
           gentleAi: {
             executable,
             expectedVersion: "2.5.0-rc.1",
-            expectedExecutableDigest: `sha256:${"ab".repeat(32)}`,
           },
         },
       },
@@ -68,6 +79,7 @@ describe("Gentle AI configuration", () => {
     const resolution = resolveGentleAiConfiguration({
       globalConfig,
       repositoryRoot: root,
+      readApproval: (selection) => ({ version: 1, selection, digest: `sha256:${"ab".repeat(32)}` }),
       platform: "win32",
       runVersion: () => "2.5.0-rc.1",
       readExecutable: () => {
@@ -90,12 +102,12 @@ describe("Gentle AI configuration", () => {
             gentleAi: {
               executable,
               expectedVersion: "2.5.0-rc.1",
-              expectedExecutableDigest: `sha256:${"ab".repeat(32)}`,
             },
           },
         },
       },
       repositoryRoot: root,
+      readApproval: (selection) => ({ version: 1, selection, digest: `sha256:${"ab".repeat(32)}` }),
       platform: "win32",
       runVersion,
     });
