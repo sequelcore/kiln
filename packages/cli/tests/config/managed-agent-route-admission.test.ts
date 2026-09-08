@@ -2,6 +2,21 @@ import { describe, expect, it, vi } from "vitest";
 import { createManagedAgentRouteAdmissionResolver } from "../../src/config/managed-agent-route-admission.js";
 import type { ResolvedKilnConfig } from "../../src/kiln-yaml-types.js";
 
+const canonicalConfigMocks = vi.hoisted(() => ({
+  loadWithAuthority: vi.fn(),
+  readAuthority: vi.fn(),
+}));
+
+vi.mock("../../src/config/config-merger.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/config/config-merger.js")>()),
+  loadKilnConfigWithGlobalAuthority: canonicalConfigMocks.loadWithAuthority,
+}));
+
+vi.mock("../../src/config/global-config.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/config/global-config.js")>()),
+  readGlobalExecutionTargetAuthority: canonicalConfigMocks.readAuthority,
+}));
+
 const capability = {
   identity: { routeId: "route-alpha", revision: "v1" },
   target: { providerId: "codex", modelId: "gpt-5.3-codex-spark" },
@@ -116,6 +131,47 @@ describe("managed agent route admission", () => {
     expect(discoverProviderModels).not.toHaveBeenCalled();
   });
 
+  it("derives the execution catalog through canonical global authority loading", async () => {
+    const executionCatalog = { targets: [{ id: "route-alpha" }] } as never;
+    canonicalConfigMocks.loadWithAuthority.mockResolvedValueOnce({
+      kilnYaml: { authorityProfiles, targetCatalog: { targets: [] } },
+      globalConfig: { version: "7" },
+    });
+    canonicalConfigMocks.readAuthority.mockReturnValueOnce({
+      evidence: {},
+      executionCatalog,
+    });
+    const resolveRoutes = vi.fn(async () => ({ managedInvocation: { routes: [] } }));
+
+    await createManagedAgentRouteAdmissionResolver("/repo", {
+      createRegistry: () => ({ registry: {} as never }),
+      discoverProviderModels: async () => ({}),
+      resolveRoutes: resolveRoutes as never,
+    });
+
+    expect(canonicalConfigMocks.loadWithAuthority).toHaveBeenCalledWith("/repo");
+    expect(canonicalConfigMocks.readAuthority).toHaveBeenCalledWith({ version: "7" });
+    expect(resolveRoutes).toHaveBeenCalledWith(
+      expect.objectContaining({ executionCatalog }),
+      expect.objectContaining({ compositionMode: "candidate-admission" }),
+    );
+  });
+
+  it("passes an established project binding into canonical config loading", async () => {
+    const projectStateBinding = { kilnHome: "C:/operator/.kiln" } as never;
+    const loadConfig = vi.fn(async () => ({ authorityProfiles }));
+
+    await createManagedAgentRouteAdmissionResolver("/repo", {
+      loadConfig: loadConfig as never,
+      projectStateBinding,
+      createRegistry: () => ({ registry: {} as never }),
+      discoverProviderModels: async () => ({}),
+      resolveRoutes: async () => ({ managedInvocation: { routes: [] } }) as never,
+    });
+
+    expect(loadConfig).toHaveBeenCalledWith("/repo", { projectStateBinding });
+  });
+
   it("projects from canonical candidate-admission routes without execution composition", async () => {
     const createRegistry = vi.fn(() => ({ registry: {} as never }));
     const discoverProviderModels = vi.fn(async () => ({}));
@@ -146,7 +202,10 @@ describe("managed agent route admission", () => {
       resolveRoutes: async () => resolution as never,
     });
     expect((await create({ managedInvocation: { routes: [] } })).resolve(agent as never)).toMatchObject({ status: "unresolved" });
-    expect((await create({ managedInvocation: { routes: [], unavailableRoutes: [{ routeId: "route-alpha", providerId: "codex", model: "gpt-5.3-codex-spark" }] } })).resolve(agent as never)).toMatchObject({ status: "unavailable" });
+    expect((await create({ managedInvocation: { routes: [], unavailableRoutes: [{ routeId: "route-alpha", providerId: "codex", model: "gpt-5.3-codex-spark" }] } })).resolve(agent as never)).toMatchObject({
+      status: "unavailable",
+      reasons: [{ code: "proof-unknown" }],
+    });
   });
 
   it("requires an explicit canonical target and rejects duplicate target observations", async () => {

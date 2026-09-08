@@ -12,6 +12,8 @@ export interface ReadCodexProviderUsageInput {
   readonly provider: string;
   readonly credentialId: string;
   readonly resolveCredential: () => Promise<ResolvedCodexUsageCredential>;
+  /** One-shot recovery after a provider 401; the owner enforces its fence. */
+  readonly refreshCredential?: (rejectedCredential: ResolvedCodexUsageCredential) => Promise<ResolvedCodexUsageCredential>;
 }
 
 export interface CodexProviderUsageReaderConfig {
@@ -50,25 +52,42 @@ export class CodexProviderUsageReader {
     // Only the exchange itself is guarded here. Interpreting the answer is
     // guarded separately below, so a Kiln parsing defect or a provider contract
     // change is never reported as an unreachable provider.
-    let response: Response;
+    let response: Response | undefined;
     let body: unknown;
-    try {
-      response = await (this.config.fetch ?? globalThis.fetch)("https://chatgpt.com/backend-api/wham/usage", {
-        method: "GET",
-        headers: {
-          authorization: `Bearer ${credential.accessToken}`,
-          "chatgpt-account-id": credential.chatgptAccountId,
-          accept: "application/json",
-        },
-      });
-      if (response.ok) {
-        try { body = await response.json(); } catch { body = undefined; }
+    const request = async (candidate: ResolvedCodexUsageCredential): Promise<Response | undefined> => {
+      try {
+        return await (this.config.fetch ?? globalThis.fetch)("https://chatgpt.com/backend-api/wham/usage", {
+          method: "GET",
+          headers: {
+            authorization: `Bearer ${candidate.accessToken}`,
+            "chatgpt-account-id": candidate.chatgptAccountId,
+            accept: "application/json",
+          },
+        });
+      } catch {
+        // No response was received, so no status exists to report.
+        return undefined;
       }
-    } catch {
-      // No response was received, so no status exists to report.
+    };
+    response = await request(credential);
+    if (response?.status === 401 && input.refreshCredential) {
+      try {
+        const refreshed = await input.refreshCredential(credential);
+        if (refreshed.credentialId !== input.credentialId) throw new Error("credential mismatch");
+        if (refreshed.chatgptAccountId !== credential.chatgptAccountId) throw new Error("account mismatch");
+        credential = refreshed;
+        response = await request(credential);
+      } catch {
+        // Keep the original 401 as terminal evidence when recovery is rejected.
+      }
+    }
+    if (response === undefined) {
       snapshot = this.unobserved(input, observedAt, validUntil, "provider-request-failed");
       await this.config.store.put(snapshot);
       return snapshot;
+    }
+    if (response.ok) {
+      try { body = await response.json(); } catch { body = undefined; }
     }
 
     try {

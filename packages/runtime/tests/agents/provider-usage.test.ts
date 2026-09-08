@@ -241,6 +241,31 @@ describe("Codex provider usage adapter", () => {
       expect(JSON.stringify(snapshot)).not.toContain("must-not-survive");
     });
 
+    it("refreshes once and retries a 401 with the refreshed account token", async () => {
+      const refreshed = { ...credential, accessToken: "refreshed-token" };
+      const refreshCredential = vi.fn(async () => refreshed);
+      const fetch = vi.fn(async (_url: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) => {
+        const authorization = new Headers(init?.headers).get("authorization");
+        if (authorization === "Bearer must-not-survive") return new Response(null, { status: 401 });
+        return new Response(JSON.stringify({ plan_type: "plus", rate_limit: { allowed: true, limit_reached: false } }), { status: 200 });
+      });
+      const snapshot = await reader(createTestFetch(fetch)).read({ provider: "codex-oauth", credentialId: credential.credentialId, resolveCredential: async () => credential, refreshCredential });
+      expect(refreshCredential).toHaveBeenCalledWith(credential);
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(snapshot).toMatchObject({ availability: "available", source: "provider-endpoint" });
+      expect(new Headers(fetch.mock.calls[1]?.[1]?.headers).get("authorization")).toBe("Bearer refreshed-token");
+      expect(new Headers(fetch.mock.calls[1]?.[1]?.headers).get("chatgpt-account-id")).toBe(credential.chatgptAccountId);
+    });
+
+    it("keeps a 401 terminal after one failed recovery and never loops", async () => {
+      const refreshCredential = vi.fn(async () => { throw new Error("refresh unavailable"); });
+      const fetch = vi.fn(async () => new Response(null, { status: 401 }));
+      const snapshot = await reader(createTestFetch(fetch)).read({ provider: "codex-oauth", credentialId: credential.credentialId, resolveCredential: async () => credential, refreshCredential });
+      expect(refreshCredential).toHaveBeenCalledTimes(1);
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(snapshot).toMatchObject({ source: "provider-request-failed", httpStatus: 401, availability: "unknown" });
+    });
+
     it("distinguishes an empty successful response from a failed request", async () => {
       const snapshot = await read(createTestFetch(async () => new Response("{}", {
         status: 200,
@@ -318,6 +343,22 @@ describe("Codex provider usage adapter", () => {
       });
     });
 
+  });
+
+  it("retains a terminal 401 status when the rejected response carries quota headers", async () => {
+    const snapshot = await new CodexProviderUsageReader({
+      fetch: createTestFetch(async () => new Response("unauthorized", {
+        status: 401,
+        headers: { "x-codex-primary-used-percent": "10", "x-codex-primary-reset-at": "1784725200" },
+      })),
+      store: new InMemoryProviderUsageStore(),
+      now: () => new Date(OBSERVED_AT),
+    }).read({
+      provider: "codex-oauth",
+      credentialId: "credential-opaque-http",
+      resolveCredential: async () => ({ credentialId: "credential-opaque-http", accessToken: "secret", chatgptAccountId: "account" }),
+    });
+    expect(snapshot).toMatchObject({ source: "provider-response-headers", httpStatus: 401, availability: "available" });
   });
 
   it("keeps a depleted credit balance interpretable", () => {

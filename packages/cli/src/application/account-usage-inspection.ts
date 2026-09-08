@@ -45,6 +45,7 @@ export type AccountUsageEvidenceState =
   | "stale"
   | "missing"
   | "provider-failed"
+  | "authentication-rejected"
   | "credential-unavailable";
 
 export type AccountUsageOperatorAction =
@@ -118,7 +119,9 @@ export function createAccountUsageInspectionService(
       freshness,
       loaded.refreshFailures.has(account.providerId),
     );
-    const blocked = !executable || (fresh && usage?.availability === "exhausted");
+    const blocked = !executable
+      || evidenceState === "authentication-rejected"
+      || (fresh && usage?.availability === "exhausted");
     return {
       provider: account.providerId,
       accountId: account.id,
@@ -183,6 +186,7 @@ function accountUsageEvidenceState(
   freshness: AccountUsageInspectionEntry["freshness"],
   refreshFailed: boolean,
 ): AccountUsageEvidenceState {
+  if (usage?.httpStatus === 401) return "authentication-rejected";
   if (refreshFailed) return "provider-failed";
   if (usage?.source === "credential-unavailable") return "credential-unavailable";
   if (usage?.source === "provider-request-failed" || usage?.source === "provider-response-unusable") return "provider-failed";
@@ -193,7 +197,9 @@ function accountUsageOperatorAction(
   evidenceState: AccountUsageEvidenceState,
   availability: ProviderUsageSnapshot["availability"] | undefined,
 ): AccountUsageOperatorAction {
-  if (evidenceState === "credential-unavailable") return "repair-provider-credential";
+  if (evidenceState === "authentication-rejected" || evidenceState === "credential-unavailable") {
+    return "repair-provider-credential";
+  }
   if (evidenceState === "provider-failed") return "retry-provider-usage-refresh";
   if (evidenceState === "stale" || evidenceState === "missing") return "refresh-provider-usage";
   return availability === "exhausted" ? "wait-for-provider-reset" : "none";

@@ -306,12 +306,18 @@ export class ConfiguredExecutionAccountRuntime {
     const usageLookupAt = this.#validNow();
     const accountIds = admittedAccountIds(admission);
     const accounts = accountIds.map((accountId) => this.#requireAccount(accountId, catalog));
-    const executionAccounts = await this.#listExecutionAccounts(admission.providerId as DirectProviderId, true);
+    const preparedAccounts = await this.#listExecutionAccounts(admission.providerId as DirectProviderId, true);
     const usage = await this.#listUsage(
       admission.providerId as DirectProviderId,
       usageLookupAt,
       accounts.map(({ credentialId }) => credentialId),
     );
+    // Usage recovery may renew a credential. Bind candidates to the resulting
+    // revision before any lease is acquired, retaining the prepared account set.
+    const preparedIds = new Set(preparedAccounts.map(({ credentialId }) => credentialId));
+    const executionAccounts = admission.providerId === "codex-oauth"
+      ? (await this.#listExecutionAccounts("codex-oauth")).filter(({ credentialId }) => preparedIds.has(credentialId))
+      : preparedAccounts;
     // A refresh observes provider state asynchronously after the cache lookup.
     // Freshness must be judged against a clock captured after that observation;
     // otherwise every newly refreshed snapshot appears to come from the future.
@@ -640,9 +646,9 @@ function deriveUsageEvidence(
     ? "fresh"
     : "stale";
   return {
-    // Fresh exhaustion is unhealthy usage evidence at the shared capacity
-    // boundary. The separate quota facet retains the actionable reason.
-    health: freshness === "fresh" && usage.availability === "exhausted" ? "unhealthy" : "healthy",
+    // Authentication rejection and quota exhaustion independently block fresh
+    // candidates. Quota observations do not establish authentication success.
+    health: freshness === "fresh" && (usage.httpStatus === 401 || usage.availability === "exhausted") ? "unhealthy" : "healthy",
     freshness,
     availability: usage.availability,
     observedAt: usage.observedAt,

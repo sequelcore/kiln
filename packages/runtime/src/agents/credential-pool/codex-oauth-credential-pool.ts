@@ -12,13 +12,14 @@ import {
   type ProviderAdapter,
 } from "@kilnai/core";
 import { CodexOAuthAuth, type CodexOAuthTokenFile } from "../credential-acquisition/codex-oauth-auth.js";
-import { CodexProviderUsageReader } from "../provider-usage/codex-provider-usage-reader.js";
+import { CodexProviderUsageReader, type ResolvedCodexUsageCredential } from "../provider-usage/codex-provider-usage-reader.js";
 import { FileProviderUsageStore, type ProviderUsageStore } from "../provider-usage/file-provider-usage-store.js";
 import { CredentialHealthStore } from "./credential-health-store.js";
 import type { CredentialPoolObservabilityRegistry } from "./credential-pool-observability.js";
 import type { CredentialWatcher } from "./credential-watcher.js";
 import { withProviderAdapterOutcomeRecording } from "./provider-adapter-outcome-recording.js";
 import { resolveRuntimeStoreRoot } from "../../kiln-home.js";
+import { runWithLifecycleFileLock } from "../../utils/lifecycle-file-lock.js";
 
 export const CODEX_OAUTH_POOL_PROVIDER_ID = "codex-oauth";
 
@@ -93,6 +94,11 @@ interface CodexOAuthCredentialRecord {
 interface CredentialFileSnapshot {
   readonly identity: string;
   readonly revision: string;
+}
+
+interface UsageCredentialRefreshResult {
+  readonly credential: ResolvedCodexUsageCredential;
+  readonly snapshot: CredentialFileSnapshot;
 }
 
 const EXPIRING_SOON_MS = 120 * 1000;
@@ -201,15 +207,32 @@ export class CodexOAuthCredentialPoolService {
       const record = (await this.readCredentials()).find((entry) => entry.id === credentialId);
       if (!record) return null;
       if (record.tokenFile.id_token) return record.tokenFile;
-      let refreshed: CodexOAuthTokenFile;
       try {
-        refreshed = await new CodexOAuthAuth({ tokenPath: record.tokenPath }).refreshToken(record.tokenFile);
+        return await this.withCrossProcessCredentialRefreshLock(credentialId, async () => {
+          const record = (await this.readCredentials()).find((entry) => entry.id === credentialId);
+          if (!record) return null;
+          if (record.tokenFile.id_token) return record.tokenFile;
+          const before = credentialSnapshot(await lstat(record.tokenPath, { bigint: true }));
+          const handle = await openSelectedCredential(record.tokenPath, constants.O_RDWR);
+          try {
+            if (!sameSnapshot(credentialSnapshot(await handle.stat({ bigint: true })), before)) throw new Error("revision");
+            const current = validateCodexOAuthTokenFile(JSON.parse(await handle.readFile("utf8")) as unknown, record.tokenPath);
+            if (!sameSnapshot(credentialSnapshot(await handle.stat({ bigint: true })), before) || !sameSnapshot(credentialSnapshot(await lstat(record.tokenPath, { bigint: true })), before)) throw new Error("revision");
+            if (current.id_token) return current;
+            const accountId = readCodexOAuthAccountId(current.access_token);
+            if (accountId === null) throw new Error("account");
+            const refreshed = await new CodexOAuthAuth({ tokenPath: record.tokenPath }).refreshToken(current);
+            validateCodexOAuthTokenFile(refreshed, record.tokenPath);
+            if (readCodexOAuthAccountId(refreshed.access_token) !== accountId) throw new Error("account");
+            await persistRefreshOnSelectedHandle(handle, record.tokenPath, before, refreshed);
+            return refreshed;
+          } finally {
+            await handle.close();
+          }
+        });
       } catch {
-        return record.tokenFile;
+        return (await this.readCredentials()).find((entry) => entry.id === credentialId)?.tokenFile ?? null;
       }
-      if (!refreshed.id_token) return refreshed;
-      await atomicReplaceCredentialFile(record.tokenPath, refreshed);
-      return refreshed;
     });
   }
 
@@ -231,7 +254,9 @@ export class CodexOAuthCredentialPoolService {
       }
       try {
         const token = await this.withCredentialLocks([credential.id], () => (
-          new CodexOAuthAuth({ tokenPath: credential.tokenPath }).getValidAccessToken()
+          this.withCrossProcessCredentialRefreshLock(credential.id, () => (
+            new CodexOAuthAuth({ tokenPath: credential.tokenPath }).getValidAccessToken()
+          ))
         ));
         if (token.trim().length > 0) {
           candidates.push({ credentialId: credential.id, accessToken: token });
@@ -367,17 +392,37 @@ export class CodexOAuthCredentialPoolService {
   private async refreshUsageForAccounts(
     accounts: readonly CodexOAuthExecutionAccount[],
   ): Promise<readonly ProviderUsageSnapshot[]> {
-    const snapshots: ProviderUsageSnapshot[] = [];
+    // Renew only the requested accounts before taking the usage read fence.
+    // A failed maintenance attempt remains observable through exact resolution.
     for (const account of accounts) {
+      try {
+        await this.withCredentialLocks([account.credentialId], () => this.refreshExpiringCredential(account.credentialId));
+      } catch {
+        // Busy, rejected, and unavailable credentials cannot become usable here.
+      }
+    }
+    const requestedIds = new Set(accounts.map(({ credentialId }) => credentialId));
+    const preparedAccounts = (await this.listExecutionAccounts()).filter(({ credentialId }) => requestedIds.has(credentialId));
+    const snapshots: ProviderUsageSnapshot[] = [];
+    for (const account of preparedAccounts) {
+      let refreshedSnapshot: CredentialFileSnapshot | undefined;
       const snapshot = await this.usageReader.read({
         provider: CODEX_OAUTH_POOL_PROVIDER_ID,
         credentialId: account.credentialId,
         resolveCredential: () => this.resolveExecutionCredential(account),
+        refreshCredential: async (rejectedCredential) => {
+          const refreshed = await this.refreshCredentialAfterUsageUnauthorized(account, rejectedCredential);
+          refreshedSnapshot = refreshed.snapshot;
+          return refreshed.credential;
+        },
       });
       const stillCurrent = (await this.listExecutionAccounts()).some((candidate) =>
-        candidate.credentialId === account.credentialId
-        && candidate.fileIdentity === account.fileIdentity
-        && candidate.revision === account.revision);
+        candidate.credentialId === account.credentialId && (
+          (candidate.fileIdentity === account.fileIdentity && candidate.revision === account.revision)
+          || (refreshedSnapshot !== undefined
+            && candidate.fileIdentity === refreshedSnapshot.identity
+            && candidate.revision === refreshedSnapshot.revision)
+        ));
       if (!stillCurrent) {
         await this.usageStore.remove(CODEX_OAUTH_POOL_PROVIDER_ID, account.credentialId);
         continue;
@@ -498,26 +543,77 @@ export class CodexOAuthCredentialPoolService {
   }
 
   private async refreshExpiringCredential(credentialId: string): Promise<void> {
-    const record = (await this.readCredentials()).find((entry) => entry.id === credentialId);
-    if (!record || !credentialNeedsRefresh(record.tokenFile)) return;
+    await this.withCrossProcessCredentialRefreshLock(credentialId, async () => {
+      const record = (await this.readCredentials()).find((entry) => entry.id === credentialId);
+      if (!record || !credentialNeedsRefresh(record.tokenFile)) return;
+      let handle: FileHandle | undefined;
+      try {
+        const tokenPath = record.tokenPath;
+        const before = credentialSnapshot(await lstat(tokenPath, { bigint: true }));
+        handle = await openSelectedCredential(tokenPath, constants.O_RDWR);
+        if (!sameSnapshot(credentialSnapshot(await handle.stat({ bigint: true })), before)) throw new Error("revision");
+        const tokenFile = validateCodexOAuthTokenFile(JSON.parse(await handle.readFile("utf8")) as unknown, tokenPath);
+        if (!sameSnapshot(credentialSnapshot(await handle.stat({ bigint: true })), before) || !sameSnapshot(credentialSnapshot(await lstat(tokenPath, { bigint: true })), before)) throw new Error("revision");
+        if (!credentialNeedsRefresh(tokenFile)) return;
+        const initialAccountId = readCodexOAuthAccountId(tokenFile.access_token);
+        if (initialAccountId === null) throw new Error("shape");
+        const refreshed = await new CodexOAuthAuth({ tokenPath }).refreshToken(tokenFile);
+        validateCodexOAuthTokenFile(refreshed, tokenPath);
+        if (readCodexOAuthAccountId(refreshed.access_token) !== initialAccountId) throw new Error("account");
+        await persistRefreshOnSelectedHandle(handle, tokenPath, before, refreshed);
+      } finally {
+        await handle?.close();
+      }
+    });
+  }
+
+  private async refreshCredentialAfterUsageUnauthorized(
+    selected: CodexOAuthExecutionAccount,
+    rejectedCredential: ResolvedCodexUsageCredential,
+  ): Promise<UsageCredentialRefreshResult> {
+    return this.withCredentialLocks([selected.credentialId], async () => (
+      this.withCrossProcessCredentialRefreshLock(selected.credentialId, () =>
+        this.refreshCredentialAfterUsageUnauthorizedLocked(selected, rejectedCredential)
+      )
+    ));
+  }
+
+  private async refreshCredentialAfterUsageUnauthorizedLocked(
+    selected: CodexOAuthExecutionAccount,
+    rejectedCredential: ResolvedCodexUsageCredential,
+  ): Promise<UsageCredentialRefreshResult> {
+    const tokenPath = this.credentialFilePath(selected.credentialId);
     let handle: FileHandle | undefined;
     try {
-      const tokenPath = record.tokenPath;
       const before = credentialSnapshot(await lstat(tokenPath, { bigint: true }));
+      if (before.identity !== selected.fileIdentity) throw new Error("revision");
       handle = await openSelectedCredential(tokenPath, constants.O_RDWR);
       if (!sameSnapshot(credentialSnapshot(await handle.stat({ bigint: true })), before)) throw new Error("revision");
       const tokenFile = validateCodexOAuthTokenFile(JSON.parse(await handle.readFile("utf8")) as unknown, tokenPath);
       if (!sameSnapshot(credentialSnapshot(await handle.stat({ bigint: true })), before) || !sameSnapshot(credentialSnapshot(await lstat(tokenPath, { bigint: true })), before)) throw new Error("revision");
-      if (!credentialNeedsRefresh(tokenFile)) return;
-      const initialAccountId = readCodexOAuthAccountId(tokenFile.access_token);
-      if (initialAccountId === null) throw new Error("shape");
+      const accountId = readCodexOAuthAccountId(tokenFile.access_token);
+      if (accountId === null || accountId !== rejectedCredential.chatgptAccountId) throw new Error("account");
+      if (before.revision !== selected.revision) {
+        return { credential: { credentialId: selected.credentialId, accessToken: tokenFile.access_token, chatgptAccountId: accountId }, snapshot: before };
+      }
       const refreshed = await new CodexOAuthAuth({ tokenPath }).refreshToken(tokenFile);
       validateCodexOAuthTokenFile(refreshed, tokenPath);
-      if (readCodexOAuthAccountId(refreshed.access_token) !== initialAccountId) throw new Error("account");
+      if (readCodexOAuthAccountId(refreshed.access_token) !== accountId) throw new Error("account");
       await persistRefreshOnSelectedHandle(handle, tokenPath, before, refreshed);
+      const persisted = credentialSnapshot(await handle.stat({ bigint: true }));
+      if (!sameSnapshot(persisted, credentialSnapshot(await lstat(tokenPath, { bigint: true })))) throw new Error("revision");
+      return { credential: { credentialId: selected.credentialId, accessToken: refreshed.access_token, chatgptAccountId: accountId }, snapshot: persisted };
     } finally {
       await handle?.close();
     }
+  }
+
+  private async withCrossProcessCredentialRefreshLock<T>(credentialId: string, operation: () => Promise<T>): Promise<T> {
+    const result = await runWithLifecycleFileLock({
+      runtimeDir: join(this.rootDir, ".credential-refresh-locks", `${CODEX_OAUTH_POOL_PROVIDER_ID}-${credentialId}`),
+    }, operation);
+    if (result.state === "busy") throw new Error("credential refresh busy");
+    return result.value;
   }
 
   private async readCredentials(): Promise<ReadonlyArray<CodexOAuthCredentialRecord & {

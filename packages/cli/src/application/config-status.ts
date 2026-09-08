@@ -124,7 +124,10 @@ export interface ReadConfigStatusViewOptions {
   readonly pluginProvider?: SkillPluginProvider;
   readonly commandRunner?: SkillInventoryCommandRunner;
   readonly createManagedAgentRouteAdmissionResolver?:
-    (projectPath: string) => Promise<ManagedAgentRouteAdmissionResolver>;
+    (
+      projectPath: string,
+      options?: { readonly projectStateBinding?: ProjectStateBinding },
+    ) => Promise<ManagedAgentRouteAdmissionResolver>;
 }
 
 interface ConfigLoadState<T> {
@@ -1194,7 +1197,7 @@ async function readAgentIndexes(
   });
   const createRouteAdmissionResolver = options.createManagedAgentRouteAdmissionResolver
     ?? createManagedAgentRouteAdmissionResolver;
-  const routeAdmissionResolver = await createRouteAdmissionResolver(projectPath);
+  const routeAdmissionResolver = await createRouteAdmissionResolver(projectPath, { projectStateBinding: binding });
   const installState = readNativeProjectionInstallState(resolveGlobalNativeProjectionStateDir(options.userHome));
   const communicationCandidates = configuredCommunicationCandidates({
     global: globalConfig?.communication,

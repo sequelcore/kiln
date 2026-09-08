@@ -11,7 +11,7 @@ export type ProviderUsageAvailability = "available" | "exhausted" | "unknown";
  * `unknown` means the provider answered without usable usage evidence.
  * The remaining values all mean usage was not observed, which never means it
  * was not consumed. They stay distinct because each demands different action:
- * `credential-unavailable` asks the operator to re-authenticate,
+ * `credential-unavailable` asks the operator to inspect credential availability,
  * `provider-request-failed` to investigate reachability, and
  * `provider-response-unusable` signals that the provider answered with data
  * Kiln could not interpret, which is a Kiln defect or a provider contract

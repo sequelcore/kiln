@@ -1062,6 +1062,12 @@ cannot represent or enforce that Runtime capacity contract. Config status must
 report both facts instead of using native projection eligibility as the route
 catalog for managed invocation.
 
+Native synchronization and agent status resolve admission using the established
+private project binding and the canonical global execution catalog. Merged YAML
+intent alone does not carry that derived authority. Missing route evidence is
+reported as unknown proof; it must not be presented as insufficient operator
+approval or inferred by parsing diagnostic prose.
+
 Remote harness routes are explicit managed-agent route overrides. Projection
 requires HTTPS invoke and cancel endpoints, a portable auth-token environment
 name when authentication is configured, `surface: remote-harness`,

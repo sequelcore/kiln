@@ -299,7 +299,9 @@ export async function syncNativeAgentProjections(
   }
   const defaultAdmissionResolver = options.resolveRouteAdmission || !agents.some((agent) => agent.targetId)
     ? undefined
-    : await createManagedAgentRouteAdmissionResolver(projectPath);
+    : await createManagedAgentRouteAdmissionResolver(projectPath, {
+        ...(options.projectStateBinding === undefined ? {} : { projectStateBinding: options.projectStateBinding }),
+      });
   const resolveRouteAdmission = options.resolveRouteAdmission
     ?? ((input) => defaultAdmissionResolver?.resolve(input.agent));
 

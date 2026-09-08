@@ -104,6 +104,36 @@ describe("account usage inspection", () => {
     ]);
   });
 
+  it("treats an HTTP 401 usage response as terminal authentication rejection", async () => {
+    const rejected = usage.map((snapshot) => ({
+      ...snapshot,
+      availability: "unknown" as const,
+      source: "provider-request-failed" as const,
+      confidence: "unknown" as const,
+      httpStatus: 401,
+    }));
+    const service = createAccountUsageInspectionService({
+      readExecutionTargetCatalog: () => catalog,
+      readProviderUsage: async () => [],
+      refreshProviderUsage: async () => rejected,
+      listCredentialIds: async () => ["credential-plus", "credential-free"],
+      now: () => new Date("2026-07-22T12:00:00.000Z"),
+    });
+
+    expect((await service.refresh()).accounts).toEqual([
+      expect.objectContaining({
+        evidenceState: "authentication-rejected",
+        operatorAction: "repair-provider-credential",
+        eligibleTargets: [],
+      }),
+      expect.objectContaining({
+        evidenceState: "authentication-rejected",
+        operatorAction: "repair-provider-credential",
+        eligibleTargets: [],
+      }),
+    ]);
+  });
+
   it("projects retained expired evidence as stale when refresh is unavailable", async () => {
     const expired = usage.map((snapshot) => ({
       ...snapshot,

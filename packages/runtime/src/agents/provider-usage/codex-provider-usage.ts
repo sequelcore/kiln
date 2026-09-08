@@ -326,6 +326,7 @@ export function parseCodexProviderUsage(input: ParseCodexProviderUsageInput): Pr
       ...bodyEvidence,
       observedAt: input.observedAt,
       validUntil: input.validUntil,
+      ...(input.failure?.httpStatus === undefined ? {} : { httpStatus: input.failure.httpStatus }),
       source: "provider-endpoint",
       // Authoritative only when every carried reset instant is plausible. A
       // far-future sentinel (e.g. year 2099) is downgraded, not discarded, so
@@ -343,6 +344,7 @@ export function parseCodexProviderUsage(input: ParseCodexProviderUsageInput): Pr
       ...headerEvidence,
       observedAt: input.observedAt,
       validUntil: input.validUntil,
+      ...(input.failure?.httpStatus === undefined ? {} : { httpStatus: input.failure.httpStatus }),
       source: "provider-response-headers",
       confidence: implausibleReset ? "unknown" : "authoritative",
     });

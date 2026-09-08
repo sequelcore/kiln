@@ -162,6 +162,113 @@ describe("CodexOAuthCredentialPoolService", () => {
       .toEqual(["policy-a", "policy-b"]);
   });
 
+  it("renews expired usage credentials only within the requested account set", async () => {
+    const service = new CodexOAuthCredentialPoolService({ rootDir });
+    const expired = accountToken("account-a", { expires_at: "2020-01-01T00:00:00.000Z" });
+    await service.linkCredential({ id: "work", tokenFile: expired });
+    await service.linkCredential({ id: "other", tokenFile: accountToken("account-b", { expires_at: expired.expires_at }) });
+    const fetch = vi.fn(async (url: string) => url.endsWith("/oauth/token")
+      ? new Response(JSON.stringify({ access_token: expired.access_token, refresh_token: "renewed", expires_in: 3600 }), { status: 200 })
+      : new Response(JSON.stringify({ plan_type: "plus", rate_limit: { allowed: true, limit_reached: false } }), { status: 200 }));
+    vi.stubGlobal("fetch", fetch);
+    await expect(service.refreshUsageForCredentials(["work"])).resolves.toMatchObject([{ credentialId: "work", plan: "plus" }]);
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual(["https://auth.openai.com/oauth/token", "https://chatgpt.com/backend-api/wham/usage"]);
+    expect(JSON.parse(await readFile(join(rootDir, "codex-oauth", "other.json"), "utf8")).expires_at).toBe(expired.expires_at);
+  });
+
+  it("persists a rotated refresh token even when ID-token backfill returns no ID token", async () => {
+    const service = new CodexOAuthCredentialPoolService({ rootDir });
+    const initial = accountToken("account-a");
+    await service.linkCredential({ id: "work", tokenFile: initial });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ access_token: initial.access_token, refresh_token: "renewed", expires_in: 3600 }), { status: 200 })));
+    await expect(service.ensureCredentialIdToken("work")).resolves.toMatchObject({ refresh_token: "renewed" });
+    expect(JSON.parse(await readFile(join(rootDir, "codex-oauth", "work.json"), "utf8")).refresh_token).toBe("renewed");
+  });
+
+  it("does not overwrite a credential replaced during ID-token backfill", async () => {
+    const service = new CodexOAuthCredentialPoolService({ rootDir });
+    const initial = accountToken("account-a");
+    const replacement = accountToken("account-b");
+    await service.linkCredential({ id: "work", tokenFile: initial });
+    const path = join(rootDir, "codex-oauth", "work.json");
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      await writeFile(path, JSON.stringify(replacement), "utf8");
+      return new Response(JSON.stringify({ access_token: initial.access_token, refresh_token: "renewed", expires_in: 3600 }), { status: 200 });
+    }));
+    await service.ensureCredentialIdToken("work");
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual(replacement);
+  });
+
+  it("refreshes and retries usage once after a 401 without changing the account", async () => {
+    const service = new CodexOAuthCredentialPoolService({ rootDir });
+    const initial = accountToken("account-a", { refresh_token: "refresh-old" });
+    const refreshed = accountToken("account-a", { access_token: `${accountToken("account-a").access_token}-refreshed`, refresh_token: "refresh-new" });
+    await service.linkCredential({ id: "work", tokenFile: initial });
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "https://auth.openai.com/oauth/token") return new Response(JSON.stringify({ access_token: refreshed.access_token, refresh_token: refreshed.refresh_token, expires_in: 3600 }), { status: 200 });
+      const authorization = new Headers(init?.headers).get("authorization");
+      if (authorization === `Bearer ${initial.access_token}`) return new Response(null, { status: 401 });
+      return new Response(JSON.stringify({ plan_type: "plus", rate_limit: { allowed: true, limit_reached: false } }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const usage = await service.refreshUsage();
+    expect(usage).toHaveLength(1);
+    expect(usage[0]).toMatchObject({ credentialId: "work", source: "provider-endpoint", plan: "plus" });
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual(["https://chatgpt.com/backend-api/wham/usage", "https://auth.openai.com/oauth/token", "https://chatgpt.com/backend-api/wham/usage"]);
+    expect(JSON.parse(await readFile(join(rootDir, "codex-oauth", "work.json"), "utf8"))).toMatchObject({ access_token: refreshed.access_token, refresh_token: refreshed.refresh_token });
+  });
+
+  it("does not overwrite a concurrent same-account rotation after a usage 401", async () => {
+    const service = new CodexOAuthCredentialPoolService({ rootDir });
+    const initial = accountToken("account-a", { refresh_token: "refresh-old" });
+    const rotated = accountToken("account-a", { refresh_token: "refresh-rotated" });
+    await service.linkCredential({ id: "work", tokenFile: initial });
+    const path = join(rootDir, "codex-oauth", "work.json");
+    let usageRequests = 0;
+    const fetch = vi.fn(async (url: string) => {
+      if (url === "https://chatgpt.com/backend-api/wham/usage") {
+        usageRequests += 1;
+        if (usageRequests === 1) { await writeFile(path, JSON.stringify(rotated), "utf8"); return new Response(null, { status: 401 }); }
+        return new Response(JSON.stringify({ plan_type: "plus", rate_limit: { allowed: true, limit_reached: false } }), { status: 200 });
+      }
+      throw new Error("refresh exchange must not run");
+    });
+    vi.stubGlobal("fetch", fetch);
+    await expect(service.refreshUsage()).resolves.toMatchObject([{ credentialId: "work", source: "provider-endpoint", plan: "plus" }]);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual(rotated);
+  });
+
+  it("allows only one service instance to exchange a refresh token after concurrent usage 401s", async () => {
+    const firstService = new CodexOAuthCredentialPoolService({ rootDir });
+    const secondService = new CodexOAuthCredentialPoolService({ rootDir });
+    const initial = accountToken("account-a", { refresh_token: "refresh-old" });
+    const refreshed = accountToken("account-a", { access_token: `${accountToken("account-a").access_token}-refreshed`, refresh_token: "refresh-new" });
+    await firstService.linkCredential({ id: "work", tokenFile: initial });
+    let releaseExchange!: () => void;
+    const exchangeBlocked = new Promise<void>((resolve) => { releaseExchange = resolve; });
+    let usageRequests = 0;
+    let exchangeRequests = 0;
+    const fetch = vi.fn(async (url: string) => {
+      if (url === "https://chatgpt.com/backend-api/wham/usage") {
+        usageRequests += 1;
+        return usageRequests <= 2 ? new Response(null, { status: 401 }) : new Response(JSON.stringify({ plan_type: "plus", rate_limit: { allowed: true, limit_reached: false } }), { status: 200 });
+      }
+      exchangeRequests += 1;
+      await exchangeBlocked;
+      return new Response(JSON.stringify({ access_token: refreshed.access_token, refresh_token: refreshed.refresh_token, expires_in: 3600 }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const first = firstService.refreshUsage();
+    const second = secondService.refreshUsage();
+    await vi.waitFor(() => { expect(exchangeRequests).toBe(1); expect(usageRequests).toBe(2); });
+    releaseExchange();
+    const [firstUsage, secondUsage] = await Promise.all([first, second]);
+    expect(fetch.mock.calls.filter(([url]) => url === "https://auth.openai.com/oauth/token")).toHaveLength(1);
+    expect(firstUsage).toHaveLength(1);
+    expect(secondUsage).toHaveLength(1);
+  });
+
   it("refreshes expiring credentials before admission and returns the refreshed revision", async () => {
     const service = new CodexOAuthCredentialPoolService({ rootDir });
     await service.linkCredential({ id: "soon", tokenFile: accountToken("account-a", { expires_at: new Date(Date.now() + 60_000).toISOString() }) });

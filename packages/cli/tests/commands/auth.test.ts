@@ -209,7 +209,8 @@ describe("auth command", () => {
     await runAuth(["codex", "status"]);
 
     const output = logs.join("\n");
-    expect(output).toContain("Status: invalid");
+    expect(output).toContain("Local credential status: invalid");
+    expect(output).toContain("Provider status: authentication rejected");
     expect(output).toContain("Reason: Provider rejected this credential. Sign in again.");
     expect(output).not.toContain("revoked-access-token");
     expect(output).not.toContain("revoked-refresh-token");
@@ -230,6 +231,24 @@ describe("auth command", () => {
     expect(output).toContain("Plan: plus");
     expect(output).toContain("Primary: 42%");
     expect(output).not.toContain("operator@example.test");
+  }, 10_000);
+
+  it("reports provider authentication rejection distinctly from local token validity", async () => {
+    await mkdir(join(homeDir, ".kiln", "auth", "codex-oauth"), { recursive: true });
+    await writeFile(
+      join(homeDir, ".kiln", "auth", "codex-oauth", "work.json"),
+      JSON.stringify(codexCredential("account-a")),
+      "utf8",
+    );
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("unauthorized", { status: 401 })));
+
+    await runAuth(["codex", "status", "--usage"]);
+
+    const output = logs.join("\n");
+    expect(output).toContain("Local credential status: valid");
+    expect(output).toContain("Provider status: authentication rejected");
+    expect(output).toContain("Usage: unknown (authentication rejected: repair provider credential)");
+    expect(output).not.toContain("retry-provider-usage-refresh");
   }, 10_000);
 
   it("keeps Codex account emails out of status by default and only decodes them with --emails", async () => {

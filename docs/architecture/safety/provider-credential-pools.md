@@ -95,6 +95,28 @@ or selected. `kiln run` accepts `--target <id>`; it does not accept
 commands. They are rejected rather than translated, so there is no second
 credential-binding path to drift from the catalog.
 
+## Usage Authentication Recovery
+
+Provider usage inspection is separate from execution commitment. When the Codex
+usage endpoint rejects an access token with HTTP 401, Runtime may renew that
+same account credential and repeat the read once. The credential owner holds
+a process-shared renewal lock, checks file identity and revision, and verifies
+that renewal preserves
+the provider account identity. It must not rotate to another account or alter an
+already committed execution binding. A concurrent credential update must not be
+overwritten or renewed using an obsolete refresh token. Candidate admission
+re-observes credential revisions after usage recovery and before commitment.
+
+Local token expiry, provider authentication evidence, and usage availability
+are separate facts. An unexpired token does not prove provider acceptance;
+unknown usage does not mean zero consumption. Rate-limit headers do not erase
+an authentication rejection; fresh rejection blocks candidate health even when
+quota remains available. Operator inspection identifies
+HTTP 401 as authentication rejection and directs credential repair rather than
+recommending an endless usage retry. Network failures remain distinct from
+provider rejection, and diagnostic output never contains tokens or response
+bodies. Successful renewal must be reflected in subsequent status output.
+
 ## Related Consumers
 
 Model Gateway virtual models reference `targetId` and introduce no account

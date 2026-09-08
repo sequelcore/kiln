@@ -103,12 +103,12 @@ async function runCodexLogin(kilnHome?: string): Promise<void> {
 async function runCodexStatus(rest: string[], kilnHome?: string): Promise<void> {
   const options = parseCodexStatusOptions(rest);
   const pool = new CodexOAuthCredentialPoolService({ kilnHome });
+  const usage = options.usage ? await pool.refreshUsage() : [];
   const entries = await pool.listStatus();
   if (entries.length === 0) {
     console.log("Not authenticated");
     return;
   }
-  const usage = options.usage ? await pool.refreshUsage() : [];
   // Emails are decoded from already-local token claims, never fetched from the provider,
   // and stay behind their own flag so they never merge into --usage's guarded output.
   const emails = options.emails ? await pool.listCredentialEmails() : new Map<string, string>();
@@ -118,7 +118,7 @@ async function runCodexStatus(rest: string[], kilnHome?: string): Promise<void> 
     const email = emails.get(entry.id);
     if (email) console.log(`    Email: ${email}`);
     console.log(`    Token expiry: ${entry.expiresAt}`);
-    console.log(`    Status: ${entry.status}`);
+    console.log(`    Local credential status: ${entry.status}`);
     if (entry.invalidReason) {
       console.log(`    Reason: ${entry.invalidReason}`);
     }
@@ -127,6 +127,9 @@ async function runCodexStatus(rest: string[], kilnHome?: string): Promise<void> 
       console.log(`    Cooldown: ${entry.health.cooldownUntil ?? "none"}`);
     }
     const entryUsage = usage.find((candidate) => candidate.credentialId === entry.id);
+    const providerRejected = entry.health?.lastOutcome?.type === "auth-failed"
+      || entryUsage?.httpStatus === 401;
+    if (providerRejected) console.log("    Provider status: authentication rejected");
     if (entryUsage) {
       console.log(`    Usage: ${entryUsage.availability}${describeUsageCause(entryUsage)}`);
       if (entryUsage.plan) console.log(`    Plan: ${entryUsage.plan}`);
@@ -143,7 +146,8 @@ async function runCodexStatus(rest: string[], kilnHome?: string): Promise<void> 
  */
 function describeUsageCause(usage: ProviderUsageSnapshot): string {
   if (usage.availability !== "unknown") return "";
-  if (usage.source === "credential-unavailable") return " (credential unusable: re-authenticate)";
+  if (usage.httpStatus === 401) return " (authentication rejected: repair provider credential)";
+  if (usage.source === "credential-unavailable") return " (credential unavailable: inspect provider credential)";
   if (usage.source === "provider-response-unusable") {
     return ` (provider response could not be interpreted${usage.httpStatus === undefined ? "" : `: HTTP ${usage.httpStatus}`})`;
   }

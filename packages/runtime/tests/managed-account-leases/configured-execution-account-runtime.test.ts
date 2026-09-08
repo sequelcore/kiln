@@ -392,6 +392,44 @@ describe("ConfiguredExecutionAccountRuntime", () => {
     ]);
   });
 
+  it("binds the credential revision observed after usage recovery", async () => {
+    const renewed = { ...codexExecution, revision: "e".repeat(64) };
+    const codexPool = pool([codexExecution], [], [usageSnapshot("credential-a", "available")]);
+    codexPool.refreshUsageForCredentials.mockImplementation(async () => {
+      codexPool.listExecutionAccounts.mockResolvedValue([renewed]);
+      return [usageSnapshot("credential-a", "available")];
+    });
+    const runtime = new ConfiguredExecutionAccountRuntime({
+      catalog, codexPool, now: () => new Date("2026-08-11T12:00:00.000Z"),
+    });
+    const admission = admitOperatorExecutionIntent(catalog, { targetId: "codex-route" });
+    const [selected] = await runtime.operatorSessionCandidates.resolve({ admission, ...snapshotContext(catalog) });
+    if (!selected) throw new Error("fixture candidate missing");
+    await runtime.operatorSessionCredentials.resolve({
+      targetId: admission.targetId, accountId: "account-a", credentialId: "credential-a",
+      ...snapshotContext(catalog),
+      lease: {
+        leaseId: "renewed", runtimeInvocationId: "renewed", accountPolicyId: CODEX_POLICY_ID,
+        accountRef: selected.lease.candidate.account, route: selected.lease.candidate.route,
+        capacityIdentity: selected.lease.capacityIdentity, credentialRevisionId: selected.lease.credentialRevisionId,
+        state: "dispatch-fenced", selectionReason: "least-pressure", candidateRejections: [], dispatchFenceId: "renewed:dispatch",
+      },
+    });
+    expect(codexPool.resolveExecutionCredential).toHaveBeenCalledWith(expect.objectContaining(renewed));
+  });
+
+  it("blocks authentication rejection even when quota remains available", async () => {
+    const runtime = new ConfiguredExecutionAccountRuntime({
+      catalog,
+      codexPool: pool([codexExecution], [{ ...usageSnapshot("credential-a", "available"), httpStatus: 401 }]),
+      now: () => new Date("2026-08-11T12:00:00.000Z"),
+    });
+    const admission = admitOperatorExecutionIntent(catalog, { targetId: "codex-route" });
+    await expect(runtime.operatorSessionCandidates.resolve({ admission, ...snapshotContext(catalog) })).resolves.toMatchObject([
+      { candidate: { accountId: "account-a", health: "unhealthy", quota: "available" } },
+    ]);
+  });
+
   it("projects fresh quota exhaustion as unhealthy usage evidence", async () => {
     const runtime = new ConfiguredExecutionAccountRuntime({
       catalog,

@@ -1,11 +1,14 @@
+import { join } from "node:path";
 import { admitManagedRoute } from "@kilnai/core";
 import type {
+  ExecutionTargetCatalog,
   CallerAuthorityProfile,
   ManagedAgentAccess,
   RouteAdmissionDecision,
   RouteAdmissionRejection,
 } from "@kilnai/core";
-import { loadKilnConfig } from "./config-merger.js";
+import { loadKilnConfig, loadKilnConfigWithGlobalAuthority } from "./config-merger.js";
+import { readGlobalExecutionTargetAuthority } from "./global-config.js";
 import { resolveKilnHomePath } from "./global-config/path.js";
 import { discoverManagedAgentProviderModels } from "./managed-agent-provider-models.js";
 import { resolveManagedInvocationToolOptions } from "./managed-agent-routes.js";
@@ -15,6 +18,11 @@ import type { ManagedInvocationRouteResolution } from "./managed-agent-routes.js
 import type { SessionRegistry } from "../wrapper/session-registry.js";
 import type { ManagedAgentProviderModelCatalogDiagnostics } from "./managed-agent-provider-models.js";
 import type { KilnAuthorityProfileConfig } from "../kiln-yaml-types.js";
+import type { ProjectStateBinding } from "../application/project-state-root.js";
+
+type ManagedAgentAdmissionConfig = (Awaited<ReturnType<typeof loadKilnConfig>> & {
+  readonly executionCatalog?: ExecutionTargetCatalog;
+}) | null;
 
 export interface ManagedAgentRouteAdmissionResolver {
   resolve(agent: KilnAgentDefinition): RouteAdmissionDecision | undefined;
@@ -22,6 +30,8 @@ export interface ManagedAgentRouteAdmissionResolver {
 
 export interface CreateManagedAgentRouteAdmissionResolverOptions {
   readonly loadConfig?: typeof loadKilnConfig;
+  /** Established private binding used to load the same global authority as the caller. */
+  readonly projectStateBinding?: ProjectStateBinding;
   readonly createRegistry?: () => { readonly registry: SessionRegistry };
   readonly discoverProviderModels?: (
     selectedProviderIds: ReadonlySet<string>,
@@ -38,12 +48,16 @@ export async function createManagedAgentRouteAdmissionResolver(
   projectPath: string,
   options: CreateManagedAgentRouteAdmissionResolverOptions = {},
 ): Promise<ManagedAgentRouteAdmissionResolver> {
-  const loadConfig = options.loadConfig ?? loadKilnConfig;
-  const createRegistry = options.createRegistry ?? (() => createDefaultRegistry({ kilnHome: resolveKilnHomePath() }));
+  const loadConfig = options.loadConfig ?? loadManagedAgentAdmissionConfig;
+  const createRegistry = options.createRegistry ?? (() => createDefaultRegistry({
+    kilnHome: options.projectStateBinding?.kilnHome ?? resolveKilnHomePath(),
+  }));
   const discoverProviderModels = options.discoverProviderModels ?? discoverManagedAgentProviderModels;
   const resolveRoutes = options.resolveRoutes ?? resolveManagedInvocationToolOptions;
   try {
-    const config = await loadConfig(projectPath);
+    const config = options.projectStateBinding
+      ? await loadConfig(projectPath, { projectStateBinding: options.projectStateBinding })
+      : await loadConfig(projectPath);
     const providerModelEligibility = await discoverProviderModels(selectConfiguredProviderIds(config));
     const resolution = await resolveRoutes(config, {
       cwd: projectPath,
@@ -63,6 +77,24 @@ export async function createManagedAgentRouteAdmissionResolver(
   } catch {
     return { resolve: (agent) => unresolved(agent) };
   }
+}
+
+async function loadManagedAgentAdmissionConfig(
+  projectPath: string,
+  options?: Parameters<typeof loadKilnConfigWithGlobalAuthority>[1],
+): Promise<ManagedAgentAdmissionConfig> {
+  const loaded = options
+    ? await loadKilnConfigWithGlobalAuthority(projectPath, options)
+    : await loadKilnConfigWithGlobalAuthority(projectPath);
+  if (!loaded.kilnYaml || !loaded.globalConfig) return loaded.kilnYaml;
+  const authority = options?.projectStateBinding
+    ? readGlobalExecutionTargetAuthority(loaded.globalConfig, {
+        globalConfigPath: join(options.projectStateBinding.kilnHome, "config.yaml"),
+      })
+    : readGlobalExecutionTargetAuthority(loaded.globalConfig);
+  return authority
+    ? { ...loaded.kilnYaml, executionCatalog: authority.executionCatalog }
+    : loaded.kilnYaml;
 }
 
 function selectConfiguredProviderIds(
@@ -130,7 +162,7 @@ function unresolved(agent: KilnAgentDefinition): RouteAdmissionDecision {
 function unavailable(
   agent: KilnAgentDefinition,
   admittedRouteId?: string,
-  reason: RouteAdmissionRejection = { code: "proof-insufficient", requiredProof: "configured" },
+  reason: RouteAdmissionRejection = { code: "proof-unknown" },
 ): RouteAdmissionDecision {
   return { status: "unavailable", routeId: admittedRouteId ?? agent.targetId ?? "unresolved", reasons: [reason] };
 }
