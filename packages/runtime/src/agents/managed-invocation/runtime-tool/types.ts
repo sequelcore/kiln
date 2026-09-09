@@ -222,6 +222,11 @@ export interface ManagedInvocationBoundedWorkAdmissionInput {
   readonly parentSessionId: string;
   readonly goalRunId: string;
   readonly workItemId: string;
+  /** Original model supplied attribution, retained for the additional goal admission. */
+  readonly requestedGoalRunId?: string;
+  readonly requestedWorkItemId?: string;
+  /** Whether an explicit goal/work item admission should be evaluated. */
+  readonly goalGovernanceRequested?: boolean;
   readonly attemptId?: string;
   readonly invocationId: string;
   readonly routeId: string;

@@ -1,3 +1,4 @@
+import type { BoundedWorkAdmissionRevision } from "./bounded-work-contract.js";
 import {
   assessBoundedWorkScope,
   normalizeBoundedWorkContractRevision,
@@ -160,7 +161,7 @@ export type BoundedWorkCloseoutDecision =
     };
 
 export function decideBoundedWorkAdmission(input: {
-  readonly revision: BoundedWorkContractRevision;
+  readonly revision: BoundedWorkAdmissionRevision;
   readonly snapshot: BoundedWorkAccountingSnapshot;
   readonly harnessCapability: BoundedWorkHarnessCapability;
   readonly formalVerificationCapability: BoundedWorkCapabilityObservation;
@@ -169,8 +170,13 @@ export function decideBoundedWorkAdmission(input: {
   readonly reservation: BoundedWorkReservation;
 }): BoundedWorkAdmissionDecision {
   assertAccountingBinding(input.revision, input.snapshot);
-  const scope = input.scope
-    ? assessBoundedWorkScope({ revision: input.revision, ...input.scope })
+  const goalRevision = input.revision.schema === "kiln.bounded-work-contract-revision/v1" ? input.revision : undefined;
+  if (!goalRevision && input.scope) throw new Error("Execution budgets cannot authorize semantic scope.");
+  const policy = input.revision.schema === "kiln.bounded-work-execution-budget-revision/v1"
+    ? { budgetExhaustion: input.revision.policy.budgetExhaustion, minimumHarnessCapability: "authoritative" as const }
+    : input.revision.contract.policy;
+  const scope = input.scope && goalRevision
+    ? assessBoundedWorkScope({ revision: goalRevision, ...input.scope })
     : undefined;
   if (scope?.status === "scope_revision_required") {
     return {
@@ -181,7 +187,7 @@ export function decideBoundedWorkAdmission(input: {
       continuation: continuation("request_scope_revision", input.snapshot),
     };
   }
-  if (!capabilitySatisfies(input.harnessCapability, input.revision.contract.policy.minimumHarnessCapability)) {
+  if (!capabilitySatisfies(input.harnessCapability, policy.minimumHarnessCapability)) {
     return {
       kind: "pause_capability_unavailable",
       unavailableMetrics: ["harness_authority"],
@@ -190,7 +196,7 @@ export function decideBoundedWorkAdmission(input: {
     };
   }
   if (
-    input.revision.contract.assurance.formalVerification.obligations.length > 0
+    goalRevision && goalRevision.contract.assurance.formalVerification.obligations.length > 0
     && input.formalVerificationCapability.status === "unavailable"
   ) {
     return {
@@ -201,7 +207,7 @@ export function decideBoundedWorkAdmission(input: {
     };
   }
   const amount = positiveInteger(input.reservation.amount, "reservation.amount");
-  const limits = input.revision.contract.limits;
+  const limits = input.revision.schema === "kiln.bounded-work-execution-budget-revision/v1" ? input.revision.limits : input.revision.contract.limits;
   const exhausted: BoundedWorkLimitName[] = [];
   const unavailable: Extract<BoundedWorkLimitName, "tool_calls" | "active_duration_ms">[] = [];
   const reserved: Extract<BoundedWorkAdmissionDecision, { kind: "admitted" }>["reserved"] = {};
@@ -269,7 +275,7 @@ export function decideBoundedWorkAdmission(input: {
     };
   }
   if (exhausted.length > 0) {
-    if (input.revision.contract.policy.budgetExhaustion === "stop") {
+    if (policy.budgetExhaustion === "stop") {
       return {
         kind: "stop_budget_exhausted",
         exhaustedLimits: exhausted,
@@ -643,7 +649,7 @@ function parseAcceptanceDecisionAuthority(value: unknown): BoundedWorkAdoptionAu
 }
 
 function assertAccountingBinding(
-  revision: BoundedWorkContractRevision,
+  revision: BoundedWorkAdmissionRevision,
   snapshot: BoundedWorkAccountingSnapshot,
 ): void {
   normalizeBoundedWorkAccountingSnapshot(snapshot);

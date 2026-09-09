@@ -1,8 +1,9 @@
 # Managed-child startup diagnosis
 
 Status: historical economic commitments recovered with retained evidence. A
-bounded trial is authorized, but remains gated on preventive child/tool limits
-shared across parent and child. Temporary discovery grants are not applied.
+bounded trial is authorized. Shared preventive child/tool limits now have offline
+verification; fresh source, configuration, and account checks still precede the
+live trial. Temporary discovery grants are not applied.
 
 ## Primary finding
 
@@ -364,3 +365,24 @@ limit for child starts and tool execution, with matching aggregate evidence.
 The authorization must not be silently reinterpreted as permission to exceed
 these maxima and merely invalidate the resulting row. No discovery grant was
 applied and no new provider trial was dispatched during this recovery step.
+
+
+## Shared budget verification (2026-09-08)
+
+The benchmark now binds a resource-only budget revision after persisting its
+canonical operator-adoption event. Parent and direct child use the same SQLite
+accounting lineage. A normalized tool batch is admitted before tool execution;
+per-call envelope overrides cannot remove that authority. Managed startup also
+reserves against it, independently of optional model goal attribution. Existing
+goal admission remains additional and its Assurance contract is unchanged.
+
+Synthetic tests cover 20 parent plus 12 child logical calls, denial of the next
+call, denial of a second concurrent or sequential child, pre-dispatch release,
+unknown startup retention, and replay denial. The real attached generic workflow
+records the parent discovery/invocation calls and the synthetic child's builtin
+call in one snapshot. CLI composition tests bind only after persistence, preserve
+the scope across later adoption events, and capture accounting after cleanup.
+The collector binds strategy and limits from the frozen manifest and rejects
+missing or unsettled shared evidence without treating it as successful work.
+These checks establish offline enforcement, not a live provider result or an
+analyzer comparison.

@@ -368,9 +368,17 @@ describe("createManagedDirectProviderAdapterFactory", () => {
 
   it("builds a direct managed runtime adapter from a tool-capable direct provider route", async () => {
     const createProviderAdapter = vi.fn(async (_options: DirectProviderAdapterOptions) => provider());
+    const sharedExecutionBudget = {
+      assertBound: vi.fn(),
+      managedInvocationAttribution: vi.fn(() => ({ goalRunId: "goal", workItemId: "item" })),
+      reserveToolBatch: vi.fn(() => ({ admitted: true as const })),
+      admitManagedInvocation: vi.fn(() => ({ admitted: false as const, code: "test", message: "test" })),
+      snapshot: vi.fn(),
+    } as unknown as NonNullable<ManagedDirectProviderAdapterFactoryOptions["sharedExecutionBudget"]>;
     const factory = createManagedDirectProviderAdapterFactory({
       builtinToolOptions: createSessionBuiltinToolOptions(),
       runtimeEnv: { OPENAI_API_KEY: "runtime-key" },
+      sharedExecutionBudget,
       createProviderAdapter,
     });
 
@@ -381,6 +389,9 @@ describe("createManagedDirectProviderAdapterFactory", () => {
     }, credentialBindingFor("openai-readonly"), undefined, committedRequestFor("openai-readonly", "openai", "gpt-5.4-mini"), READONLY_PROFILE);
 
     expect(adapter).toBeInstanceOf(ManagedDirectProviderRuntimeAdapter);
+    expect((adapter as unknown as {
+      readonly config: { readonly sharedExecutionBudget?: unknown };
+    }).config.sharedExecutionBudget).toBe(sharedExecutionBudget);
     expect(adapter?.descriptor).toMatchObject({
       adapterDescriptorId: "adapter:openai:direct-provider",
       adapterKind: "direct",

@@ -71,6 +71,8 @@ export type {
   ManagedCommittedRouteMismatchEvidence,
   ManagedInvocationAgentCatalogEntry,
   ManagedInvocationBoundedWorkAdmission,
+  ManagedInvocationBoundedWorkAdmissionInput,
+  ManagedInvocationBoundedWorkAdmissionResult,
   ManagedInvocationBoundedWorkLifecycle,
   ManagedInvocationBoundedWorkTerminalOutcome,
   ManagedInvocationContextResolution,

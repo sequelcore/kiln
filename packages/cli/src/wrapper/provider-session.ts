@@ -71,6 +71,7 @@ import {
 import type { DirectProviderCredentialBinding } from "./direct-provider-adapter-factory.js";
 import type { ConfiguredExecutionCredential } from "@kilnai/runtime";
 import type { AttachedRuntimeBuiltinToolSurfaceOptions } from "@kilnai/runtime";
+import type { RuntimeSharedExecutionBudget } from "@kilnai/runtime";
 import {
   createRuntimeCapabilityCompositionFactory,
   createTrustedRuntimeBuiltinPortableInvocationPort,
@@ -133,6 +134,8 @@ export interface ProviderSessionConfig {
   readonly runtimeExecutionMode?: "execute" | "plan";
   readonly sessionTurnBudget?: RuntimeSessionTurnBudgetAuthority;
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
+  /** Benchmark/workload-owned hard accounting shared with managed children. */
+  readonly sharedExecutionBudget?: RuntimeSharedExecutionBudget;
   readonly providerTransportAdmission?: import("@kilnai/core").ProviderTransportAdmission;
   readonly mcpClients?: readonly KilnMcpClient[];
   readonly mcpToolAllowlist?: ReadonlySet<string>;
@@ -387,6 +390,7 @@ export class ProviderSession implements IKilnSession {
       managedInvocation: config.managedInvocation,
       boundedWork: config.boundedWork,
       executionMode: config.runtimeExecutionMode ?? "execute",
+      ...(config.sharedExecutionBudget ? { sharedExecutionBudget: config.sharedExecutionBudget } : {}),
     });
     this.builtinToolSurface = builtinToolSurface;
     this.builtinTools = builtinToolSurface.callBuiltinTools;
@@ -877,6 +881,7 @@ export class ProviderSession implements IKilnSession {
       // credential resolution; forwarding the authority's source here would
       // perform a second, post-fence budget admission.
       ...(this.config.executionEnvelope ? { executionEnvelope: this.config.executionEnvelope } : {}),
+      ...(this.config.sharedExecutionBudget ? { sharedExecutionBudget: this.config.sharedExecutionBudget } : {}),
       ...(this.config.providerTransportAdmission
         ? { providerTransportAdmission: this.config.providerTransportAdmission }
         : {}),

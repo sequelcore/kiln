@@ -327,11 +327,13 @@ export class RuntimeSessionOrchestrator {
     const executionEnvelope = perCallConfig?.executionEnvelope !== undefined
       ? resolveRuntimeExecutionEnvelope(perCallConfig.executionEnvelope)
       : this.executionEnvelope;
-    if (executionEnvelope.sharedWork !== undefined) {
-      if (!this.deps.sharedExecutionBudget) {
-        throw new Error("A shared execution budget scope is required by the execution envelope.");
-      }
+    if (this.deps.sharedExecutionBudget) {
       this.deps.sharedExecutionBudget.assertBound();
+      if (executionEnvelope.sharedWork !== undefined) {
+        this.deps.sharedExecutionBudget.assertCompatibleLimits(executionEnvelope.sharedWork);
+      }
+    } else if (executionEnvelope.sharedWork !== undefined) {
+      throw new Error("A shared execution budget scope is required by the execution envelope.");
     }
     const turnObservation = new RuntimeTurnConvergenceObservationCollector(this.deps.monotonicNow);
     const progressClassifier = new RuntimeTurnProgressClassifier();
@@ -1054,14 +1056,17 @@ export class RuntimeSessionOrchestrator {
           preLlmEscalation: escalation,
         });
       }
-      if (executionEnvelope.sharedWork !== undefined) {
-        const sharedAdmission = this.deps.sharedExecutionBudget!.reserveToolBatch({
+      if (this.deps.sharedExecutionBudget) {
+        const sharedAdmission = this.deps.sharedExecutionBudget.reserveToolBatch({
           sessionId: session.id,
           turnId,
           toolCallScopeId,
           toolCallCount: normalizedToolCalls.length,
         });
         if (!sharedAdmission.admitted) {
+          if (sharedAdmission.observed === undefined || sharedAdmission.limit === undefined) {
+            throw new Error(`${sharedAdmission.code}: ${sharedAdmission.message}`);
+          }
           return this.finalizeTurnConvergencePause({
             session,
             executionEnvelope,
@@ -1069,8 +1074,8 @@ export class RuntimeSessionOrchestrator {
               status: "pause",
               reason: "tool_call_limit",
               metric: "toolCalls",
-              observed: executionEnvelope.sharedWork.maximumToolCalls,
-              limit: executionEnvelope.sharedWork.maximumToolCalls,
+              observed: sharedAdmission.observed,
+              limit: sharedAdmission.limit,
             },
             progressEvidence: progressClassifier.chronologicalEvidence,
             toolExecutions,

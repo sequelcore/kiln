@@ -96,6 +96,9 @@ import {
   type ManagedInvocationToolOptions,
   type ManagedInvocationToolAttachment,
   type ManagedInvocationBoundedWorkAdmission,
+  type ManagedInvocationBoundedWorkAdmissionInput,
+  type ManagedInvocationBoundedWorkAdmissionResult,
+  type ManagedInvocationBoundedWorkLifecycle,
 } from "../agents/managed-invocation/runtime-tool/index.js";
 import { resolveManagedInvocationAgentProfile } from "../agents/managed-invocation/agent-profile-catalog.js";
 import {
@@ -577,6 +580,11 @@ export function createAttachedRuntimeBuiltinToolSurface(
           : {}),
       })
     : DEFAULT_BUILTIN_TOOL_SURFACE;
+  if (options.sharedExecutionBudget && managedInvocationAttachment?.sharedExecutionBudget
+    && options.sharedExecutionBudget !== managedInvocationAttachment.sharedExecutionBudget) {
+    throw new Error("Attached managed invocation has a different shared execution budget.");
+  }
+  const sharedExecutionBudget = options.sharedExecutionBudget ?? managedInvocationAttachment?.sharedExecutionBudget;
   const managedInvocation = managedInvocationAttachment
     ? {
         ...managedInvocationAttachment,
@@ -588,9 +596,12 @@ export function createAttachedRuntimeBuiltinToolSurface(
         },
         governedScopeAdmission: managedInvocationAttachment.governedScopeAdmission
           ?? createManagedInvocationGovernedScopeAdmission(coreSurface),
-        boundedWorkAdmission: managedInvocationAttachment.boundedWorkAdmission
-          ?? createManagedInvocationBoundedWorkAdmission(coreSurface, options.boundedWork, options.sharedExecutionBudget),
-        ...(options.sharedExecutionBudget ? { sharedExecutionBudget: options.sharedExecutionBudget } : {}),
+        boundedWorkAdmission: composeManagedInvocationBoundedWorkAdmissions(
+          sharedExecutionBudget?.admitManagedInvocation,
+          managedInvocationAttachment.boundedWorkAdmission
+            ?? createManagedInvocationBoundedWorkAdmission(coreSurface, options.boundedWork),
+        ),
+        ...(sharedExecutionBudget ? { sharedExecutionBudget } : {}),
       }
     : undefined;
 
@@ -920,9 +931,7 @@ function createManagedInvocationGovernedScopeAdmission(
 function createManagedInvocationBoundedWorkAdmission(
   surface: DefaultBuiltinToolSurface,
   boundedWork: AttachedRuntimeBuiltinToolSurfaceOptions["boundedWork"],
-  sharedExecutionBudget: RuntimeSharedExecutionBudget | undefined,
 ): ManagedInvocationBoundedWorkAdmission | undefined {
-  if (sharedExecutionBudget) return sharedExecutionBudget.admitManagedInvocation;
   if (!boundedWork) return undefined;
   return (input) => {
     const goal = surface.goalRunStore?.get(input.goalRunId);
@@ -2197,6 +2206,131 @@ function createSessionAwareGoalContractSupersedeExecutor(
       contractAuthority: context.operatorAdoptionDecision.contractAuthority,
     }, context);
   };
+}
+
+/**
+ * Shared accounting is the outer admission boundary. Goal/work-item
+ * governance remains an additional check, and both reservations share one
+ * conservative lifecycle so one cannot be released while the other remains
+ * active or unknown.
+ */
+function composeManagedInvocationBoundedWorkAdmissions(
+  sharedAdmission: ManagedInvocationBoundedWorkAdmission | undefined,
+  goalAdmission: ManagedInvocationBoundedWorkAdmission | undefined,
+): ManagedInvocationBoundedWorkAdmission | undefined {
+  if (!sharedAdmission) return goalAdmission;
+  return (input: ManagedInvocationBoundedWorkAdmissionInput): ManagedInvocationBoundedWorkAdmissionResult => {
+    const shared = sharedAdmission(input);
+    if (!shared.admitted) return shared;
+    if (!goalAdmission || input.goalGovernanceRequested === false) return shared;
+    let governed: ManagedInvocationBoundedWorkAdmissionResult;
+    try {
+      governed = goalAdmission({
+        ...input,
+        goalRunId: input.requestedGoalRunId ?? input.goalRunId,
+        workItemId: input.requestedWorkItemId ?? input.workItemId,
+      });
+    } catch (error) {
+      releaseComposedLifecycleBeforeDispatch([shared.lifecycle], "goal admission threw");
+      throw error;
+    }
+    if (!governed.admitted) {
+      releaseComposedLifecycleBeforeDispatch([shared.lifecycle], "goal admission denied after shared admission");
+      return governed;
+    }
+    return {
+      admitted: true,
+      workspaceAuthority: intersectWorkspaceAuthorities(shared.workspaceAuthority, governed.workspaceAuthority),
+      lifecycle: composeManagedInvocationBoundedWorkLifecycles(shared.lifecycle, governed.lifecycle),
+    };
+  };
+}
+
+function intersectWorkspaceAuthorities(
+  first: { readonly allowedPaths: readonly string[]; readonly deniedPaths: readonly string[] },
+  second: { readonly allowedPaths: readonly string[]; readonly deniedPaths: readonly string[] },
+): { readonly allowedPaths: readonly string[]; readonly deniedPaths: readonly string[] } {
+  const allowedPaths = uniquePaths(first.allowedPaths.flatMap((firstPath) =>
+    second.allowedPaths.flatMap((secondPath) => {
+      if (containsPath(firstPath, secondPath)) return [secondPath];
+      if (containsPath(secondPath, firstPath)) return [firstPath];
+      return [];
+    })));
+  return {
+    allowedPaths,
+    deniedPaths: uniquePaths([...first.deniedPaths, ...second.deniedPaths]),
+  };
+}
+
+function composeManagedInvocationBoundedWorkLifecycles(
+  ...lifecycles: readonly ManagedInvocationBoundedWorkLifecycle[]
+): ManagedInvocationBoundedWorkLifecycle {
+  return {
+    markDispatched(dispatchId) {
+      runLifecycleOperation(lifecycles, (lifecycle) => lifecycle.markDispatched(dispatchId), `dispatch '${dispatchId}'`);
+    },
+    releaseBeforeDispatch() {
+      runLifecycleOperation(lifecycles, (lifecycle) => lifecycle.releaseBeforeDispatch(), "pre-dispatch release");
+    },
+    settleTerminal(outcome, evidenceDigest) {
+      runLifecycleOperation(
+        lifecycles,
+        (lifecycle) => lifecycle.settleTerminal(outcome, evidenceDigest),
+        `terminal settlement '${outcome}'`,
+      );
+    },
+    settleUnknown(reason) {
+      runLifecycleOperation(lifecycles, (lifecycle) => lifecycle.settleUnknown(reason), "unknown settlement");
+    },
+  };
+}
+
+function runLifecycleOperation(
+  lifecycles: readonly ManagedInvocationBoundedWorkLifecycle[],
+  operation: (lifecycle: ManagedInvocationBoundedWorkLifecycle) => void,
+  label: string,
+): void {
+  let firstError: unknown;
+  for (const lifecycle of lifecycles) {
+    try {
+      operation(lifecycle);
+    } catch (error) {
+      firstError ??= error;
+    }
+  }
+  if (firstError !== undefined) {
+    for (const lifecycle of lifecycles) {
+      try {
+        lifecycle.settleUnknown(`Composed bounded-work ${label} failed; reconciliation is required.`);
+      } catch {
+        // Preserve the first failure; each lifecycle was given a chance to retain unknown state.
+      }
+    }
+    throw firstError;
+  }
+}
+
+function releaseComposedLifecycleBeforeDispatch(
+  lifecycles: readonly ManagedInvocationBoundedWorkLifecycle[],
+  reason: string,
+): void {
+  let firstError: unknown;
+  for (const lifecycle of lifecycles) {
+    try {
+      lifecycle.releaseBeforeDispatch();
+    } catch (error) {
+      firstError ??= error;
+    }
+  }
+  if (firstError !== undefined) {
+    for (const lifecycle of lifecycles) {
+      try {
+        lifecycle.settleUnknown(`Composed bounded-work release failed (${reason}); reconciliation is required.`);
+      } catch {
+        // A reserved receipt cannot be settled unknown until dispatch; retain the failure evidence.
+      }
+    }
+  }
 }
 
 function createCoreToolExecutionContext(

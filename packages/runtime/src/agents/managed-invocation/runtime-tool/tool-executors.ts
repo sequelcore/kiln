@@ -37,6 +37,7 @@ import {
   appendAndPublishManagedInvocationTerminalSessionEvent,
   terminalSessionEventIdsForResult,
 } from "./session-event-publishing.js";
+import { isTerminalLifecycleState } from "../invocation-lifecycle-events.js";
 import type { ManagedInvocationToolAttachment, ManagedInvocationToolResult } from "./types.js";
 
 interface ManagedInvocationExternalRuntimeAttachmentDenial {
@@ -50,9 +51,22 @@ interface ManagedInvocationExternalRuntimeAttachmentDenial {
 }
 
 function boundedWorkTerminalOutcome(record: ManagedAgentInvocationRecord): "completed" | "failed" | "cancelled" {
-  if (record.lifecycleState === "completed") return "completed";
-  if (record.lifecycleState === "cancelled") return "cancelled";
-  return "failed";
+  if (!isTerminalLifecycleState(record.lifecycleState)) {
+    throw new Error(`Managed invocation record is not terminal: ${record.lifecycleState}`);
+  }
+  switch (record.lifecycleState) {
+    case "completed":
+    case "recovered":
+      return "completed";
+    case "cancelled":
+      return "cancelled";
+    case "failed":
+    case "timed_out":
+    case "stale":
+      return "failed";
+    default:
+      throw new Error(`Managed invocation record is not terminal: ${record.lifecycleState}`);
+  }
 }
 
 function boundedWorkTerminalEvidenceDigest(record: ManagedAgentInvocationRecord): string {
@@ -63,10 +77,45 @@ function settleBoundedWorkTerminal(
   prepared: Awaited<ReturnType<typeof prepareManagedInvocationRequest>> & { readonly ok: true },
   record: ManagedAgentInvocationRecord,
 ): void {
-  prepared.prepared.boundedWorkLifecycle?.settleTerminal(
-    boundedWorkTerminalOutcome(record),
-    boundedWorkTerminalEvidenceDigest(record),
-  );
+  const lifecycle = prepared.prepared.boundedWorkLifecycle;
+  if (!lifecycle) return;
+  try {
+    lifecycle.settleTerminal(
+      boundedWorkTerminalOutcome(record),
+      boundedWorkTerminalEvidenceDigest(record),
+    );
+  } catch (error) {
+    lifecycle.settleUnknown(`Terminal settlement was not proven: ${errorMessage(error)}`);
+    throw error;
+  }
+}
+
+function settleBoundedWorkUnknown(
+  prepared: Awaited<ReturnType<typeof prepareManagedInvocationRequest>> & { readonly ok: true },
+  reason: string,
+): void {
+  prepared.prepared.boundedWorkLifecycle?.settleUnknown(reason);
+}
+
+function releaseBoundedWorkBeforeDispatch(
+  prepared: Awaited<ReturnType<typeof prepareManagedInvocationRequest>> & { readonly ok: true },
+  reason: string,
+): void {
+  const lifecycle = prepared.prepared.boundedWorkLifecycle;
+  if (!lifecycle) return;
+  try {
+    lifecycle.releaseBeforeDispatch();
+  } catch (error) {
+    try {
+      lifecycle.settleUnknown(`Pre-dispatch release was not proven (${reason}): ${errorMessage(error)}`);
+    } catch {
+      // Preserve the original pre-dispatch failure; the authority retains its evidence.
+    }
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 type AttendedTrustedExecutionPreparation =
@@ -254,7 +303,10 @@ export async function executeManagedInvocationTool(
     return preparedResult.result;
   }
   const attendedPreparation = await prepareAttendedTrustedExecution(preparedResult.prepared);
-  if (!attendedPreparation.ok) return attendedPreparation.result;
+  if (!attendedPreparation.ok) {
+    releaseBoundedWorkBeforeDispatch(preparedResult, "attended authority denied");
+    return attendedPreparation.result;
+  }
   const { prepared, authority: attendedAuthority } = attendedPreparation;
   try {
     const { adapter } = prepared.route;
@@ -271,8 +323,13 @@ export async function executeManagedInvocationTool(
       });
     } catch (error) {
       const terminalizedSnapshot = service.status(prepared.request.invocationId);
-      if (terminalizedSnapshot?.record) settleBoundedWorkTerminal(preparedResult, terminalizedSnapshot.record);
-      else prepared.boundedWorkLifecycle?.settleUnknown("managed invocation start failed without terminal evidence");
+      if (terminalizedSnapshot?.record) {
+        try {
+          settleBoundedWorkTerminal(preparedResult, terminalizedSnapshot.record);
+        } catch {
+          // The provider failure remains the primary tool failure; bounded-work state retains reconciliation evidence.
+        }
+      } else settleBoundedWorkUnknown(preparedResult, "managed invocation start failed without terminal evidence");
       throw error;
     }
     const startEvents = await appendAndPublishManagedInvocationStartSessionEvents({
@@ -471,8 +528,12 @@ export async function executeManagedInvocationStartTool(
     });
   } catch (error) {
     const terminalizedSnapshot = service.status(prepared.request.invocationId);
-    if (terminalizedSnapshot?.record !== undefined) {
-      settleBoundedWorkTerminal(preparedResult, terminalizedSnapshot.record);
+      if (terminalizedSnapshot?.record !== undefined) {
+      try {
+        settleBoundedWorkTerminal(preparedResult, terminalizedSnapshot.record);
+      } catch {
+        // Preserve the terminal result while retaining bounded-work reconciliation evidence.
+      }
       const record = projectManagedInvocationRecordResources(terminalizedSnapshot.record, {
         artifactStore: options.artifactStore,
       });
@@ -517,9 +578,7 @@ export async function executeManagedInvocationStartTool(
     }
     terminalPublicationEnabled = false;
     markStartSessionEventsReady();
-    prepared.boundedWorkLifecycle?.settleUnknown(
-      "managed background invocation start failed without terminal evidence",
-    );
+    settleBoundedWorkUnknown(preparedResult, "managed background invocation start failed without terminal evidence");
     throw error;
   }
   let events: readonly CanonicalSessionEvent[] = [];

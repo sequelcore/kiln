@@ -1,7 +1,8 @@
+import { normalizeBoundedWorkExecutionBudgetRevision } from "@kilnai/core/work-governance";
 import { digestManagedEconomicValue } from "@kilnai/core/cost";
 import type {
   BoundedWorkAccountingSnapshot,
-  BoundedWorkContractRevision,
+  BoundedWorkExecutionBudgetRevision,
   BoundedWorkHarnessCapability,
 } from "@kilnai/core/work-governance";
 import type {
@@ -17,7 +18,7 @@ export interface RuntimeSharedExecutionBudgetScopeInput {
   readonly authority: SqliteBoundedWorkAuthority;
   readonly goalRunId: string;
   readonly workItemId: string;
-  readonly contractRevision: BoundedWorkContractRevision;
+  readonly contractRevision: BoundedWorkExecutionBudgetRevision;
   readonly route: {
     readonly routeId: string;
     readonly harnessId: string;
@@ -45,10 +46,24 @@ export interface RuntimeSharedExecutionBudgetSnapshot {
 
 export type RuntimeSharedToolBatchAdmission =
   | { readonly admitted: true }
-  | { readonly admitted: false; readonly code: string; readonly message: string };
+  | {
+      readonly admitted: false;
+      readonly code: string;
+      readonly message: string;
+      readonly observed?: number;
+      readonly limit?: number;
+    };
 
 export interface RuntimeSharedExecutionBudget {
   assertBound(): void;
+  /**
+   * Validate an optional per-call declaration against this immutable scope.
+   * The injected scope remains authoritative when the declaration is absent.
+   */
+  assertCompatibleLimits(limits: {
+    readonly maximumManagedChildren: number;
+    readonly maximumToolCalls: number;
+  }): void;
   managedInvocationAttribution(): { readonly goalRunId: string; readonly workItemId: string };
   reserveToolBatch(input: {
     readonly sessionId: string;
@@ -69,15 +84,13 @@ export class RuntimeSharedExecutionBudgetScope implements RuntimeSharedExecution
   readonly scopeId: string;
 
   constructor(input: RuntimeSharedExecutionBudgetScopeInput) {
+    input = { ...input, contractRevision: normalizeBoundedWorkExecutionBudgetRevision(input.contractRevision) };
     assertPositive(input.limits.maximumManagedChildren, "maximumManagedChildren");
     assertPositive(input.limits.maximumToolCalls, "maximumToolCalls");
     if (input.contractRevision.accountingLineageId !== input.goalRunId) {
       throw new TypeError("Shared execution budget lineage must equal its goal run id.");
     }
-    if (!input.contractRevision.contract.scope.allowedWorkItemIds.includes(input.workItemId)) {
-      throw new TypeError("Shared execution budget work item is not bound to its contract.");
-    }
-    const limits = input.contractRevision.contract.limits;
+    const limits = input.contractRevision.limits;
     if (
       limits.maxManagedInvocations !== input.limits.maximumManagedChildren
       || limits.maxConcurrentManagedInvocations !== input.limits.maximumManagedChildren
@@ -114,9 +127,15 @@ export class RuntimeSharedExecutionBudgetScope implements RuntimeSharedExecution
       observedMetrics: ["tool_calls"],
       reservation: { kind: "tool_call", amount: input.toolCallCount },
     });
-    if (admission.decision.kind !== "admitted") return denied(admission.decision);
+    if (admission.replayed) {
+      return {
+        admitted: false,
+        code: "shared_execution_budget_replayed",
+        message: "The logical tool batch was already admitted for this idempotency key.",
+      };
+    }
+    if (admission.decision.kind !== "admitted") return denied(admission.decision, this.#input.limits.maximumToolCalls);
     let receipt = admission.reservation!;
-    if (receipt.state === "settled") return { admitted: true };
     try {
       receipt = this.#input.authority.markDispatched({
         reservationId: receipt.reservationId,
@@ -171,7 +190,14 @@ export class RuntimeSharedExecutionBudgetScope implements RuntimeSharedExecution
       route: { routeId: input.routeId, harnessId: input.harnessId },
       reservation: { kind: "managed_invocation", amount: 1, childDepth: input.childDepth },
     });
-    if (admission.decision.kind !== "admitted") return denied(admission.decision);
+    if (admission.replayed) {
+      return {
+        admitted: false,
+        code: "shared_execution_budget_replayed",
+        message: "The managed invocation was already admitted for this idempotency key.",
+      };
+    }
+    if (admission.decision.kind !== "admitted") return denied(admission.decision, this.#input.limits.maximumToolCalls);
     let receipt = admission.reservation!;
     return {
       admitted: true,
@@ -214,6 +240,18 @@ export class RuntimeSharedExecutionBudgetScope implements RuntimeSharedExecution
 
   assertBound(): void {
     // A concrete immutable scope is bound at construction.
+  }
+
+  assertCompatibleLimits(limits: {
+    readonly maximumManagedChildren: number;
+    readonly maximumToolCalls: number;
+  }): void {
+    if (
+      limits.maximumManagedChildren !== this.#input.limits.maximumManagedChildren
+      || limits.maximumToolCalls !== this.#input.limits.maximumToolCalls
+    ) {
+      throw new TypeError("Per-call shared-work limits must exactly match the injected shared execution budget.");
+    }
   }
 
   managedInvocationAttribution(): { readonly goalRunId: string; readonly workItemId: string } {
@@ -283,6 +321,14 @@ export class RuntimeSharedExecutionBudgetScopeReference implements RuntimeShared
     if (!this.#scope) throw new Error("Shared execution budget scope is not bound by a persisted operator adoption.");
   }
 
+  assertCompatibleLimits(limits: {
+    readonly maximumManagedChildren: number;
+    readonly maximumToolCalls: number;
+  }): void {
+    this.assertBound();
+    this.#scope!.assertCompatibleLimits(limits);
+  }
+
   managedInvocationAttribution(): { readonly goalRunId: string; readonly workItemId: string } {
     this.assertBound();
     return this.#scope!.managedInvocationAttribution();
@@ -320,11 +366,22 @@ export function createRuntimeSharedExecutionBudgetScopeReference(): RuntimeShare
   return new RuntimeSharedExecutionBudgetScopeReference();
 }
 
-function denied(decision: Exclude<ReturnType<SqliteBoundedWorkAuthority["reserve"]>["decision"], { readonly kind: "admitted" }>): RuntimeSharedToolBatchAdmission & ManagedInvocationBoundedWorkAdmissionResult {
+function denied(
+  decision: Exclude<ReturnType<SqliteBoundedWorkAuthority["reserve"]>["decision"], { readonly kind: "admitted" }>,
+  toolCallLimit: number,
+): RuntimeSharedToolBatchAdmission & ManagedInvocationBoundedWorkAdmissionResult {
   switch (decision.kind) {
     case "pause_budget_exhausted":
     case "stop_budget_exhausted":
-      return { admitted: false, code: decision.kind, message: `Shared execution budget exhausted: ${decision.exhaustedLimits.join(", ")}.` };
+      return {
+        admitted: false,
+        code: decision.kind,
+        message: `Shared execution budget exhausted: ${decision.exhaustedLimits.join(", ")}.`,
+        ...(decision.snapshot.toolCalls.kind === "observed"
+          ? { observed: decision.snapshot.toolCalls.value }
+          : {}),
+        ...(decision.exhaustedLimits.includes("tool_calls") ? { limit: toolCallLimit } : {}),
+      };
     case "pause_capability_unavailable":
       return { admitted: false, code: decision.kind, message: `Shared execution budget cannot measure: ${decision.unavailableMetrics.join(", ")}.` };
     case "pause_scope_revision_required":

@@ -1,3 +1,5 @@
+import { adoptBoundedWorkExecutionBudgetRevision } from "@kilnai/core/work-governance";
+import { SqliteBoundedWorkAuthority, createRuntimeSharedExecutionBudgetScope } from "@kilnai/runtime";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildCapabilityCatalog,
@@ -382,6 +384,18 @@ function outerProvider(descriptor: { readonly capabilityId: string; readonly rev
 
 describe("generic managed-child invocation through the benchmark Runtime surface", () => {
   it("requires exact discovery permissions before materializing generic managed_agent.invoke and terminally runs the admitted synthetic child", async () => {
+    const budgetAuthority = new SqliteBoundedWorkAuthority({ path: ":memory:" });
+    const sharedExecutionBudget = createRuntimeSharedExecutionBudgetScope({
+      authority: budgetAuthority, projectRuntimeId: "synthetic", goalRunId: "budget-run", workItemId: "budget-item",
+      contractRevision: adoptBoundedWorkExecutionBudgetRevision({
+        accountingLineageId: "budget-run", adoptedAt: EVALUATED_AT,
+        adoptedBy: { kind: "operator", actorId: "operator", decisionId: "synthetic-decision" },
+        limits: { maxExecutionAttempts: 1, maxManagedInvocations: 1, maxConcurrentManagedInvocations: 1, maxChildDepth: 1, maxReviewRounds: 0, maxRemediationRounds: 0, maxToolCalls: 32 },
+        policy: { budgetExhaustion: "stop" },
+      }),
+      route: { routeId: "synthetic-direct-route", harnessId: "runtime" }, harnessCapability: "authoritative",
+      limits: { maximumManagedChildren: 1, maximumToolCalls: 32 },
+    });
     const parentSession = new RuntimeSession({
       sessionId: "synthetic-parent-session",
       appName: "kiln-cli",
@@ -418,6 +432,7 @@ describe("generic managed-child invocation through the benchmark Runtime surface
       effectEnvelope: OBSERVE_EFFECT,
     };
     const adapter = new ManagedDirectProviderRuntimeAdapter({
+      sharedExecutionBudget,
       providerId: "synthetic-provider",
       model: "synthetic-model",
       provider: childProvider(childTrace),
@@ -479,7 +494,7 @@ describe("generic managed-child invocation through the benchmark Runtime surface
       ...createKilnRuntimeManagedInvocationAttachment("benchmark", invocationOptions),
       childAuthorityAdmission: { bundle: baseAdmission },
     };
-    const surface = createAttachedRuntimeBuiltinToolSurface({ managedInvocation: attachment });
+    const surface = createAttachedRuntimeBuiltinToolSurface({ managedInvocation: attachment, sharedExecutionBudget });
     try {
       const composed = capabilityGeneration(surface);
       const admission = linkEffectiveAuthorityAdmissionBundleToRuntimeCapabilityGeneration({
@@ -538,6 +553,7 @@ describe("generic managed-child invocation through the benchmark Runtime surface
 
       const allowedOuter = outerProvider(composed.descriptor, "allow");
       const allowed = new RuntimeSessionOrchestrator({
+        sharedExecutionBudget,
         provider: allowedOuter.provider,
         model: "synthetic-model",
         tools: [RUNTIME_CAPABILITY_SEARCH_TOOL, RUNTIME_CAPABILITY_DESCRIBE_TOOL],
@@ -610,6 +626,10 @@ describe("generic managed-child invocation through the benchmark Runtime surface
       expect(describeExecution.input).toMatchObject(discoveredIdentity);
       expect(childTrace.providerCalls.value).toBe(2);
       expect(childTrace.builtinCalls.value).toBe(1);
+      expect(sharedExecutionBudget.snapshot()).toMatchObject({
+        accounting: { managedInvocations: 1, activeManagedInvocations: 0, toolCalls: { kind: "observed", value: 4 } },
+        settlement: { status: "settled" },
+      });
       expect(service.list()).toHaveLength(1);
       expect(service.list()[0]).toMatchObject({
         lifecycleState: "completed",
@@ -623,6 +643,7 @@ describe("generic managed-child invocation through the benchmark Runtime surface
       expect(shutdownOwner).toHaveBeenCalledWith(invocationOwner, "Attached runtime tool surface disposed.");
     } finally {
       await surface.dispose();
+      budgetAuthority.close();
     }
   });
 });

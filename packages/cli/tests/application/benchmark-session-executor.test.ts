@@ -101,6 +101,9 @@ vi.mock("@kilnai/core", async (importOriginal) => {
 vi.mock("@kilnai/runtime", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@kilnai/runtime")>();
   return {
+    createRuntimeSharedExecutionBudgetScope: actual.createRuntimeSharedExecutionBudgetScope,
+    createRuntimeSharedExecutionBudgetScopeReference: actual.createRuntimeSharedExecutionBudgetScopeReference,
+    RuntimeProviderTransportBudgetAuthority: actual.RuntimeProviderTransportBudgetAuthority,
     deriveRuntimeConvergencePolicyInput: actual.deriveRuntimeConvergencePolicyInput,
     resolveRuntimeExecutionEnvelope: actual.resolveRuntimeExecutionEnvelope,
     projectProviderRequestObservation: actual.projectProviderRequestObservation,
@@ -2134,4 +2137,51 @@ describe("createBenchmarkSessionExecutor", () => {
     expect(stdoutWrite).not.toHaveBeenCalled();
     expect(consoleLog).not.toHaveBeenCalled();
   });
+  it("binds one shared budget after persisted adoption and snapshots after cleanup", async () => {
+    const runtime = await vi.importActual<typeof import("@kilnai/runtime")>("@kilnai/runtime");
+    const authority = new runtime.SqliteBoundedWorkAuthority({ path: ":memory:" });
+    const evidenceRoot = mkdtempSync(join(tmpdir(), "kiln-shared-budget-composition-"));
+    const close = vi.fn(() => authority.close());
+    benchmarkExecutorMocks.createProjectBoundedWorkAuthority.mockReturnValueOnce({
+      surface: { projectRuntimeId: "project:test", authority },
+      admitExecutionAttempt: vi.fn(), closeoutCandidate: vi.fn(), closeoutGoal: vi.fn(), close,
+    });
+    benchmarkExecutorMocks.isDirectApiProvider.mockReturnValue(true);
+    benchmarkExecutorMocks.readGlobalConfig.mockReturnValue(makeOperatorSurfaceGlobalConfig("codex-oauth", "benchmark-model", "benchmark-codex"));
+    const defaultRun = benchmarkExecutorMocks.runSession.getMockImplementation();
+    if (!defaultRun) throw new Error("missing run fixture");
+    const ownerSessionId = "benchmark-session";
+    const operatorTurnId = canonicalTurnId(ownerSessionId, 1);
+    const adoption = createOperatorAdoptionDecisionAuthority({ ownerSessionId, operatorTurnId, actorId: "benchmark" });
+    benchmarkExecutorMocks.runSession.mockImplementationOnce(async (options: {
+      sessionConfig: { sharedExecutionBudget: import("@kilnai/runtime").RuntimeSharedExecutionBudget };
+      operatorAdoption: { persist(event: unknown): Promise<void> };
+      cleanupRegistry: { register(fn: () => Promise<void>): void };
+    }) => {
+      const budget = options.sessionConfig.sharedExecutionBudget;
+      expect(() => budget.assertBound()).toThrow();
+      const event = { eventId: "budget-adoption", kilnSessionId: ownerSessionId, sequence: 1, kind: "operator_adoption_decision", turnId: operatorTurnId, ...adoption, turnOrdinal: 1, source: { actor: "runtime", surface: "runtime", component: "operator-adoption" }, timestamp: new Date("2026-09-08T00:00:00.000Z") };
+      await options.operatorAdoption.persist(event);
+      expect(readFileSync(join(evidenceRoot, "sessions", ownerSessionId, "transcript.jsonl"), "utf8")).toContain("budget-adoption");
+      expect(budget.reserveToolBatch({ sessionId: "parent", turnId: "turn", toolCallScopeId: "one", toolCallCount: 20 }).admitted).toBe(true);
+      await options.operatorAdoption.persist({ ...event, eventId: "budget-adoption-two" });
+      benchmarkExecutorMocks.runCleanup.mockImplementationOnce(async () => {
+        expect(close).not.toHaveBeenCalled();
+        expect(budget.reserveToolBatch({ sessionId: "child", turnId: "turn", toolCallScopeId: "two", toolCallCount: 12 }).admitted).toBe(true);
+      });
+      return defaultRun(options as never);
+    });
+    try {
+      const executor = createBenchmarkSessionExecutor({ appConfig: MOCK_APP_CONFIG, flags: { targetId: "benchmark-codex", benchmarkEvidenceRoot: evidenceRoot, executionEnvelope: { sharedWork: { maximumManagedChildren: 1, maximumToolCalls: 32 } } } });
+      const result = await executor("Inspect", makeBenchmarkContext({ id: "budget", input: "Inspect" }));
+      expect(result.metadata?.sharedExecutionBudget).toMatchObject({ accounting: { toolCalls: { kind: "observed", value: 32 } }, settlement: { status: "settled" } });
+      expect(close).toHaveBeenCalledOnce();
+    } finally {
+      authority.close();
+      benchmarkExecutorMocks.runSession.mockClear();
+      rmSync(evidenceRoot, { recursive: true, force: true });
+    }
+  });
+
+
 });

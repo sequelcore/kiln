@@ -284,10 +284,12 @@ describe("RuntimeSessionOrchestrator - turn convergence enforcement", () => {
     };
     const sharedExecutionBudget: RuntimeSharedExecutionBudget = {
       assertBound: vi.fn(),
+      assertCompatibleLimits: vi.fn(),
       reserveToolBatch: vi.fn().mockReturnValue({
         admitted: false,
         code: "pause_budget_exhausted",
         message: "Shared execution budget exhausted: tool_calls.",
+        observed: 32, limit: 32,
       }),
       admitManagedInvocation: vi.fn(),
       managedInvocationAttribution: vi.fn(),

@@ -800,6 +800,10 @@ function parseSharedExecutionBudgetAccounting(value: unknown): NonNullable<Share
 export function collectContextEfficiencyTrials(trials: readonly ContextEfficiencyCollectedTrial[]) {
   const projectedTrials: ProjectedDiagnosticTrial[] = trials.map((trial) => {
     const validity = trial.validity ?? "valid";
+    const run = trial.output === undefined
+      ? undefined
+      : validateContextEfficiencyRunEnvelope(trial.output);
+    assertStandaloneManagedChildEvidence(run, trial);
     const identity = {
       taskId: trial.taskId,
       condition: trial.condition,
@@ -815,12 +819,10 @@ export function collectContextEfficiencyTrials(trials: readonly ContextEfficienc
         validity,
         invalidReason: trial.invalidReason ?? "infrastructure_failure",
         ...(trial.invalidDiagnostic ? { invalidDiagnostic: trial.invalidDiagnostic } : {}),
-        ...(trial.output === undefined ? {} : {
-          run: projectContentFreeRunEvidence(validateContextEfficiencyRunEnvelope(trial.output)),
-        }),
+        ...(run === undefined ? {} : { run: projectContentFreeRunEvidence(run) }),
       };
     }
-    const run = validateContextEfficiencyRunEnvelope(trial.output);
+    if (run === undefined) throw new Error("Valid collected trial lacks a run output.");
     assertCollectedManagedChildSharedExecutionBudget(run, trial);
     return {
       ...identity,
@@ -843,8 +845,10 @@ export function bindContextEfficiencyReport(
   const record = requireRecord(manifest, "frozen manifest");
   const identity = readManifestIdentity(manifest);
   const design = requireRecord(record.design, "frozen design");
+  const canonicalSchedule = buildContextEfficiencySchedule(manifest);
+  const boundTrials = bindCollectedTrialsToFrozenSchedule(trials, canonicalSchedule);
   const schedule = {
-    entries: buildContextEfficiencySchedule(manifest).map(({ taskId, condition, repetition, budgets }) => ({
+    entries: canonicalSchedule.map(({ taskId, condition, repetition, budgets }) => ({
       taskId, condition, repetition, maximumProviderRequests: budgets.maximumProviderRequests,
     })),
     invalidRetryLimitPerCell: requireNonNegativeNumber(design.invalidRetriesPerCell, "invalid retry limit"),
@@ -868,7 +872,7 @@ export function bindContextEfficiencyReport(
   const integrity = createContextEfficiencyReportIntegrity({
     identity: binding,
     schedule,
-    attempts: trials.map((trial) => ({
+    attempts: boundTrials.map((trial) => ({
       taskId: trial.taskId,
       condition: trial.condition,
       repetition: trial.repetition,
@@ -895,7 +899,55 @@ export function bindContextEfficiencyReport(
       },
     })),
   });
-  return { ...collectContextEfficiencyTrials(trials), integrity };
+  return { ...collectContextEfficiencyTrials(boundTrials), integrity };
+}
+
+function bindCollectedTrialsToFrozenSchedule(
+  trials: readonly ContextEfficiencyCollectedTrial[],
+  schedule: readonly ContextEfficiencyScheduledTrial[],
+): readonly ContextEfficiencyCollectedTrial[] {
+  return trials.map((trial) => {
+    const scheduled = schedule.find((candidate) => candidate.taskId === trial.taskId
+      && candidate.condition === trial.condition
+      && candidate.repetition === trial.repetition);
+    if (!scheduled) {
+      throw new Error(
+        `Collected trial '${trial.taskId}/${trial.condition}/${trial.repetition}' is absent from the frozen schedule.`,
+      );
+    }
+    if (trial.executionStrategy !== undefined && trial.executionStrategy !== scheduled.executionStrategy) {
+      throw new Error(`Collected trial '${trial.taskId}' execution strategy differs from the frozen manifest.`);
+    }
+    const managed = scheduled.executionStrategy === "internal_benchmark_managed_child";
+    const expectedLimits = managed ? sharedExecutionLimitsFor(scheduled) : undefined;
+    if (trial.sharedExecutionLimits !== undefined) {
+      if (!expectedLimits
+        || trial.sharedExecutionLimits.maximumManagedChildren !== expectedLimits.maximumManagedChildren
+        || trial.sharedExecutionLimits.maximumToolCalls !== expectedLimits.maximumToolCalls) {
+        throw new Error(`Collected trial '${trial.taskId}' shared execution limits differ from the frozen trial budget.`);
+      }
+    }
+    return {
+      ...trial,
+      executionStrategy: scheduled.executionStrategy,
+      ...(expectedLimits === undefined ? {} : { sharedExecutionLimits: expectedLimits }),
+    };
+  });
+}
+
+function assertStandaloneManagedChildEvidence(
+  run: RunEnvelope | undefined,
+  trial: ContextEfficiencyCollectedTrial,
+): void {
+  if (run === undefined) return;
+  const hasSharedBudgetEvidence = run.telemetry.sharedExecutionBudget !== undefined;
+  if (!hasSharedBudgetEvidence) return;
+  if (trial.executionStrategy !== "internal_benchmark_managed_child") {
+    throw new Error("Managed-child evidence requires the canonical managed-child execution strategy.");
+  }
+  if (!trial.sharedExecutionLimits) {
+    throw new Error("Managed-child collected trial lacks frozen shared execution limits.");
+  }
 }
 
 async function checkpointContextEfficiencyReport(
@@ -1603,6 +1655,14 @@ function requireString(value: unknown, label: string): string {
     throw new Error(`${label} must be a non-empty string.`);
   }
   return value;
+}
+
+function requireSha256Digest(value: unknown, label: string): string {
+  const digest = requireString(value, label);
+  if (!/^sha256:[a-f0-9]{64}$/iu.test(digest)) {
+    throw new Error(`${label} must be a SHA-256 digest.`);
+  }
+  return digest;
 }
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {

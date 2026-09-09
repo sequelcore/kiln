@@ -1,13 +1,12 @@
+import { normalizeBoundedWorkAdmissionRevision, type BoundedWorkAdmissionRevision } from "@kilnai/core/work-governance";
 import { createHash, randomUUID } from "node:crypto";
 import { Database } from "bun:sqlite";
 import {
   decideBoundedWorkAdmission,
-  normalizeBoundedWorkContractRevision,
   normalizeBoundedWorkAccountingSnapshot,
   type AssessBoundedWorkScopeInput,
   type BoundedWorkAccountingSnapshot,
   type BoundedWorkAdmissionDecision,
-  type BoundedWorkContractRevision,
   type BoundedWorkHarnessCapability,
   type BoundedWorkReservation,
 } from "@kilnai/core";
@@ -69,6 +68,8 @@ export interface BoundedWorkReservationResult {
   readonly decision: BoundedWorkAdmissionDecision;
   readonly accounting: BoundedWorkAccountingSnapshot;
   readonly reservation?: BoundedWorkReservationReceipt;
+  /** True when the idempotency key returned an existing admission. */
+  readonly replayed?: boolean;
 }
 
 export interface BoundedWorkAuthorityProjectionState {
@@ -164,7 +165,7 @@ export class SqliteBoundedWorkAuthority {
     readonly projectRuntimeId: string;
     readonly goalRunId: string;
     readonly workItemId: string;
-    readonly contractRevision: BoundedWorkContractRevision;
+    readonly contractRevision: BoundedWorkAdmissionRevision;
     readonly idempotencyKey: string;
     readonly route: BoundedWorkRouteIdentity;
     readonly harnessCapability: BoundedWorkHarnessCapability;
@@ -174,14 +175,14 @@ export class SqliteBoundedWorkAuthority {
     readonly reservation: BoundedWorkReservation;
   }): BoundedWorkReservationResult {
     this.#assertOpen();
-    const revision = normalizeBoundedWorkContractRevision(input.contractRevision);
+    const revision = normalizeBoundedWorkAdmissionRevision(input.contractRevision);
     const projectRuntimeId = requireIdentifier(input.projectRuntimeId, "projectRuntimeId");
     const goalRunId = requireIdentifier(input.goalRunId, "goalRunId");
     const workItemId = requireIdentifier(input.workItemId, "workItemId");
     if (input.scope && input.scope.workItemId !== workItemId) {
       throw new TypeError("Bounded-work scope attribution must match the reserved work item.");
     }
-    if (!revision.contract.scope.allowedWorkItemIds.includes(workItemId)) {
+    if (revision.schema === "kiln.bounded-work-contract-revision/v1" && !revision.contract.scope.allowedWorkItemIds.includes(workItemId)) {
       throw new TypeError(`Work item ${workItemId} is not bound to the bounded-work contract.`);
     }
     const accountingLineageId = requireIdentifier(revision.accountingLineageId, "accountingLineageId");
@@ -218,11 +219,11 @@ export class SqliteBoundedWorkAuthority {
         if (replay.request_fingerprint !== requestFingerprint) {
           throw new BoundedWorkAuthorityError("idempotency_conflict");
         }
-        return {
+        return withReplayMarker({
           decision: JSON.parse(replay.decision_json) as BoundedWorkAdmissionDecision,
           accounting: parseSnapshot(replay.accounting_json),
           ...(replay.reservation_id ? { reservation: this.#requireReservation(replay.reservation_id) } : {}),
-        };
+        });
       }
 
       let account = this.#account(projectRuntimeId, accountingLineageId);
@@ -545,7 +546,7 @@ export class SqliteBoundedWorkAuthority {
 }
 
 function emptySnapshot(
-  revision: BoundedWorkContractRevision,
+  revision: BoundedWorkAdmissionRevision,
   observedMetrics: readonly "tool_calls"[] | undefined,
 ): BoundedWorkAccountingSnapshot {
   return {
@@ -617,6 +618,16 @@ function checkedSubtract(value: number, amount: number): number {
 
 function parseSnapshot(value: string): BoundedWorkAccountingSnapshot {
   return normalizeBoundedWorkAccountingSnapshot(JSON.parse(value) as BoundedWorkAccountingSnapshot);
+}
+
+function withReplayMarker(result: Omit<BoundedWorkReservationResult, "replayed">): BoundedWorkReservationResult {
+  Object.defineProperty(result, "replayed", {
+    value: true,
+    enumerable: false,
+    writable: false,
+    configurable: false,
+  });
+  return result as BoundedWorkReservationResult;
 }
 
 function normalizeFormalVerificationCapability(

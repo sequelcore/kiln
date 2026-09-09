@@ -1294,8 +1294,8 @@ async function buildManagedInvocationRequestRecord(input: {
   throwManagedInvocationPreFenceAbort(context.abortSignal);
   if (parsed.goalRunId || attachment.sharedExecutionBudget) {
     const sharedScopeAttribution = attachment.sharedExecutionBudget?.managedInvocationAttribution();
-    const goalRunId = parsed.goalRunId ?? sharedScopeAttribution?.goalRunId;
-    const workItemId = parsed.workItemId ?? sharedScopeAttribution?.workItemId;
+    const goalRunId = sharedScopeAttribution?.goalRunId ?? parsed.goalRunId;
+    const workItemId = sharedScopeAttribution?.workItemId ?? parsed.workItemId;
     if (!workItemId || !goalRunId) {
       return {
         ok: false,
@@ -1327,6 +1327,9 @@ async function buildManagedInvocationRequestRecord(input: {
       parentSessionId: context.session.id,
       goalRunId,
       workItemId,
+      ...(parsed.goalRunId ? { requestedGoalRunId: parsed.goalRunId } : {}),
+      ...(parsed.workItemId ? { requestedWorkItemId: parsed.workItemId } : {}),
+      goalGovernanceRequested: parsed.goalRunId !== undefined,
       ...(parsed.attemptId ? { attemptId: parsed.attemptId } : {}),
       invocationId,
       routeId: route.routeId,

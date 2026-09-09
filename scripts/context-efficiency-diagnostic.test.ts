@@ -36,14 +36,16 @@ function sharedExecutionBudgetEvidence(input: {
   readonly settlementStatus?: "settled" | "reconciliation_required";
 } = {}) {
   return {
-    scopeId: "sha256:shared-budget-scope",
+    scopeId: `sha256:${"a".repeat(64)}`,
     accountingLineageId: "benchmark-goal",
-    contractRevisionDigest: "sha256:shared-budget-contract",
+    contractRevisionDigest: `sha256:${"b".repeat(64)}`,
     limits: {
       maximumManagedChildren: input.maximumManagedChildren ?? 1,
       maximumToolCalls: input.maximumToolCalls ?? 2,
     },
     accounting: {
+      accountingLineageId: "benchmark-goal",
+      contractRevisionDigest: `sha256:${"b".repeat(64)}`,
       managedInvocations: input.managedInvocations ?? 1,
       activeManagedInvocations: input.activeManagedInvocations ?? 0,
       toolCalls: input.toolCallKind === "unavailable"
@@ -1558,7 +1560,9 @@ describe("context efficiency diagnostic collector", () => {
         },
       });
       const report = collectContextEfficiencyTrials([{
-        taskId: "child", condition: "cold", repetition: 1, output: result.output,
+        taskId: "child", executionStrategy: "internal_benchmark_managed_child",
+        sharedExecutionLimits: { maximumManagedChildren: 1, maximumToolCalls: 2 },
+        condition: "cold", repetition: 1, output: result.output,
       }]);
       expect(report.trials[0]).toMatchObject({
         run: { telemetry: { sharedExecutionBudget: { accounting: { toolCalls: { value: 1 } } } } },
@@ -1818,6 +1822,62 @@ describe("context efficiency diagnostic collector", () => {
     }]);
     expect(makeReport(false).cells[0]?.metrics.inputTokens).toMatchObject({ observedCount: 1, median: 35 });
     expect(makeReport(true).cells[0]?.metrics.inputTokens).toMatchObject({ observedCount: 0, unknownCount: 1, median: null });
+  });
+
+  it("rejects managed evidence without a canonical execution strategy or frozen limits", () => {
+    const output = runEnvelope();
+    const managedOutput = {
+      ...output,
+      telemetry: {
+        ...output.telemetry,
+        sharedExecutionBudget: sharedExecutionBudgetEvidence(),
+      },
+    };
+    expect(() => collectContextEfficiencyTrials([{
+      taskId: "managed_agent_enabled", condition: "cold", repetition: 1, output: managedOutput,
+    }])).toThrow(/canonical managed-child execution strategy/u);
+    expect(() => collectContextEfficiencyTrials([{
+      taskId: "managed_agent_enabled", executionStrategy: "internal_benchmark_managed_child",
+      condition: "cold", repetition: 1, output: managedOutput,
+    }])).toThrow(/frozen shared execution limits/u);
+  });
+
+  it("binds managed rows to the frozen strategy and exact shared limits", () => {
+    const output = {
+      ...runEnvelope(),
+      telemetry: {
+        ...runEnvelope().telemetry,
+        sharedExecutionBudget: sharedExecutionBudgetEvidence({ maximumManagedChildren: 1, maximumToolCalls: 2 }),
+      },
+    };
+    const manifest = {
+      schemaVersion: "kiln-context-efficiency-post-fix-manifest-v1",
+      identity: {
+        startingCommit: "a".repeat(40),
+        sourceContractDigest: `sha256:${"a".repeat(64)}`,
+        inputContractDigest: `sha256:${"b".repeat(64)}`,
+        protocolContractDigest: `sha256:${"c".repeat(64)}`,
+        configurationRevisionId: `sha256:${"d".repeat(64)}`,
+        toolProjectionRecipeDigest: `sha256:${"e".repeat(64)}`,
+        targetId: "codex-luna", providerId: "codex-oauth", modelId: "gpt-5.6-luna", deliberationLevel: "low",
+      },
+      design: {
+        repetitionsPerCell: 1, invalidRetriesPerCell: 0, timeoutMs: 1_000,
+        budgetsPerTrial: {
+          maximumProviderRequests: 1, maximumToolCalls: 2, maximumManagedChildren: 1,
+          maximumCumulativeInputTokens: 100, maximumCumulativeOutputTokens: 50,
+        },
+      },
+      tasks: [{ id: "child", executionStrategy: "internal_benchmark_managed_child", conditions: ["cold"] }],
+    };
+    const base = { taskId: "child", condition: "cold" as const, repetition: 1, output };
+    expect(bindContextEfficiencyReport(manifest, [base]).trials[0]).toMatchObject({ validity: "valid" });
+    expect(() => bindContextEfficiencyReport(manifest, [{
+      ...base, executionStrategy: "cli_run",
+    }])).toThrow(/execution strategy differs/u);
+    expect(() => bindContextEfficiencyReport(manifest, [{
+      ...base, sharedExecutionLimits: { maximumManagedChildren: 1, maximumToolCalls: 1 },
+    }])).toThrow(/shared execution limits differ/u);
   });
 
   it("rejects private content correlation fields", () => {

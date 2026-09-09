@@ -1,5 +1,17 @@
 # Roadmap
 
+## Development freeze — 2026-09-09
+
+The operator has frozen `dev` after preserving the pending local work. The
+execution queue below is suspended; resuming Kiln development requires an
+explicit operator decision. This freeze is a preservation checkpoint, not a
+claim that the saved implementation or its tests have been verified.
+
+Tesota starts independently on `tesota/bootstrap`, with historical provenance
+`4257ee9fce034cfe8e50dce3dbe3afb12f468094`. That commit is not a verified
+functional baseline. Tesota does not inherit this execution queue, and its
+bootstrap does not authorize changing Kiln's durable operator state.
+
 This directory contains unfinished implementation tracks and explicit admission
 boundaries. Stable behavior belongs in `docs/architecture/`; completed delivery
 evidence belongs in the changelog or a release record.

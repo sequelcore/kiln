@@ -1,3 +1,4 @@
+import { adoptBoundedWorkExecutionBudgetRevision } from "@kilnai/core/work-governance";
 import { BOUNDED_IMPLEMENTATION_PROFILE_ID, type BoundedImplementationVerification } from "@kilnai/core/eval";
 import { createHash, randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
@@ -12,7 +13,6 @@ import {
   GoalRunStore,
   SandboxPolicy,
   WorkItemStore,
-  adoptBoundedWorkContractRevision,
   createBoundHostToolSandbox,
   createSessionBuiltinToolOptions,
   defineDeliberationLevelId,
@@ -35,7 +35,7 @@ import {
 } from "@kilnai/runtime";
 import type {
   BoundedWorkAdoptionAuthority,
-  BoundedWorkContractRevision,
+  BoundedWorkExecutionBudgetRevision,
 } from "@kilnai/core/work-governance";
 import type {
   OperatorAdoptionRuntimeBinding,
@@ -573,19 +573,11 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       ? Object.freeze({
           goalRunId: `benchmark:${sessionId}:shared-execution-budget`,
           workItemId: `benchmark:${sessionId}:item:${context.item.id}`,
-          planDigest: digestCanonicalValue({
-            kind: "benchmark-shared-execution-budget-plan/v1",
-            sessionId,
-            itemId: context.item.id,
-            profileId: context.profile.id,
-            runIndex: context.runIndex,
-            repeatIndex: context.repeatIndex,
-            limits: sharedExecutionLimits,
-            convergence: executionEnvelope.convergence,
-          }),
+
         })
       : undefined;
     let sharedExecutionBudgetSnapshot: RuntimeSharedExecutionBudgetSnapshot | undefined;
+    let sharedExecutionBudgetBound = false;
     const workItemStore = new WorkItemStore();
     const goalRunStore = new GoalRunStore();
     const capturedLemmaCheckObservations: LemmaCheckOutput[] = [];
@@ -633,7 +625,9 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       }
       authorityLease?.cleanup();
     };
-    benchmarkCleanupRegistry.register(async () => closeAuthorityState());
+    // Authority teardown is sequenced in the outer finally block. CleanupRegistry
+    // drains provider and child resources concurrently, so it cannot own the
+    // bounded-work database close that must follow the final shared snapshot.
     let managedInvocation = benchmarkWorkspace.kind === "repository"
       ? options.appConfig.managedInvocation
       : undefined;
@@ -715,11 +709,12 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
           event.kilnSessionId,
           [toCanonicalSessionEventPersistedTranscriptEventDraft(event)],
         );
-        if (sharedExecutionBudget && sharedExecutionLimits && sharedExecutionBudgetIdentity) {
+        // Bind only after the canonical adoption event is durably appended.
+        // Later transcript events are projections of the same adoption and
+        // must never attempt to replace the immutable accounting scope.
+        if (!sharedExecutionBudgetBound && sharedExecutionBudget && sharedExecutionLimits && sharedExecutionBudgetIdentity) {
           const revision = createBenchmarkSharedExecutionBudgetRevision({
             goalRunId: sharedExecutionBudgetIdentity.goalRunId,
-            workItemId: sharedExecutionBudgetIdentity.workItemId,
-            planDigest: sharedExecutionBudgetIdentity.planDigest,
             limits: sharedExecutionLimits,
             adoptedAt: event.timestamp.toISOString(),
             adoptedBy: event.contractAuthority,
@@ -734,6 +729,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
             harnessCapability: "authoritative",
             limits: sharedExecutionLimits,
           }));
+          sharedExecutionBudgetBound = true;
         }
       },
       replayCanonicalSessionEvents: async (canonicalSessionId) => canonicalSessionEventsFromTranscript(
@@ -776,7 +772,10 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     };
     let accountFallbackCount = 0;
     if (Date.now() >= deadlineAt) expireBenchmarkDeadline();
-    const result = await (configuredRouteCandidates.length > 0 && directExecutionTargetCatalog
+    let result: Awaited<ReturnType<typeof runSession>>;
+    let benchmarkCleanupDrained = false;
+    try {
+      result = await (configuredRouteCandidates.length > 0 && directExecutionTargetCatalog
       ? (async () => {
           if (!configuredRouteCandidate) {
             throw new Error("Canonical benchmark dispatch requires one configured route candidate.");
@@ -831,15 +830,23 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       : runSession({
           ...runInput,
           routeCandidates: routeCandidates.length > 0 ? routeCandidates : undefined,
-        })).finally(async () => {
-      clearBenchmarkDeadline();
+        }));
+      // CleanupRegistry drains provider and managed-child surfaces concurrently.
+      // Authority teardown is deliberately outside the registry, so wait for
+      // that drain before taking the shared accounting snapshot.
       await benchmarkCleanupRegistry.runAll();
+      benchmarkCleanupDrained = true;
       if (sharedExecutionBudget) {
         sharedExecutionBudgetSnapshot = sharedExecutionBudget.snapshot();
       }
+    } finally {
+      clearBenchmarkDeadline();
+      if (!benchmarkCleanupDrained) {
+        await benchmarkCleanupRegistry.runAll();
+      }
       await manager.cleanupWorktree(sessionContext);
       closeBuiltinResources(configuredBuiltinToolOptions);
-    });
+    }
     const modelExecutionDurationMs = Date.now() - startedAt;
     if (workspaceFixtureHash && !isFormalScreening) {
       verifyBenchmarkWorkspaceUnchanged(repositoryRoot, benchmarkWorkspace, workspaceFixtureHash);
@@ -1149,9 +1156,9 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
           writeLease?.cleanup();
         } finally {
           try {
-            closeAuthorityState();
-          } finally {
             closeBoundedWorkAuthority();
+          } finally {
+            closeAuthorityState();
           }
         }
       }
@@ -1170,69 +1177,27 @@ function assertBenchmarkDeadlineAt(value: number | undefined): void {
 
 function createBenchmarkSharedExecutionBudgetRevision(input: {
   readonly goalRunId: string;
-  readonly workItemId: string;
-  readonly planDigest: string;
   readonly limits: {
     readonly maximumManagedChildren: number;
     readonly maximumToolCalls: number;
   };
   readonly adoptedAt: string;
   readonly adoptedBy: BoundedWorkAdoptionAuthority;
-}): BoundedWorkContractRevision {
-  return adoptBoundedWorkContractRevision({
+}): BoundedWorkExecutionBudgetRevision {
+  return adoptBoundedWorkExecutionBudgetRevision({
     accountingLineageId: input.goalRunId,
     adoptedAt: input.adoptedAt,
     adoptedBy: input.adoptedBy,
-    contract: {
-      schema: "kiln.bounded-work-contract/v2",
-      intent: {
-        objective: `Enforce the immutable benchmark shared-execution plan ${input.planDigest}.`,
-        acceptanceCriteria: [{
-          id: "shared-execution-budget-enforced",
-          statement: "The parent and direct managed children share the declared invocation and logical-tool limits.",
-        }],
-        nonGoals: [],
-      },
-      assurance: {
-        formalVerification: {
-          semantics: "allOf",
-          obligations: [{
-            id: "shared-execution-budget-runtime-authority",
-            symbol: "RuntimeSharedExecutionBudgetScope",
-            subjectPaths: ["packages/runtime/src/work-governance/runtime-shared-execution-budget.ts"],
-          }],
-          mappings: [{
-            criterionId: "shared-execution-budget-enforced",
-            obligationIds: ["shared-execution-budget-runtime-authority"],
-          }],
-        },
-      },
-      scope: {
-        allowedWorkItemIds: [input.workItemId],
-        permittedEffects: ["inspect", "invoke_managed_agent"],
-        permittedSurfaces: ["benchmark"],
-        allowedRoots: ["."],
-        deniedRoots: [],
-        refactorAuthority: "none",
-        migrationAuthority: "none",
-        dependencyAuthority: "none",
-      },
-      limits: {
-        maxExecutionAttempts: 1,
-        maxManagedInvocations: input.limits.maximumManagedChildren,
-        maxConcurrentManagedInvocations: input.limits.maximumManagedChildren,
-        maxChildDepth: 1,
-        maxReviewRounds: 0,
-        maxRemediationRounds: 0,
-        maxToolCalls: input.limits.maximumToolCalls,
-      },
-      tripwires: {},
-      policy: {
-        scopeExpansion: "deny",
-        budgetExhaustion: "stop",
-        minimumHarnessCapability: "authoritative",
-      },
+    limits: {
+      maxExecutionAttempts: 1,
+      maxManagedInvocations: input.limits.maximumManagedChildren,
+      maxConcurrentManagedInvocations: input.limits.maximumManagedChildren,
+      maxChildDepth: 1,
+      maxReviewRounds: 0,
+      maxRemediationRounds: 0,
+      maxToolCalls: input.limits.maximumToolCalls,
     },
+    policy: { budgetExhaustion: "stop" },
   });
 }
 

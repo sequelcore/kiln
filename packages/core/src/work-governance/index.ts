@@ -1,4 +1,10 @@
 export {
+  adoptBoundedWorkExecutionBudgetRevision,
+  normalizeBoundedWorkExecutionBudgetRevision,
+  normalizeBoundedWorkAdmissionRevision,
+} from "./bounded-work-contract.js";
+export type { BoundedWorkExecutionBudgetRevision, BoundedWorkAdmissionRevision } from "./bounded-work-contract.js";
+export {
   KILN_WORK_GOVERNANCE_EVIDENCE,
   isKilnWorkGovernanceEvidence,
   type KilnWorkGovernanceEvidence,

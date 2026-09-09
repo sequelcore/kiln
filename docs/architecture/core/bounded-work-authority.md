@@ -167,15 +167,17 @@ Every failure mode is a typed error rather than a silent fallback:
 
 ### Shared benchmark execution limits
 
-Implementation status: in progress. The following is the intended contract;
-composition, admission precedence, and aggregate evidence still require
-verification before a live diagnostic may rely on these limits.
+The shared budget uses `kiln.bounded-work-execution-budget-revision/v1`. It
+contains resource limits and adoption identity, with no goal acceptance or formal
+verification obligations. Goal contracts retain their existing Assurance checks;
+a budget revision cannot enter goal closeout. Both revision kinds use the same
+atomic reservation and accounting store.
 
-A native benchmark can bind a shared execution budget to the same bounded-work
-authority. Its immutable revision uses the operator-adoption decision already
-persisted by the canonical run dispatcher. Binding waits for that persistence;
-an unbound budget fails closed. It does not create a model-owned goal or assert
-approval of a separate plan.
+The internal benchmark path can bind a shared execution budget to the same
+bounded-work authority. Its budget-only revision uses the operator-adoption
+decision persisted by the canonical run dispatcher. Binding waits for that
+persistence; an unbound budget fails closed. The benchmark does not create a
+model-owned goal or infer approval of a separate plan.
 
 The parent and direct children share one accounting lineage. Runtime reserves
 each normalized logical tool batch before execution, including discovery,
@@ -192,9 +194,13 @@ governance, when present, remains an additional constraint.
 
 The benchmark projects the canonical accounting snapshot after child cleanup
 and before closing the authority. Parent transcript counts remain separate
-observations. Missing, unobserved, or unsettled aggregate evidence cannot prove
-compliance with a shared limit. Tool-call observability is enabled only for this
-fully instrumented scope; it does not upgrade the default goal surface's metric
+observations. The collector retains already observed provider evidence when the
+shared snapshot is active or requires reconciliation, but marks the row
+invalid; missing, unobserved, or unsettled aggregate evidence cannot prove
+compliance with a shared limit. Report binding supplies the execution strategy
+and exact frozen limits from the manifest, so a collected row cannot self-admit
+different limits. Tool-call observability is enabled only for this fully
+instrumented scope; it does not upgrade the default goal surface's metric
 capability.
 
 ## Candidates and evidence

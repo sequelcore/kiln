@@ -66,10 +66,17 @@ export interface BoundedWorkLimits {
   readonly maxActiveDurationMs?: number;
 }
 
+/** Resource ceilings that may be revised without changing goal semantics. */
+export type BoundedWorkExecutionBudgetLimits = BoundedWorkLimits;
+
 export interface BoundedWorkPolicy {
   readonly scopeExpansion: "deny" | "approval_required";
   readonly budgetExhaustion: "pause" | "stop";
   readonly minimumHarnessCapability: BoundedWorkHarnessCapability;
+}
+
+export interface BoundedWorkExecutionBudgetPolicy {
+  readonly budgetExhaustion: BoundedWorkPolicy["budgetExhaustion"];
 }
 
 export interface BoundedWorkContract {
@@ -106,8 +113,37 @@ export interface BoundedWorkContractRevision {
   readonly contract: BoundedWorkContract;
 }
 
+export const BOUNDED_WORK_EXECUTION_BUDGET_REVISION_SCHEMA =
+  "kiln.bounded-work-execution-budget-revision/v1" as const;
+
+export interface BoundedWorkExecutionBudgetRevision {
+  readonly schema: typeof BOUNDED_WORK_EXECUTION_BUDGET_REVISION_SCHEMA;
+  readonly kind: "execution_budget";
+  readonly revision: number;
+  readonly budgetDigest: string;
+  readonly revisionDigest: string;
+  readonly accountingLineageId: string;
+  readonly parentRevisionDigest?: string;
+  readonly adoptedAt: string;
+  readonly adoptedBy: BoundedWorkAdoptionAuthority;
+  readonly limits: BoundedWorkExecutionBudgetLimits;
+  readonly policy: BoundedWorkExecutionBudgetPolicy;
+}
+
+export type BoundedWorkAdmissionRevision =
+  | BoundedWorkContractRevision
+  | BoundedWorkExecutionBudgetRevision;
+
 export interface AdoptBoundedWorkContractRevisionInput {
   readonly contract: BoundedWorkContract;
+  readonly adoptedAt: string;
+  readonly adoptedBy: BoundedWorkAdoptionAuthority;
+  readonly accountingLineageId: string;
+}
+
+export interface AdoptBoundedWorkExecutionBudgetRevisionInput {
+  readonly limits: BoundedWorkExecutionBudgetLimits;
+  readonly policy: BoundedWorkExecutionBudgetPolicy;
   readonly adoptedAt: string;
   readonly adoptedBy: BoundedWorkAdoptionAuthority;
   readonly accountingLineageId: string;
@@ -121,6 +157,7 @@ export interface SupersedeBoundedWorkContractRevisionInput {
   readonly adoptedBy: BoundedWorkAdoptionAuthority;
   readonly accountingLineageId: string;
 }
+
 
 export type BoundedWorkScopeAssessment =
   | {
@@ -238,6 +275,95 @@ export function normalizeBoundedWorkContractRevision(
   return deepFreeze({ ...revisionIdentity, revisionDigest, contract });
 }
 
+export function adoptBoundedWorkExecutionBudgetRevision(
+  input: AdoptBoundedWorkExecutionBudgetRevisionInput,
+): BoundedWorkExecutionBudgetRevision {
+  const limits = normalizeBoundedWorkExecutionBudgetLimits(input.limits);
+  const policy = normalizeBoundedWorkExecutionBudgetPolicy(input.policy);
+  const adoptedAt = requireCanonicalTimestamp(input.adoptedAt, "adoptedAt");
+  const adoptedBy = normalizeAdoptionAuthority(input.adoptedBy);
+  const accountingLineageId = requireText(input.accountingLineageId, "accountingLineageId");
+  const budgetDigest = boundedWorkDigest({ limits, policy });
+  const revisionIdentity = {
+    schema: BOUNDED_WORK_EXECUTION_BUDGET_REVISION_SCHEMA,
+    kind: "execution_budget" as const,
+    revision: 1,
+    budgetDigest,
+    accountingLineageId,
+    adoptedAt,
+    adoptedBy,
+  };
+  return deepFreeze({
+    ...revisionIdentity,
+    revisionDigest: boundedWorkDigest(revisionIdentity),
+    limits,
+    policy,
+  });
+}
+
+export function normalizeBoundedWorkExecutionBudgetRevision(
+  input: BoundedWorkExecutionBudgetRevision,
+): BoundedWorkExecutionBudgetRevision {
+  if (!isRecord(input) || input.schema !== BOUNDED_WORK_EXECUTION_BUDGET_REVISION_SCHEMA) {
+    throw new Error("bounded-work execution budget revision schema is invalid");
+  }
+  assertExactKeys(input, [
+    "schema",
+    "kind",
+    "revision",
+    "budgetDigest",
+    "revisionDigest",
+    "accountingLineageId",
+    ...(input.parentRevisionDigest === undefined ? [] : ["parentRevisionDigest"]),
+    "adoptedAt",
+    "adoptedBy",
+    "limits",
+    "policy",
+  ], "bounded-work execution budget revision");
+  if (input.kind !== "execution_budget") {
+    throw new Error("bounded-work execution budget revision kind is invalid");
+  }
+  const revision = positiveInteger(input.revision, "revision");
+  const limits = normalizeBoundedWorkExecutionBudgetLimits(input.limits as BoundedWorkExecutionBudgetLimits);
+  const policy = normalizeBoundedWorkExecutionBudgetPolicy(input.policy as BoundedWorkExecutionBudgetPolicy);
+  const budgetDigest = boundedWorkDigest({ limits, policy });
+  if (requireBoundedWorkDigest(input.budgetDigest as string, "budgetDigest") !== budgetDigest) {
+    throw new Error("bounded-work execution budget digest does not match content");
+  }
+  const accountingLineageId = requireText(input.accountingLineageId, "accountingLineageId");
+  const adoptedAt = requireCanonicalTimestamp(input.adoptedAt as string, "adoptedAt");
+  const adoptedBy = normalizeAdoptionAuthority(input.adoptedBy as BoundedWorkAdoptionAuthority);
+  const parentRevisionDigest = input.parentRevisionDigest === undefined
+    ? undefined
+    : requireBoundedWorkDigest(input.parentRevisionDigest as string, "parentRevisionDigest");
+  if ((revision === 1) !== (parentRevisionDigest === undefined)) {
+    throw new Error("bounded-work execution budget parent revision relation is invalid");
+  }
+  const revisionIdentity = {
+    schema: BOUNDED_WORK_EXECUTION_BUDGET_REVISION_SCHEMA,
+    kind: "execution_budget" as const,
+    revision,
+    budgetDigest,
+    accountingLineageId,
+    ...(parentRevisionDigest === undefined ? {} : { parentRevisionDigest }),
+    adoptedAt,
+    adoptedBy,
+  };
+  const revisionDigest = boundedWorkDigest(revisionIdentity);
+  if (requireBoundedWorkDigest(input.revisionDigest as string, "revisionDigest") !== revisionDigest) {
+    throw new Error("bounded-work execution budget revision digest does not match identity");
+  }
+  return deepFreeze({ ...revisionIdentity, revisionDigest, limits, policy });
+}
+
+export function normalizeBoundedWorkAdmissionRevision(
+  input: BoundedWorkAdmissionRevision,
+): BoundedWorkAdmissionRevision {
+  return input.schema === BOUNDED_WORK_EXECUTION_BUDGET_REVISION_SCHEMA
+    ? normalizeBoundedWorkExecutionBudgetRevision(input)
+    : normalizeBoundedWorkContractRevision(input);
+}
+
 export function assessBoundedWorkScope(input: AssessBoundedWorkScopeInput): BoundedWorkScopeAssessment {
   const contract = input.revision.contract;
   const violations = assessBoundedWorkScopePolicy({
@@ -261,23 +387,7 @@ export function normalizeBoundedWorkContract(input: BoundedWorkContract): Bounde
   if (input.schema !== BOUNDED_WORK_CONTRACT_SCHEMA) {
     throw new Error(`bounded-work contract schema must be ${BOUNDED_WORK_CONTRACT_SCHEMA}`);
   }
-  const limits: BoundedWorkLimits = {
-    maxExecutionAttempts: positiveInteger(input.limits.maxExecutionAttempts, "maxExecutionAttempts"),
-    maxManagedInvocations: nonNegativeInteger(input.limits.maxManagedInvocations, "maxManagedInvocations"),
-    maxConcurrentManagedInvocations: nonNegativeInteger(
-      input.limits.maxConcurrentManagedInvocations,
-      "maxConcurrentManagedInvocations",
-    ),
-    maxChildDepth: nonNegativeInteger(input.limits.maxChildDepth, "maxChildDepth"),
-    maxReviewRounds: nonNegativeInteger(input.limits.maxReviewRounds, "maxReviewRounds"),
-    maxRemediationRounds: nonNegativeInteger(input.limits.maxRemediationRounds, "maxRemediationRounds"),
-    ...(input.limits.maxToolCalls === undefined
-      ? {}
-      : { maxToolCalls: positiveInteger(input.limits.maxToolCalls, "maxToolCalls") }),
-    ...(input.limits.maxActiveDurationMs === undefined
-      ? {}
-      : { maxActiveDurationMs: positiveInteger(input.limits.maxActiveDurationMs, "maxActiveDurationMs") }),
-  };
+  const limits = normalizeBoundedWorkLimits(input.limits);
   if (limits.maxConcurrentManagedInvocations > limits.maxManagedInvocations) {
     throw new Error("maxConcurrentManagedInvocations cannot exceed maxManagedInvocations");
   }
@@ -324,6 +434,48 @@ function normalizeAdoptionAuthority(input: BoundedWorkAdoptionAuthority): Bounde
     };
   }
   throw new Error("adoptedBy.kind must be operator or approved_plan");
+}
+
+export function normalizeBoundedWorkLimits(input: BoundedWorkLimits): BoundedWorkLimits {
+  const limits: BoundedWorkLimits = {
+    maxExecutionAttempts: positiveInteger(input.maxExecutionAttempts, "maxExecutionAttempts"),
+    maxManagedInvocations: nonNegativeInteger(input.maxManagedInvocations, "maxManagedInvocations"),
+    maxConcurrentManagedInvocations: nonNegativeInteger(
+      input.maxConcurrentManagedInvocations,
+      "maxConcurrentManagedInvocations",
+    ),
+    maxChildDepth: nonNegativeInteger(input.maxChildDepth, "maxChildDepth"),
+    maxReviewRounds: nonNegativeInteger(input.maxReviewRounds, "maxReviewRounds"),
+    maxRemediationRounds: nonNegativeInteger(input.maxRemediationRounds, "maxRemediationRounds"),
+    ...(input.maxToolCalls === undefined
+      ? {}
+      : { maxToolCalls: positiveInteger(input.maxToolCalls, "maxToolCalls") }),
+    ...(input.maxActiveDurationMs === undefined
+      ? {}
+      : { maxActiveDurationMs: positiveInteger(input.maxActiveDurationMs, "maxActiveDurationMs") }),
+  };
+  if (limits.maxConcurrentManagedInvocations > limits.maxManagedInvocations) {
+    throw new Error("maxConcurrentManagedInvocations cannot exceed maxManagedInvocations");
+  }
+  return limits;
+}
+
+function normalizeBoundedWorkExecutionBudgetLimits(
+  input: BoundedWorkExecutionBudgetLimits,
+): BoundedWorkExecutionBudgetLimits {
+  if (!isRecord(input)) throw new Error("execution budget limits must be an object");
+  assertExactKeys(input, ["maxExecutionAttempts", "maxManagedInvocations", "maxConcurrentManagedInvocations", "maxChildDepth", "maxReviewRounds", "maxRemediationRounds", ...(input.maxToolCalls === undefined ? [] : ["maxToolCalls"]), ...(input.maxActiveDurationMs === undefined ? [] : ["maxActiveDurationMs"])], "execution budget limits");
+  return deepFreeze(normalizeBoundedWorkLimits(input));
+}
+
+function normalizeBoundedWorkExecutionBudgetPolicy(
+  input: BoundedWorkExecutionBudgetPolicy,
+): BoundedWorkExecutionBudgetPolicy {
+  if (!isRecord(input) || (input.budgetExhaustion !== "pause" && input.budgetExhaustion !== "stop")) {
+    throw new Error("execution budget policy.budgetExhaustion must be pause or stop");
+  }
+  assertExactKeys(input, ["budgetExhaustion"], "execution budget policy");
+  return { budgetExhaustion: input.budgetExhaustion };
 }
 
 function normalizeAcceptanceCriteria(

@@ -1062,6 +1062,44 @@ describe("ProviderSession.run()", () => {
     expect(orchestratorConfig.executionEnvelope).toBe(executionEnvelope);
   });
 
+  it("forwards the shared execution budget to the parent Runtime orchestrator", async () => {
+    const sharedExecutionBudget = {
+      assertBound: vi.fn(),
+      managedInvocationAttribution: vi.fn(() => ({ goalRunId: "goal", workItemId: "item" })),
+      reserveToolBatch: vi.fn(() => ({ admitted: true as const })),
+      admitManagedInvocation: vi.fn(() => ({ admitted: false as const, code: "test", message: "test" })),
+      snapshot: vi.fn(),
+    } as unknown as ProviderSessionConfig["sharedExecutionBudget"];
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      model: "gpt-4o",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "text-only",
+      executionEnvelope: {
+        convergence: {
+          policyId: "kiln.cli.tests.shared-budget",
+          configurationHash: `sha256:${"4".repeat(64)}`,
+          providerRequests: 1,
+          toolRounds: 0,
+          toolCalls: 0,
+          cumulativeInputTokens: 1,
+          elapsedMs: 60_000,
+          activeMs: 60_000,
+          recoveryAttempts: 0,
+          consecutiveNoProgressSteps: 1,
+        },
+        sharedWork: { maximumManagedChildren: 2, maximumToolCalls: 3 },
+      },
+      sharedExecutionBudget,
+    }));
+
+    await collectEvents(session.run({ prompt: "shared budget" }));
+
+    expect(runtimeMocks.orchestratorConstructor).toHaveBeenCalledWith(expect.objectContaining({
+      sharedExecutionBudget,
+    }));
+  });
+
   it("denies unsupported communication intent before direct provider I/O", async () => {
     runtimeMocks.processMessage.mockRejectedValueOnce(new Error(
       "Unsupported communication intent cannot execute under deny policy.",
