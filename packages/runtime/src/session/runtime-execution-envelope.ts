@@ -66,6 +66,10 @@ export function deriveRuntimeConvergencePolicyInput(
 export interface RuntimeResolvedExecutionEnvelope {
   readonly convergence: ResolvedTurnConvergencePolicy;
   readonly physicalProviderRequests?: number;
+  readonly sharedWork?: {
+    readonly maximumManagedChildren: number;
+    readonly maximumToolCalls: number;
+  };
   readonly conversation?: RuntimeConversationExecutionEnvelope;
 }
 
@@ -80,16 +84,37 @@ export function resolveRuntimeExecutionEnvelope(
       : resolveTurnConvergencePolicy(value.convergence),
     ...(value?.physicalProviderRequests === undefined
       ? {}
-      : { physicalProviderRequests: requirePositiveSafeInteger(value.physicalProviderRequests) }),
+      : { physicalProviderRequests: requirePositiveSafeInteger(value.physicalProviderRequests, "executionEnvelope.physicalProviderRequests") }),
+    ...(value?.sharedWork === undefined
+      ? {}
+      : { sharedWork: resolveRuntimeSharedWorkEnvelope(value.sharedWork) }),
     ...(conversation !== undefined
       ? { conversation: resolveRuntimeConversationExecutionEnvelope(conversation) }
       : {}),
   });
 }
 
-function requirePositiveSafeInteger(value: number): number {
+function resolveRuntimeSharedWorkEnvelope(value: NonNullable<RuntimeExecutionEnvelope["sharedWork"]>) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new KilnError("CONFIG_INVALID", "executionEnvelope.sharedWork must be an object");
+  }
+  const keys = Object.keys(value);
+  if (
+    keys.length !== 2
+    || !Object.prototype.hasOwnProperty.call(value, "maximumManagedChildren")
+    || !Object.prototype.hasOwnProperty.call(value, "maximumToolCalls")
+  ) {
+    throw new KilnError("CONFIG_INVALID", "executionEnvelope.sharedWork must contain only maximumManagedChildren and maximumToolCalls");
+  }
+  return Object.freeze({
+    maximumManagedChildren: requirePositiveSafeInteger(value.maximumManagedChildren, "executionEnvelope.sharedWork.maximumManagedChildren"),
+    maximumToolCalls: requirePositiveSafeInteger(value.maximumToolCalls, "executionEnvelope.sharedWork.maximumToolCalls"),
+  });
+}
+
+function requirePositiveSafeInteger(value: number, field: string): number {
   if (!Number.isSafeInteger(value) || value <= 0) {
-    throw new KilnError("CONFIG_INVALID", "executionEnvelope.physicalProviderRequests must be a positive safe integer");
+    throw new KilnError("CONFIG_INVALID", `${field} must be a positive safe integer`);
   }
   return value;
 }

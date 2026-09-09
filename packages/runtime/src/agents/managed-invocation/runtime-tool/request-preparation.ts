@@ -1292,8 +1292,11 @@ async function buildManagedInvocationRequestRecord(input: {
     | Extract<import("./types.js").ManagedInvocationBoundedWorkAdmissionResult, { readonly admitted: true }>
     | undefined;
   throwManagedInvocationPreFenceAbort(context.abortSignal);
-  if (parsed.goalRunId) {
-    if (!parsed.workItemId) {
+  if (parsed.goalRunId || attachment.sharedExecutionBudget) {
+    const sharedScopeAttribution = attachment.sharedExecutionBudget?.managedInvocationAttribution();
+    const goalRunId = parsed.goalRunId ?? sharedScopeAttribution?.goalRunId;
+    const workItemId = parsed.workItemId ?? sharedScopeAttribution?.workItemId;
+    if (!workItemId || !goalRunId) {
       return {
         ok: false,
         result: errorResult(
@@ -1322,8 +1325,8 @@ async function buildManagedInvocationRequestRecord(input: {
     }
     const result = admission({
       parentSessionId: context.session.id,
-      goalRunId: parsed.goalRunId,
-      workItemId: parsed.workItemId,
+      goalRunId,
+      workItemId,
       ...(parsed.attemptId ? { attemptId: parsed.attemptId } : {}),
       invocationId,
       routeId: route.routeId,

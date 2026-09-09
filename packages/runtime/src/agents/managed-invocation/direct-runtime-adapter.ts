@@ -66,6 +66,7 @@ import type {
   ToolExecutionSummary,
 } from "../../session/runtime-session-orchestrator.types.js";
 import { deriveRuntimeConvergencePolicyInput } from "../../session/runtime-execution-envelope.js";
+import type { RuntimeSharedExecutionBudget } from "../../work-governance/runtime-shared-execution-budget.js";
 import {
   deriveRuntimeHostToolEnforcement,
   resolveRuntimeHostToolEnforcement,
@@ -100,6 +101,7 @@ export interface ManagedDirectProviderRuntimeAdapterConfig {
   readonly toolInvocationAdmission?: import("@kilnai/core").InvocationAdmission;
   readonly writeAuthority?: ManagedAgentAdapterWriteAuthorityDescriptor;
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
+  readonly sharedExecutionBudget?: RuntimeSharedExecutionBudget;
   readonly providerTransportAdmission?: import("@kilnai/core").ProviderTransportAdmission;
   readonly economicIdentity?: ManagedEconomicExecutionIdentity;
   readonly executionBinding?: Extract<ExecutionSessionBindingEvidence, { readonly status: "bound" }>;
@@ -537,6 +539,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         provider: this.provider,
         ...(this.model ? { model: this.model } : {}),
         executionEnvelope: boundedExecutionEnvelope(this.executionEnvelope, input.workLimits?.maxTurns),
+        ...(this.config.sharedExecutionBudget ? { sharedExecutionBudget: this.config.sharedExecutionBudget } : {}),
         ...(this.config.providerTransportAdmission
           ? { providerTransportAdmission: this.config.providerTransportAdmission }
           : {}),

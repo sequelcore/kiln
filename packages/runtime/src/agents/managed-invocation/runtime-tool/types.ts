@@ -32,6 +32,7 @@ import type {
   BoundedWorkEffect,
 } from "@kilnai/core";
 import type { RuntimeBuiltinToolExecutionContext } from "../../../session/runtime-session-orchestrator.types.js";
+import type { RuntimeSharedExecutionBudget } from "../../../work-governance/runtime-shared-execution-budget.js";
 import type { ManagedAgentRuntimeAdapter, RuntimeManagedAgentInvocationService } from "../index.js";
 import type {
   ManagedEconomicDispatchPreparation,
@@ -182,6 +183,8 @@ export interface ManagedInvocationToolAttachment {
   readonly childAuthorityAdmission?: ManagedChildAuthorityAdmissionContract;
   readonly governedScopeAdmission?: ManagedInvocationGovernedScopeAdmission;
   readonly boundedWorkAdmission?: ManagedInvocationBoundedWorkAdmission;
+  /** Shared parent/child budget; Runtime binds it only after durable operator adoption. */
+  readonly sharedExecutionBudget?: RuntimeSharedExecutionBudget;
 }
 
 export interface ManagedInvocationGovernedScopeAdmissionInput {

@@ -327,6 +327,12 @@ export class RuntimeSessionOrchestrator {
     const executionEnvelope = perCallConfig?.executionEnvelope !== undefined
       ? resolveRuntimeExecutionEnvelope(perCallConfig.executionEnvelope)
       : this.executionEnvelope;
+    if (executionEnvelope.sharedWork !== undefined) {
+      if (!this.deps.sharedExecutionBudget) {
+        throw new Error("A shared execution budget scope is required by the execution envelope.");
+      }
+      this.deps.sharedExecutionBudget.assertBound();
+    }
     const turnObservation = new RuntimeTurnConvergenceObservationCollector(this.deps.monotonicNow);
     const progressClassifier = new RuntimeTurnProgressClassifier();
 
@@ -1047,6 +1053,32 @@ export class RuntimeSessionOrchestrator {
           communicationResolution: routing.communicationResolution,
           preLlmEscalation: escalation,
         });
+      }
+      if (executionEnvelope.sharedWork !== undefined) {
+        const sharedAdmission = this.deps.sharedExecutionBudget!.reserveToolBatch({
+          sessionId: session.id,
+          turnId,
+          toolCallScopeId,
+          toolCallCount: normalizedToolCalls.length,
+        });
+        if (!sharedAdmission.admitted) {
+          return this.finalizeTurnConvergencePause({
+            session,
+            executionEnvelope,
+            decision: {
+              status: "pause",
+              reason: "tool_call_limit",
+              metric: "toolCalls",
+              observed: executionEnvelope.sharedWork.maximumToolCalls,
+              limit: executionEnvelope.sharedWork.maximumToolCalls,
+            },
+            progressEvidence: progressClassifier.chronologicalEvidence,
+            toolExecutions,
+            routingDecision: toPublicRoutingDecision(routing.routingDecision),
+            communicationResolution: routing.communicationResolution,
+            preLlmEscalation: escalation,
+          });
+        }
       }
       turnObservation.recordToolRound(normalizedToolCalls.length);
       const deferredDisclosureBatchReserveActive = deferredDisclosureBatchReservePending

@@ -69,6 +69,7 @@ import type {
 } from "../execution-kernel/runtime-model-round-action-claim.js";
 import type { RuntimeToolActionClaimsContext } from "../execution-kernel/runtime-tool-action-claim.js";
 import type { RuntimeFormalVerificationObservation } from "../work-governance/formal-verification-observations.js";
+import type { RuntimeSharedExecutionBudget } from "../work-governance/runtime-shared-execution-budget.js";
 import type { EffectiveAuthorityAdmissionBundle } from "./effective-authority-admission-bundle.js";
 import type { RuntimeConfigurationRevisionSnapshot } from "./runtime-configuration-revision-pin.js";
 import type { RuntimeSession } from "./runtime-session.js";
@@ -94,6 +95,11 @@ export interface RuntimeExecutionEnvelope {
   readonly convergence?: TurnConvergencePolicyInput;
   /** Hard ceiling across physical transport attempts when an owning surface shares one authority. */
   readonly physicalProviderRequests?: number;
+  /** Immutable limits whose authoritative scope is injected separately by Runtime composition. */
+  readonly sharedWork?: {
+    readonly maximumManagedChildren: number;
+    readonly maximumToolCalls: number;
+  };
   readonly conversation?: RuntimeConversationExecutionEnvelope;
 }
 
@@ -144,6 +150,8 @@ export interface OrchestratorDeps {
   /** Monotonic clock injected for deterministic turn-convergence accounting. */
   readonly monotonicNow?: () => number;
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
+  /** Durable parent/child shared accounting scope. Required when executionEnvelope.sharedWork is present. */
+  readonly sharedExecutionBudget?: RuntimeSharedExecutionBudget;
   readonly providerTransportAdmission?: import("@kilnai/core").ProviderTransportAdmission;
   readonly tools?: readonly ToolDefinition[];
   readonly materializableTools?: ReadonlyMap<string, ToolDefinition>;

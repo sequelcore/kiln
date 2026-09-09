@@ -64,6 +64,13 @@ const REQUIRED_SOURCE_CONTRACT_PATHS = [
 
 export interface ContextEfficiencyCollectedTrial {
   readonly taskId: string;
+  /** Retained when a scheduler produced the row, so report collection can enforce route-specific evidence. */
+  readonly executionStrategy?: string;
+  /** The frozen shared limits for an internally managed-child row. */
+  readonly sharedExecutionLimits?: {
+    readonly maximumManagedChildren: number;
+    readonly maximumToolCalls: number;
+  };
   readonly condition: "cold" | "immediate_warm" | "long_session";
   readonly repetition: number;
   readonly attempt?: number;
@@ -539,6 +546,14 @@ export function createProductionContextEfficiencyDispatcher(input: {
           { output: projected, dispatchEvidence: "unknown" },
         );
       }
+      try {
+        assertManagedChildSharedExecutionBudget(projected, trial);
+      } catch (error) {
+        throw new ContextEfficiencyInvalidTrialError(
+          "collector_failure", "Managed-child aggregate budget evidence is unavailable or invalid.", undefined,
+          { cause: error, output: projected, dispatchEvidence: "observed" },
+        );
+      }
       if (projected.canonicalTrialStatus !== "valid") {
         throw new ContextEfficiencyInvalidTrialError(
           "infrastructure_failure", "Canonical benchmark trial was invalid.", undefined,
@@ -623,6 +638,12 @@ export function createProductionContextEfficiencyDispatcher(input: {
     const policyId = "kiln.context-efficiency-diagnostic.v1";
     const envelope = {
       physicalProviderRequests: providerRequests,
+      ...(trial.executionStrategy === "internal_benchmark_managed_child" ? {
+        sharedWork: {
+          maximumManagedChildren: trial.budgets.maximumManagedChildren,
+          maximumToolCalls: trial.budgets.maximumToolCalls,
+        },
+      } : {}),
       convergence: {
         policyId,
         configurationHash: digestCanonicalValue({ policyId, ...limits }),
@@ -649,6 +670,8 @@ interface RunEnvelope {
     readonly outputTokens: number;
     readonly toolCallCount: number;
     readonly managedChildCount: number;
+    /** Parent-session counters remain separately observable from this shared scope. */
+    readonly sharedExecutionBudget?: SharedExecutionBudgetEvidence;
     readonly durationMs: number;
     readonly providerRequests?: readonly Record<string, unknown>[];
     readonly readToolEvidence?: ContextEfficiencyTaskOracleEvidence["readToolEvidence"];
@@ -660,6 +683,28 @@ interface RunEnvelope {
     readonly requestedAuthority?: string;
     readonly workspaceUnchanged?: boolean;
     readonly oracleReasonCodes?: readonly string[];
+  };
+}
+
+interface SharedExecutionBudgetEvidence {
+  readonly scopeId: string;
+  readonly accountingLineageId: string;
+  readonly contractRevisionDigest: string;
+  readonly limits: {
+    readonly maximumManagedChildren: number;
+    readonly maximumToolCalls: number;
+  };
+  readonly accounting?: {
+    readonly accountingLineageId: string;
+    readonly contractRevisionDigest: string;
+    readonly managedInvocations: number;
+    readonly activeManagedInvocations: number;
+    readonly toolCalls:
+      | { readonly kind: "observed"; readonly value: number }
+      | { readonly kind: "unavailable" };
+  };
+  readonly settlement: {
+    readonly status: "not_started" | "active" | "settled" | "reconciliation_required";
   };
 }
 
@@ -687,8 +732,69 @@ export function validateContextEfficiencyRunEnvelope(value: unknown): RunEnvelop
   for (const request of telemetry.providerRequests) {
     validateProviderRequest(request);
   }
+  const sharedExecutionBudget = telemetry.sharedExecutionBudget === undefined
+    ? undefined
+    : parseSharedExecutionBudgetEvidence(telemetry.sharedExecutionBudget);
   rejectForbiddenEvidenceKeys(value);
-  return value as unknown as RunEnvelope;
+  return {
+    ...value,
+    telemetry: {
+      ...telemetry,
+      ...(sharedExecutionBudget === undefined ? {} : { sharedExecutionBudget }),
+    },
+  } as unknown as RunEnvelope;
+}
+
+function parseSharedExecutionBudgetEvidence(value: unknown): SharedExecutionBudgetEvidence {
+  const evidence = requireRecord(value, "shared execution budget evidence");
+  const limits = requireRecord(evidence.limits, "shared execution budget limits");
+  const settlement = requireRecord(evidence.settlement, "shared execution budget settlement");
+  const settlementStatus = settlement.status;
+  if (settlementStatus !== "not_started" && settlementStatus !== "active"
+    && settlementStatus !== "settled" && settlementStatus !== "reconciliation_required") {
+    throw new Error("Shared execution budget settlement status is invalid.");
+  }
+  const accounting = evidence.accounting === undefined
+    ? undefined
+    : parseSharedExecutionBudgetAccounting(evidence.accounting);
+  return {
+    scopeId: requireSha256Digest(evidence.scopeId, "shared execution budget scope identity"),
+    accountingLineageId: requireString(evidence.accountingLineageId, "shared execution budget accounting lineage"),
+    contractRevisionDigest: requireSha256Digest(evidence.contractRevisionDigest, "shared execution budget contract revision"),
+    limits: {
+      maximumManagedChildren: requireNonNegativeSafeInteger(
+        limits.maximumManagedChildren, "shared execution budget managed-child limit",
+      ),
+      maximumToolCalls: requireNonNegativeSafeInteger(
+        limits.maximumToolCalls, "shared execution budget tool-call limit",
+      ),
+    },
+    ...(accounting === undefined ? {} : { accounting }),
+    settlement: { status: settlementStatus },
+  };
+}
+
+function parseSharedExecutionBudgetAccounting(value: unknown): NonNullable<SharedExecutionBudgetEvidence["accounting"]> {
+  const accounting = requireRecord(value, "shared execution budget accounting");
+  const toolCalls = requireRecord(accounting.toolCalls, "shared execution budget tool-call accounting");
+  if (toolCalls.kind !== "observed" && toolCalls.kind !== "unavailable") {
+    throw new Error("Shared execution budget tool-call accounting kind is invalid.");
+  }
+  return {
+    accountingLineageId: requireString(accounting.accountingLineageId, "shared execution budget accounting lineage"),
+    contractRevisionDigest: requireSha256Digest(
+      accounting.contractRevisionDigest, "shared execution budget accounting contract revision",
+    ),
+    managedInvocations: requireNonNegativeSafeInteger(
+      accounting.managedInvocations, "shared execution budget managed-invocation count",
+    ),
+    activeManagedInvocations: requireNonNegativeSafeInteger(
+      accounting.activeManagedInvocations, "shared execution budget active managed-invocation count",
+    ),
+    toolCalls: toolCalls.kind === "observed"
+      ? { kind: "observed", value: requireNonNegativeSafeInteger(toolCalls.value, "shared execution budget tool-call count") }
+      : { kind: "unavailable" },
+  };
 }
 
 export function collectContextEfficiencyTrials(trials: readonly ContextEfficiencyCollectedTrial[]) {
@@ -714,10 +820,12 @@ export function collectContextEfficiencyTrials(trials: readonly ContextEfficienc
         }),
       };
     }
+    const run = validateContextEfficiencyRunEnvelope(trial.output);
+    assertCollectedManagedChildSharedExecutionBudget(run, trial);
     return {
       ...identity,
       validity,
-      run: projectContentFreeRunEvidence(validateContextEfficiencyRunEnvelope(trial.output)),
+      run: projectContentFreeRunEvidence(run),
     };
   });
   return {
@@ -815,8 +923,13 @@ function projectContentFreeRunEvidence(run: RunEnvelope) {
       inputTokens: usage.kind === "observed" ? usage.inputTokens : null,
       outputTokens: usage.kind === "observed" ? usage.outputTokens : null,
       tokenUsageCompleteness: usage.kind,
+      // Parent-session counters stay separate; this snapshot is the shared
+      // parent-and-child authority used for managed-child budget conclusions.
       toolCallCount: run.telemetry.toolCallCount,
       managedChildCount: run.telemetry.managedChildCount,
+      ...(run.telemetry.sharedExecutionBudget === undefined ? {} : {
+        sharedExecutionBudget: run.telemetry.sharedExecutionBudget,
+      }),
       durationMs: run.telemetry.durationMs,
       providerRequests: (run.telemetry.providerRequests ?? []).map(projectContextEfficiencyProviderEvidence),
     },
@@ -861,6 +974,8 @@ const AGGREGATE_METRIC_NAMES = [
   "providerRequestCount",
   "toolCallCount",
   "managedChildCount",
+  "aggregateToolCallCount",
+  "aggregateManagedChildCount",
   "physicalRequestBytes",
   "systemBytes",
   "messageBytes",
@@ -916,6 +1031,10 @@ function extractAggregateMetrics(run: ContentFreeRunEvidence): Record<AggregateM
     providerRequestCount: requests.length,
     toolCallCount: run.telemetry.toolCallCount,
     managedChildCount: run.telemetry.managedChildCount,
+    aggregateToolCallCount: run.telemetry.sharedExecutionBudget?.accounting?.toolCalls.kind === "observed"
+      ? run.telemetry.sharedExecutionBudget.accounting.toolCalls.value
+      : undefined,
+    aggregateManagedChildCount: run.telemetry.sharedExecutionBudget?.accounting?.managedInvocations,
     physicalRequestBytes: sumPhysicalRegionBytes(requests),
     systemBytes: sumPhysicalRegionBytes(requests, "system"),
     messageBytes: sumPhysicalRegionBytes(requests, "messages"),
@@ -1104,7 +1223,11 @@ export async function dispatchContextEfficiencySchedule(input: {
       // Reserve before dispatch. A killed collector leaves a conservative
       // unknown attempt on disk, never a report that appears not to have run.
       await input.checkpoint?.([...collected, {
-        taskId: trial.taskId, condition: trial.condition, repetition: trial.repetition,
+        taskId: trial.taskId, executionStrategy: trial.executionStrategy,
+        ...(trial.executionStrategy === "internal_benchmark_managed_child" ? {
+          sharedExecutionLimits: sharedExecutionLimitsFor(trial),
+        } : {}),
+        condition: trial.condition, repetition: trial.repetition,
         attempt, validity: "invalid", invalidReason: "infrastructure_failure",
         dispatchEvidence: "unknown", reservedMaximumProviderRequests: trial.budgets.maximumProviderRequests,
       }]);
@@ -1133,7 +1256,8 @@ export async function dispatchContextEfficiencySchedule(input: {
         } else if (trial.executionStrategy === "cli_continuation") {
           result = await input.dispatcher.runConversation({ trial, task,
             checkpoint: async (output) => input.checkpoint?.([...collected, {
-              taskId: trial.taskId, condition: trial.condition, repetition: trial.repetition,
+              taskId: trial.taskId, executionStrategy: trial.executionStrategy,
+              condition: trial.condition, repetition: trial.repetition,
               attempt, validity: "invalid", invalidReason: "infrastructure_failure",
               dispatchEvidence: "unknown", reservedMaximumProviderRequests: trial.budgets.maximumProviderRequests,
               output,
@@ -1170,6 +1294,10 @@ export async function dispatchContextEfficiencySchedule(input: {
         }
         collected.push({
           taskId: trial.taskId,
+          executionStrategy: trial.executionStrategy,
+          ...(trial.executionStrategy === "internal_benchmark_managed_child" ? {
+            sharedExecutionLimits: sharedExecutionLimitsFor(trial),
+          } : {}),
           condition: trial.condition,
           repetition: trial.repetition,
           attempt,
@@ -1191,6 +1319,10 @@ export async function dispatchContextEfficiencySchedule(input: {
           : result !== undefined ? "observed" : "unknown";
         collected.push({
           taskId: trial.taskId,
+          executionStrategy: trial.executionStrategy,
+          ...(trial.executionStrategy === "internal_benchmark_managed_child" ? {
+            sharedExecutionLimits: sharedExecutionLimitsFor(trial),
+          } : {}),
           condition: trial.condition,
           repetition: trial.repetition,
           attempt,
@@ -1238,6 +1370,16 @@ function readCollectionPhysicalProviderRequestCap(
     throw new Error("Frozen collection physical-provider-request ceiling is invalid.");
   }
   return cap;
+}
+
+function sharedExecutionLimitsFor(trial: ContextEfficiencyScheduledTrial): {
+  readonly maximumManagedChildren: number;
+  readonly maximumToolCalls: number;
+} {
+  return {
+    maximumManagedChildren: trial.budgets.maximumManagedChildren,
+    maximumToolCalls: trial.budgets.maximumToolCalls,
+  };
 }
 
 /**
@@ -1475,6 +1617,13 @@ function requirePositiveInteger(value: unknown, label: string): number {
   return value as number;
 }
 
+function requireNonNegativeSafeInteger(value: unknown, label: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw new Error(`${label} must be a non-negative safe integer.`);
+  }
+  return value as number;
+}
+
 function parseJsonOutput(value: string, label: string): unknown {
   try {
     return JSON.parse(value.trim()) as unknown;
@@ -1586,16 +1735,23 @@ function applyTrialBudgetEvaluation(
   trial: ContextEfficiencyScheduledTrial,
 ): RunEnvelope {
   const usage = sumContextEfficiencyObservedUsage(readPhysicalUsage([run]));
+  const sharedExecutionBudget = trial.executionStrategy === "internal_benchmark_managed_child"
+    ? run.telemetry.sharedExecutionBudget
+    : undefined;
+  const aggregateToolCallCount = sharedExecutionBudget?.accounting?.toolCalls.kind === "observed"
+    ? sharedExecutionBudget.accounting.toolCalls.value
+    : run.telemetry.toolCallCount;
+  const aggregateManagedChildCount = sharedExecutionBudget?.accounting?.managedInvocations ?? run.telemetry.managedChildCount;
   const failures = [
     usage.kind === "unknown" ? "physical-request token usage unknown" : undefined,
     run.telemetry.providerRequests!.length > trial.budgets.maximumProviderRequests
       ? `provider requests ${run.telemetry.providerRequests!.length}/${trial.budgets.maximumProviderRequests}`
       : undefined,
-    run.telemetry.toolCallCount > trial.budgets.maximumToolCalls
-      ? `tool calls ${run.telemetry.toolCallCount}/${trial.budgets.maximumToolCalls}`
+    aggregateToolCallCount > trial.budgets.maximumToolCalls
+      ? `aggregate tool calls ${aggregateToolCallCount}/${trial.budgets.maximumToolCalls}`
       : undefined,
-    run.telemetry.managedChildCount > trial.budgets.maximumManagedChildren
-      ? `managed children ${run.telemetry.managedChildCount}/${trial.budgets.maximumManagedChildren}`
+    aggregateManagedChildCount > trial.budgets.maximumManagedChildren
+      ? `aggregate managed children ${aggregateManagedChildCount}/${trial.budgets.maximumManagedChildren}`
       : undefined,
     usage.kind === "observed" && usage.inputTokens > trial.budgets.maximumCumulativeInputTokens
       ? `input tokens ${usage.inputTokens}/${trial.budgets.maximumCumulativeInputTokens}`
@@ -1614,6 +1770,63 @@ function applyTrialBudgetEvaluation(
       oraclePassed: false,
     },
   };
+}
+
+function assertManagedChildSharedExecutionBudget(
+  run: RunEnvelope,
+  trial: ContextEfficiencyScheduledTrial,
+): void {
+  if (trial.executionStrategy !== "internal_benchmark_managed_child") return;
+  assertSharedExecutionBudgetEvidence(run.telemetry.sharedExecutionBudget, {
+    maximumManagedChildren: trial.budgets.maximumManagedChildren,
+    maximumToolCalls: trial.budgets.maximumToolCalls,
+  });
+}
+
+function assertCollectedManagedChildSharedExecutionBudget(
+  run: RunEnvelope,
+  trial: ContextEfficiencyCollectedTrial,
+): void {
+  if (trial.executionStrategy !== "internal_benchmark_managed_child") return;
+  if (!trial.sharedExecutionLimits) {
+    throw new Error("Managed-child collected trial lacks frozen shared execution limits.");
+  }
+  assertSharedExecutionBudgetEvidence(run.telemetry.sharedExecutionBudget, trial.sharedExecutionLimits);
+}
+
+function assertSharedExecutionBudgetEvidence(
+  evidence: SharedExecutionBudgetEvidence | undefined,
+  frozenLimits: { readonly maximumManagedChildren: number; readonly maximumToolCalls: number },
+): asserts evidence is SharedExecutionBudgetEvidence & {
+  readonly accounting: NonNullable<SharedExecutionBudgetEvidence["accounting"]> & {
+    readonly toolCalls: { readonly kind: "observed"; readonly value: number };
+  };
+  readonly settlement: { readonly status: "settled" };
+} {
+  if (!evidence) throw new Error("Managed-child trial lacks shared execution budget evidence.");
+  if (evidence.limits.maximumManagedChildren !== frozenLimits.maximumManagedChildren
+    || evidence.limits.maximumToolCalls !== frozenLimits.maximumToolCalls) {
+    throw new Error("Shared execution budget limits differ from the frozen trial budget.");
+  }
+  if (evidence.settlement.status !== "settled") {
+    throw new Error("Managed-child shared execution budget is not settled.");
+  }
+  const accounting = evidence.accounting;
+  if (!accounting) throw new Error("Managed-child shared execution budget accounting is unavailable.");
+  if (accounting.accountingLineageId !== evidence.accountingLineageId
+    || accounting.contractRevisionDigest !== evidence.contractRevisionDigest) {
+    throw new Error("Managed-child shared execution budget accounting identity does not match its scope.");
+  }
+  if (accounting.toolCalls.kind !== "observed") {
+    throw new Error("Managed-child shared execution budget tool-call accounting is not observed.");
+  }
+  if (accounting.activeManagedInvocations !== 0) {
+    throw new Error("Managed-child shared execution budget has active invocations after terminal drain.");
+  }
+  if (accounting.managedInvocations > evidence.limits.maximumManagedChildren
+    || accounting.toolCalls.value > evidence.limits.maximumToolCalls) {
+    throw new Error("Managed-child shared execution budget exceeded its authoritative limit.");
+  }
 }
 
 function withTaskEvaluation(
@@ -1763,6 +1976,9 @@ function projectInternalBenchmarkEnvelope(value: unknown): RunEnvelope {
       outputTokens: requireNonNegativeNumber(tokenUsage.outputTokens, "internal benchmark output tokens"),
       toolCallCount: toolCalls,
       managedChildCount,
+      ...(metadata.sharedExecutionBudget === undefined
+        ? {}
+        : { sharedExecutionBudget: metadata.sharedExecutionBudget }),
       durationMs: requireNonNegativeNumber(result.durationMs, "internal benchmark duration"),
       providerRequests,
     },

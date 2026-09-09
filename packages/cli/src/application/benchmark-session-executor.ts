@@ -12,6 +12,7 @@ import {
   GoalRunStore,
   SandboxPolicy,
   WorkItemStore,
+  adoptBoundedWorkContractRevision,
   createBoundHostToolSandbox,
   createSessionBuiltinToolOptions,
   defineDeliberationLevelId,
@@ -29,8 +30,17 @@ import {
   deriveRuntimeConvergencePolicyInput,
   withManagedAgentInvocationResourceProvider,
   withManagedInvocationService,
+  createRuntimeSharedExecutionBudgetScope,
+  createRuntimeSharedExecutionBudgetScopeReference,
 } from "@kilnai/runtime";
-import type { OperatorAdoptionRuntimeBinding } from "@kilnai/runtime";
+import type {
+  BoundedWorkAdoptionAuthority,
+  BoundedWorkContractRevision,
+} from "@kilnai/core/work-governance";
+import type {
+  OperatorAdoptionRuntimeBinding,
+  RuntimeSharedExecutionBudgetSnapshot,
+} from "@kilnai/runtime";
 import type { KilnAppConfig } from "../config.js";
 import type { ResolvedKilnConfig } from "../kiln-yaml-types.js";
 import type { GuiModelDeliberationCapabilities, OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
@@ -266,6 +276,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     const explicitDeadlineAt = options.flags?.deadlineAt;
     assertBenchmarkDeadlineAt(explicitDeadlineAt);
     const resolvedExecutionEnvelope = resolveRuntimeExecutionEnvelope(executionEnvelope);
+    const sharedExecutionLimits = resolvedExecutionEnvelope.sharedWork;
     const formalDeadlineAt = isFormalScreening
       ? startedAt + FORMAL_SCREENING_BUDGET.wallClockMs
       : undefined;
@@ -348,6 +359,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       ensurePrivateStateDirectorySync(projectStateBinding.projectStateRoot, benchmarkEvidenceRoot);
     }
     let closeAuthorityState = () => authorityLease?.cleanup();
+    let closeBoundedWorkAuthority = () => {};
     const workspaceFixtureHash = writeLease?.canonicalHash ?? (benchmarkWorkspace.kind === "synthetic-fixture"
       ? hashBenchmarkWorkspace(benchmarkWorkspace)
       : undefined);
@@ -387,6 +399,12 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       executionCatalog: directExecutionTargetCatalog,
       targetId: options.flags?.targetId,
     });
+    if (sharedExecutionLimits && options.appConfig.managedInvocation) {
+      throw new Error("Shared execution budgets require Kiln's composed managed invocation path; injected managed invocation is not compatible.");
+    }
+    if (sharedExecutionLimits && (!directExecutionTargetCatalog || configuredRouteCandidates.length === 0)) {
+      throw new Error("Shared execution budgets require a canonical direct execution target so the persisted operator adoption can bind the budget before provider dispatch.");
+    }
     const configuredRouteCandidate = configuredRouteCandidates[0];
     expectedRouteId = configuredRouteCandidate?.targetId;
     if (isFormalScreening) {
@@ -547,7 +565,27 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         formalVerificationCapability: observeFormalVerificationCapability(configuredBuiltinToolOptions),
       }),
     });
-    benchmarkCleanupRegistry.register(async () => boundedWork.close());
+    closeBoundedWorkAuthority = () => boundedWork.close();
+    const sharedExecutionBudget = sharedExecutionLimits
+      ? createRuntimeSharedExecutionBudgetScopeReference()
+      : undefined;
+    const sharedExecutionBudgetIdentity = sharedExecutionLimits
+      ? Object.freeze({
+          goalRunId: `benchmark:${sessionId}:shared-execution-budget`,
+          workItemId: `benchmark:${sessionId}:item:${context.item.id}`,
+          planDigest: digestCanonicalValue({
+            kind: "benchmark-shared-execution-budget-plan/v1",
+            sessionId,
+            itemId: context.item.id,
+            profileId: context.profile.id,
+            runIndex: context.runIndex,
+            repeatIndex: context.repeatIndex,
+            limits: sharedExecutionLimits,
+            convergence: executionEnvelope.convergence,
+          }),
+        })
+      : undefined;
+    let sharedExecutionBudgetSnapshot: RuntimeSharedExecutionBudgetSnapshot | undefined;
     const workItemStore = new WorkItemStore();
     const goalRunStore = new GoalRunStore();
     const capturedLemmaCheckObservations: LemmaCheckOutput[] = [];
@@ -617,6 +655,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
           builtinToolOptions: () => builtinToolOptions,
           runtimeEnv: env,
           executionEnvelope,
+          ...(sharedExecutionBudget ? { sharedExecutionBudget } : {}),
           ...(providerTransportAdmission ? { providerTransportAdmission } : {}),
           runtimeToolActionClaims: managedDirectToolActionClaims,
           runtimeModelRoundActionClaims: managedDirectModelRoundActionClaims,
@@ -655,6 +694,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       builtinToolOptions,
       managedInvocation: managedInvocationAttachment,
       executionEnvelope,
+      ...(sharedExecutionBudget ? { sharedExecutionBudget } : {}),
       ...(providerTransportAdmission ? { providerTransportAdmission } : {}),
       requestedAuthority: options.flags?.requestedAuthority ?? (writeMode ? "destructive" as const : "read_only" as const),
       model: effectiveModel,
@@ -675,6 +715,26 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
           event.kilnSessionId,
           [toCanonicalSessionEventPersistedTranscriptEventDraft(event)],
         );
+        if (sharedExecutionBudget && sharedExecutionLimits && sharedExecutionBudgetIdentity) {
+          const revision = createBenchmarkSharedExecutionBudgetRevision({
+            goalRunId: sharedExecutionBudgetIdentity.goalRunId,
+            workItemId: sharedExecutionBudgetIdentity.workItemId,
+            planDigest: sharedExecutionBudgetIdentity.planDigest,
+            limits: sharedExecutionLimits,
+            adoptedAt: event.timestamp.toISOString(),
+            adoptedBy: event.contractAuthority,
+          });
+          sharedExecutionBudget.bind(createRuntimeSharedExecutionBudgetScope({
+            projectRuntimeId: boundedWork.surface.projectRuntimeId,
+            authority: boundedWork.surface.authority,
+            goalRunId: sharedExecutionBudgetIdentity.goalRunId,
+            workItemId: sharedExecutionBudgetIdentity.workItemId,
+            contractRevision: revision,
+            route: { routeId: "benchmark-shared-execution-budget", harnessId: "kiln-runtime" },
+            harnessCapability: "authoritative",
+            limits: sharedExecutionLimits,
+          }));
+        }
       },
       replayCanonicalSessionEvents: async (canonicalSessionId) => canonicalSessionEventsFromTranscript(
         await transcriptStore.readTranscript(canonicalSessionId),
@@ -774,6 +834,9 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         })).finally(async () => {
       clearBenchmarkDeadline();
       await benchmarkCleanupRegistry.runAll();
+      if (sharedExecutionBudget) {
+        sharedExecutionBudgetSnapshot = sharedExecutionBudget.snapshot();
+      }
       await manager.cleanupWorktree(sessionContext);
       closeBuiltinResources(configuredBuiltinToolOptions);
     });
@@ -960,6 +1023,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         providerRequestObservations,
         managedInvocations,
         deliberationResolution,
+        ...(sharedExecutionBudgetSnapshot ? { sharedExecutionBudget: sharedExecutionBudgetSnapshot } : {}),
         ...(isFormalScreening ? {
           formalScreeningArm,
           lemmaCheckObservations,
@@ -1084,7 +1148,11 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         try {
           writeLease?.cleanup();
         } finally {
-          closeAuthorityState();
+          try {
+            closeAuthorityState();
+          } finally {
+            closeBoundedWorkAuthority();
+          }
         }
       }
     }
@@ -1098,6 +1166,74 @@ function assertBenchmarkDeadlineAt(value: number | undefined): void {
   if (value !== undefined && (!Number.isSafeInteger(value) || value <= 0)) {
     throw new Error("benchmark deadlineAt must be a positive safe integer Unix millisecond timestamp.");
   }
+}
+
+function createBenchmarkSharedExecutionBudgetRevision(input: {
+  readonly goalRunId: string;
+  readonly workItemId: string;
+  readonly planDigest: string;
+  readonly limits: {
+    readonly maximumManagedChildren: number;
+    readonly maximumToolCalls: number;
+  };
+  readonly adoptedAt: string;
+  readonly adoptedBy: BoundedWorkAdoptionAuthority;
+}): BoundedWorkContractRevision {
+  return adoptBoundedWorkContractRevision({
+    accountingLineageId: input.goalRunId,
+    adoptedAt: input.adoptedAt,
+    adoptedBy: input.adoptedBy,
+    contract: {
+      schema: "kiln.bounded-work-contract/v2",
+      intent: {
+        objective: `Enforce the immutable benchmark shared-execution plan ${input.planDigest}.`,
+        acceptanceCriteria: [{
+          id: "shared-execution-budget-enforced",
+          statement: "The parent and direct managed children share the declared invocation and logical-tool limits.",
+        }],
+        nonGoals: [],
+      },
+      assurance: {
+        formalVerification: {
+          semantics: "allOf",
+          obligations: [{
+            id: "shared-execution-budget-runtime-authority",
+            symbol: "RuntimeSharedExecutionBudgetScope",
+            subjectPaths: ["packages/runtime/src/work-governance/runtime-shared-execution-budget.ts"],
+          }],
+          mappings: [{
+            criterionId: "shared-execution-budget-enforced",
+            obligationIds: ["shared-execution-budget-runtime-authority"],
+          }],
+        },
+      },
+      scope: {
+        allowedWorkItemIds: [input.workItemId],
+        permittedEffects: ["inspect", "invoke_managed_agent"],
+        permittedSurfaces: ["benchmark"],
+        allowedRoots: ["."],
+        deniedRoots: [],
+        refactorAuthority: "none",
+        migrationAuthority: "none",
+        dependencyAuthority: "none",
+      },
+      limits: {
+        maxExecutionAttempts: 1,
+        maxManagedInvocations: input.limits.maximumManagedChildren,
+        maxConcurrentManagedInvocations: input.limits.maximumManagedChildren,
+        maxChildDepth: 1,
+        maxReviewRounds: 0,
+        maxRemediationRounds: 0,
+        maxToolCalls: input.limits.maximumToolCalls,
+      },
+      tripwires: {},
+      policy: {
+        scopeExpansion: "deny",
+        budgetExhaustion: "stop",
+        minimumHarnessCapability: "authoritative",
+      },
+    },
+  });
 }
 
 function installBenchmarkDeadline(deadlineAt: number, onExpire: () => void): () => void {

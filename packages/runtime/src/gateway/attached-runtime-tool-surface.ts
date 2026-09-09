@@ -108,6 +108,7 @@ import {
 } from "../agents/managed-invocation/phase-recovery.js";
 import { authorityFromCapability } from "./tool-authority.js";
 import type { SqliteBoundedWorkAuthority } from "../work-governance/index.js";
+import type { RuntimeSharedExecutionBudget } from "../work-governance/runtime-shared-execution-budget.js";
 import { nodePhysicalPathResolver } from "../tools/node-physical-path-resolver.js";
 
 export interface AttachedRuntimeBuiltinToolSurface {
@@ -184,6 +185,7 @@ export interface AttachedRuntimeBuiltinToolSurfaceOptions {
     readonly projectRuntimeId: string;
     readonly authority: SqliteBoundedWorkAuthority;
   };
+  readonly sharedExecutionBudget?: RuntimeSharedExecutionBudget;
 }
 
 const RUNTIME_OBSERVE_METADATA_EGRESS: ActionEffectEnvelope = {
@@ -587,7 +589,8 @@ export function createAttachedRuntimeBuiltinToolSurface(
         governedScopeAdmission: managedInvocationAttachment.governedScopeAdmission
           ?? createManagedInvocationGovernedScopeAdmission(coreSurface),
         boundedWorkAdmission: managedInvocationAttachment.boundedWorkAdmission
-          ?? createManagedInvocationBoundedWorkAdmission(coreSurface, options.boundedWork),
+          ?? createManagedInvocationBoundedWorkAdmission(coreSurface, options.boundedWork, options.sharedExecutionBudget),
+        ...(options.sharedExecutionBudget ? { sharedExecutionBudget: options.sharedExecutionBudget } : {}),
       }
     : undefined;
 
@@ -917,7 +920,9 @@ function createManagedInvocationGovernedScopeAdmission(
 function createManagedInvocationBoundedWorkAdmission(
   surface: DefaultBuiltinToolSurface,
   boundedWork: AttachedRuntimeBuiltinToolSurfaceOptions["boundedWork"],
+  sharedExecutionBudget: RuntimeSharedExecutionBudget | undefined,
 ): ManagedInvocationBoundedWorkAdmission | undefined {
+  if (sharedExecutionBudget) return sharedExecutionBudget.admitManagedInvocation;
   if (!boundedWork) return undefined;
   return (input) => {
     const goal = surface.goalRunStore?.get(input.goalRunId);

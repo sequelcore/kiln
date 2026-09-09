@@ -26,6 +26,61 @@ const PLUS_ACCOUNT_POLICY = {
   expiresAt: "2099-01-01T00:00:00.000Z",
 } as const;
 
+function sharedExecutionBudgetEvidence(input: {
+  readonly maximumManagedChildren?: number;
+  readonly maximumToolCalls?: number;
+  readonly managedInvocations?: number;
+  readonly activeManagedInvocations?: number;
+  readonly toolCallKind?: "observed" | "unavailable";
+  readonly toolCalls?: number;
+  readonly settlementStatus?: "settled" | "reconciliation_required";
+} = {}) {
+  return {
+    scopeId: "sha256:shared-budget-scope",
+    accountingLineageId: "benchmark-goal",
+    contractRevisionDigest: "sha256:shared-budget-contract",
+    limits: {
+      maximumManagedChildren: input.maximumManagedChildren ?? 1,
+      maximumToolCalls: input.maximumToolCalls ?? 2,
+    },
+    accounting: {
+      managedInvocations: input.managedInvocations ?? 1,
+      activeManagedInvocations: input.activeManagedInvocations ?? 0,
+      toolCalls: input.toolCallKind === "unavailable"
+        ? { kind: "unavailable" as const }
+        : { kind: "observed" as const, value: input.toolCalls ?? 1 },
+    },
+    settlement: { status: input.settlementStatus ?? "settled" },
+  };
+}
+
+function managedChildArtifact(input: {
+  readonly providerRequests: readonly Record<string, unknown>[];
+  readonly sharedExecutionBudget?: unknown;
+}) {
+  return {
+    runs: [{ consistency: {
+      k: 1,
+      itemResults: [{ itemId: "fixture-item", totalRuns: 1, invalidTrialCount: 0, passCount: 1, allPassed: true }],
+      runs: [{ results: [{
+        itemId: "fixture-item",
+        durationMs: 1_000,
+        tokenUsage: { inputTokens: 10, outputTokens: 2 },
+        trial: { status: "valid" },
+        metadata: {
+          sessionId: "benchmark-session",
+          sessionSucceeded: true,
+          providerId: "codex-oauth",
+          modelId: "gpt-5.6-luna",
+          providerRequestObservations: input.providerRequests,
+          ...(input.sharedExecutionBudget === undefined ? {} : { sharedExecutionBudget: input.sharedExecutionBudget }),
+          toolCalls: [],
+        },
+      }] }],
+    } }],
+  };
+}
+
 function runEnvelope() {
   return {
     schemaVersion: "kiln.run.output.v1",
@@ -1152,6 +1207,12 @@ describe("context efficiency diagnostic collector", () => {
       const call = calls[0];
       if (!call) throw new Error("Expected one diagnostic command");
       const deadline = Number(call.command[call.command.indexOf("--deadline-at") + 1]);
+      const executionEnvelopePath = call.command[call.command.indexOf("--execution-envelope") + 1];
+      expect(executionEnvelopePath).toBeTypeOf("string");
+      expect(JSON.parse(readFileSync(executionEnvelopePath!, "utf8"))).toMatchObject({
+        physicalProviderRequests: 8,
+        sharedWork: { maximumManagedChildren: 1, maximumToolCalls: 32 },
+      });
       expect(deadline).toBeGreaterThanOrEqual(before + 1_000);
       expect(deadline).toBeLessThanOrEqual(Date.now() + 1_000);
       expect(call.timeoutMs).toBeGreaterThan(1_000);
@@ -1181,6 +1242,7 @@ describe("context efficiency diagnostic collector", () => {
               providerId: "codex-oauth",
               modelId: "gpt-5.6-luna",
               providerRequestObservations: envelope.telemetry.providerRequests,
+              sharedExecutionBudget: sharedExecutionBudgetEvidence({ maximumToolCalls: 2 }),
               toolCalls: [],
             },
           }] }],
@@ -1212,6 +1274,49 @@ describe("context efficiency diagnostic collector", () => {
         reason: "infrastructure_failure",
         dispatchEvidence: "observed",
         output: { canonicalTrialStatus: "invalid" },
+      });
+    } finally {
+      await dispatcher.cleanup();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["non-observed tools", sharedExecutionBudgetEvidence({ toolCallKind: "unavailable" })],
+    ["unsettled", sharedExecutionBudgetEvidence({ settlementStatus: "reconciliation_required" })],
+    ["active child", sharedExecutionBudgetEvidence({ activeManagedInvocations: 1 })],
+    ["over-limit tools", sharedExecutionBudgetEvidence({ toolCalls: 3 })],
+  ])("rejects %s managed-child shared-budget evidence", async (_name, sharedExecutionBudget) => {
+    const root = mkdtempSync(resolve(tmpdir(), "kiln-context-efficiency-test-"));
+    const artifactPath = resolve(root, "benchmark.json");
+    writeFileSync(artifactPath, JSON.stringify(managedChildArtifact({
+      providerRequests: runEnvelope().telemetry.providerRequests,
+      ...(sharedExecutionBudget === undefined ? {} : { sharedExecutionBudget }),
+    })));
+    const dispatcher = createProductionContextEfficiencyDispatcher({
+      repositoryRoot: resolve(import.meta.dirname, ".."),
+      worktreeFingerprint: async () => "stable-test-worktree",
+      manifest: { schemaVersion: "kiln-context-efficiency-post-fix-manifest-v1", identity: {
+        targetId: "codex-luna", providerId: "codex-oauth", modelId: "gpt-5.6-luna",
+        deliberationLevel: "low", plusAccountPolicy: PLUS_ACCOUNT_POLICY,
+      } },
+      commandRunner: { run: async () => ({ exitCode: 0, stdout: JSON.stringify({ outputPath: artifactPath }), stderr: "" }) },
+    });
+    try {
+      await expect(dispatcher.runInternalBenchmark({
+        trial: {
+          taskId: "child", executionStrategy: "internal_benchmark_managed_child", condition: "cold", repetition: 1,
+          invalidRetryLimit: 0, timeoutMs: 1_000,
+          budgets: { maximumProviderRequests: 2, maximumToolCalls: 2, maximumManagedChildren: 1,
+            maximumCumulativeInputTokens: 100, maximumCumulativeOutputTokens: 50 },
+        },
+        task: { authority: "read_only", expectedRuntimeAuthority: "read_only", oracle: {
+          kind: "managed_child_settlement", dataset: "fixtures/managed-v1.jsonl", requiredHandoffTerms: ["DefaultContextGovernor"],
+        } },
+      })).rejects.toMatchObject({
+        name: "ContextEfficiencyInvalidTrialError",
+        reason: "collector_failure",
       });
     } finally {
       await dispatcher.cleanup();
@@ -1386,6 +1491,7 @@ describe("context efficiency diagnostic collector", () => {
                   }],
                 }],
                 providerRequests: [{ systemHash: "must-not-be-read" }],
+                sharedExecutionBudget: sharedExecutionBudgetEvidence({ maximumToolCalls: 2 }),
                 toolCalls: [],
               },
             }],
@@ -1435,7 +1541,31 @@ describe("context efficiency diagnostic collector", () => {
       });
       expect(result.continuationSessionId).toBe("benchmark-session");
       expect(JSON.stringify(result.output)).not.toContain("systemHash");
-      expect(result.output).toMatchObject({ diagnostics: { oraclePassed } });
+      expect(result.output).toMatchObject({
+        diagnostics: { oraclePassed },
+        telemetry: {
+          toolCallCount: 0,
+          managedChildCount: 0,
+          sharedExecutionBudget: {
+            limits: { maximumManagedChildren: 1, maximumToolCalls: 2 },
+            accounting: {
+              managedInvocations: 1,
+              activeManagedInvocations: 0,
+              toolCalls: { kind: "observed", value: 1 },
+            },
+            settlement: { status: "settled" },
+          },
+        },
+      });
+      const report = collectContextEfficiencyTrials([{
+        taskId: "child", condition: "cold", repetition: 1, output: result.output,
+      }]);
+      expect(report.trials[0]).toMatchObject({
+        run: { telemetry: { sharedExecutionBudget: { accounting: { toolCalls: { value: 1 } } } } },
+      });
+      expect(report.cells[0]?.metrics.aggregateToolCallCount).toMatchObject({
+        observedCount: 1, unknownCount: 0, median: 1, p95NearestRank: 1,
+      });
     } finally {
       await dispatcher.cleanup();
       rmSync(root, { recursive: true, force: true });
@@ -1516,10 +1646,12 @@ describe("context efficiency diagnostic collector", () => {
       expect(commands[0]).not.toContain("--continue-session");
       expect(commands.every((command) => command.includes("--disable-tools"))).toBe(true);
       const conversationEnvelopePath = commands[0]![commands[0]!.indexOf("--execution-envelope") + 1]!;
-      expect(JSON.parse(readFileSync(conversationEnvelopePath, "utf8"))).toMatchObject({
+      const conversationEnvelope = JSON.parse(readFileSync(conversationEnvelopePath, "utf8"));
+      expect(conversationEnvelope).toMatchObject({
         physicalProviderRequests: 1,
         convergence: { providerRequests: 1, recoveryAttempts: 1 },
       });
+      expect(conversationEnvelope).not.toHaveProperty("sharedWork");
       for (let index = 1; index < commands.length; index += 1) {
         const continuationIndex = commands[index]!.indexOf("--continue-session");
         expect(commands[index]![continuationIndex + 1]).toBe(`conversation-session-${index}`);

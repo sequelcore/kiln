@@ -165,6 +165,38 @@ Every failure mode is a typed error rather than a silent fallback:
 `reservation_revision_conflict`, `reservation_state_conflict`,
 `dispatch_identity_conflict`, and `accounting_conflict`.
 
+### Shared benchmark execution limits
+
+Implementation status: in progress. The following is the intended contract;
+composition, admission precedence, and aggregate evidence still require
+verification before a live diagnostic may rely on these limits.
+
+A native benchmark can bind a shared execution budget to the same bounded-work
+authority. Its immutable revision uses the operator-adoption decision already
+persisted by the canonical run dispatcher. Binding waits for that persistence;
+an unbound budget fails closed. It does not create a model-owned goal or assert
+approval of a separate plan.
+
+The parent and direct children share one accounting lineage. Runtime reserves
+each normalized logical tool batch before execution, including discovery,
+reads, denied calls, and cache hits. Local convergence allowances for disclosure
+or finalization cannot increase this shared limit. Logical calls are distinct
+from internal adapter retries and from physical provider attempts, which retain
+their own transport admission authority.
+
+Managed invocation admission also reserves against that lineage independently
+of model-supplied goal attribution. Terminal settlement releases concurrent
+capacity while preserving the cumulative child count. An uncertain startup or
+terminal outcome retains its reservation for reconciliation. Existing goal
+governance, when present, remains an additional constraint.
+
+The benchmark projects the canonical accounting snapshot after child cleanup
+and before closing the authority. Parent transcript counts remain separate
+observations. Missing, unobserved, or unsettled aggregate evidence cannot prove
+compliance with a shared limit. Tool-call observability is enabled only for this
+fully instrumented scope; it does not upgrade the default goal surface's metric
+capability.
+
 ## Candidates and evidence
 
 A candidate is the reviewable artifact of an attempt — a git worktree, an

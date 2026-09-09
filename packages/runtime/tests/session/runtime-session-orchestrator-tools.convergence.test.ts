@@ -8,6 +8,7 @@ import {
   deriveRuntimeConvergencePolicyInput,
   RUNTIME_DEFAULT_TURN_CONVERGENCE_POLICY_INPUT,
 } from "../../src/session/runtime-execution-envelope.js";
+import type { RuntimeSharedExecutionBudget } from "../../src/work-governance/runtime-shared-execution-budget.js";
 import {
   makeProvider,
   makeSession,
@@ -266,6 +267,51 @@ describe("RuntimeSessionOrchestrator - turn convergence enforcement", () => {
     expect(result.parts).toEqual(textParts("Turn paused: toolCalls limit reached (2/1). Continue this Kiln session to resume from its canonical transcript."));
     expect(session.conversationHistory.flatMap((message) => message.parts)
       .some((part) => part.type === "tool_use" || part.type === "tool_result")).toBe(false);
+  });
+
+  it("gates every normalized model tool batch through the shared parent/child budget before dispatch", async () => {
+    const provider: ProviderAdapter = {
+      name: "mock",
+      createMessage: vi.fn().mockResolvedValue(response({
+        parts: textParts("using two reads"),
+        toolCalls: [
+          { id: "read-1", name: "get_data", input: {} },
+          { id: "read-2", name: "get_data", input: {} },
+        ],
+        stopReason: "tool_use",
+      })),
+      streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+    };
+    const sharedExecutionBudget: RuntimeSharedExecutionBudget = {
+      assertBound: vi.fn(),
+      reserveToolBatch: vi.fn().mockReturnValue({
+        admitted: false,
+        code: "pause_budget_exhausted",
+        message: "Shared execution budget exhausted: tool_calls.",
+      }),
+      admitManagedInvocation: vi.fn(),
+      managedInvocationAttribution: vi.fn(),
+      snapshot: vi.fn(),
+    };
+    const getData = vi.fn().mockResolvedValue("result");
+    const executionEnvelope: RuntimeExecutionEnvelope = {
+      ...envelope({ toolRounds: 4, toolCalls: 4 }),
+      sharedWork: { maximumManagedChildren: 1, maximumToolCalls: 32 },
+    };
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider,
+      tools: [tool("get_data")],
+      builtinTools: new Map([["get_data", getData]]),
+      executionEnvelope,
+      sharedExecutionBudget,
+    });
+
+    const result = await orchestrator.processMessage(makeSession(), textParts("read twice"));
+
+    expect(sharedExecutionBudget.assertBound).toHaveBeenCalledOnce();
+    expect(sharedExecutionBudget.reserveToolBatch).toHaveBeenCalledWith(expect.objectContaining({ toolCallCount: 2 }));
+    expect(getData).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ outcome: "paused", dispositionReason: "tool_call_limit" });
   });
 
   it("pauses before dispatch when elapsed time reaches its limit", async () => {

@@ -32,3 +32,15 @@ export type {
 export { resolveCandidateSubjectDigests } from "./bounded-work-candidate-subjects.js";
 export type { ResolveCandidateSubjectDigestsInput } from "./bounded-work-candidate-subjects.js";
 export type { RuntimeFormalVerificationObservation } from "./formal-verification-observations.js";
+export {
+  createRuntimeSharedExecutionBudgetScope,
+  createRuntimeSharedExecutionBudgetScopeReference,
+  RuntimeSharedExecutionBudgetScope,
+  RuntimeSharedExecutionBudgetScopeReference,
+} from "./runtime-shared-execution-budget.js";
+export type {
+  RuntimeSharedExecutionBudget,
+  RuntimeSharedExecutionBudgetScopeInput,
+  RuntimeSharedExecutionBudgetSnapshot,
+  RuntimeSharedToolBatchAdmission,
+} from "./runtime-shared-execution-budget.js";

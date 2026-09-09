@@ -54,6 +54,8 @@ export interface ManagedDirectProviderAdapterFactoryOptions {
   readonly runtimeEnv?: EnvMap;
   readonly processEnv?: EnvMap;
   readonly executionEnvelope?: ExecutionEnvelopeSource;
+  /** Benchmark/workload-owned hard accounting shared with the parent Runtime. */
+  readonly sharedExecutionBudget?: import("@kilnai/runtime").RuntimeSharedExecutionBudget;
   readonly providerTransportAdmission?: import("@kilnai/core").ProviderTransportAdmission;
   readonly canonicalMcpServers?: readonly ResolvedMcpServer[];
   readonly createMcpClient?: (server: ResolvedMcpServer) => {
@@ -85,6 +87,7 @@ export function createManagedDirectProviderAdapterFactory(
 ) => Promise<ManagedAgentRuntimeAdapter | undefined> {
   const resolveBuiltinToolSurface = () => createAttachedRuntimeBuiltinToolSurface({
     builtinToolOptions: resolveBuiltinToolOptions(options.builtinToolOptions),
+    ...(options.sharedExecutionBudget ? { sharedExecutionBudget: options.sharedExecutionBudget } : {}),
   });
   const createProvider = options.createProviderAdapter ?? createDirectProviderAdapter;
 
@@ -181,6 +184,7 @@ export function createManagedDirectProviderAdapterFactory(
         ? { toolInvocationAdmission: builtinToolSurface.toolInvocationAdmission }
         : {}),
       ...(executionEnvelope ? { executionEnvelope } : {}),
+      ...(options.sharedExecutionBudget ? { sharedExecutionBudget: options.sharedExecutionBudget } : {}),
       ...(options.providerTransportAdmission ? { providerTransportAdmission: options.providerTransportAdmission } : {}),
       economicIdentity: committedRequest.commitment.reservation.selectedIdentity,
       ...(executionBinding ? { executionBinding } : {}),

@@ -168,6 +168,8 @@ export class SqliteBoundedWorkAuthority {
     readonly idempotencyKey: string;
     readonly route: BoundedWorkRouteIdentity;
     readonly harnessCapability: BoundedWorkHarnessCapability;
+    /** Explicit Runtime observation used only by a workload that gates every logical call. */
+    readonly observedMetrics?: readonly "tool_calls"[];
     readonly scope?: Omit<AssessBoundedWorkScopeInput, "revision">;
     readonly reservation: BoundedWorkReservation;
   }): BoundedWorkReservationResult {
@@ -197,6 +199,7 @@ export class SqliteBoundedWorkAuthority {
       idempotencyKey,
       route,
       harnessCapability: input.harnessCapability,
+      observedMetrics: input.observedMetrics,
       formalVerificationCapability: this.#formalVerificationCapability,
       scope: input.scope,
       reservation: input.reservation,
@@ -229,7 +232,7 @@ export class SqliteBoundedWorkAuthority {
           accounting_lineage_id: accountingLineageId,
           contract_revision_digest: revision.revisionDigest,
           contract_revision_number: revision.revision,
-          snapshot_json: JSON.stringify(emptySnapshot(revision)),
+          snapshot_json: JSON.stringify(emptySnapshot(revision, input.observedMetrics)),
         };
         this.#db.query(`INSERT INTO bounded_work_accounts(
           project_runtime_id,accounting_lineage_id,contract_revision_digest,contract_revision_number,snapshot_json
@@ -266,6 +269,9 @@ export class SqliteBoundedWorkAuthority {
       }
 
       const snapshot = parseSnapshot(account.snapshot_json);
+      if (input.observedMetrics?.includes("tool_calls") && snapshot.toolCalls.kind !== "observed") {
+        throw new BoundedWorkAuthorityError("accounting_conflict");
+      }
       const decision = decideBoundedWorkAdmission({
         revision,
         snapshot,
@@ -346,6 +352,19 @@ export class SqliteBoundedWorkAuthority {
       accounting,
       ...(latest ? { decision: JSON.parse(latest.decision_json) as BoundedWorkAdmissionDecision } : {}),
     };
+  }
+
+  /** Durable reservation states for one accounting lineage. */
+  inspectReservations(input: {
+    readonly projectRuntimeId: string;
+    readonly accountingLineageId: string;
+  }): readonly BoundedWorkReservationReceipt[] {
+    this.#assertOpen();
+    const projectRuntimeId = requireIdentifier(input.projectRuntimeId, "projectRuntimeId");
+    const accountingLineageId = requireIdentifier(input.accountingLineageId, "accountingLineageId");
+    const rows = this.#db.query<ReservationRow, [string, string]>(`SELECT receipt_json FROM bounded_work_reservations
+      WHERE project_runtime_id=? AND accounting_lineage_id=? ORDER BY rowid ASC`).all(projectRuntimeId, accountingLineageId);
+    return rows.map((row) => JSON.parse(row.receipt_json) as BoundedWorkReservationReceipt);
   }
 
   markDispatched(input: {
@@ -525,7 +544,10 @@ export class SqliteBoundedWorkAuthority {
   }
 }
 
-function emptySnapshot(revision: BoundedWorkContractRevision): BoundedWorkAccountingSnapshot {
+function emptySnapshot(
+  revision: BoundedWorkContractRevision,
+  observedMetrics: readonly "tool_calls"[] | undefined,
+): BoundedWorkAccountingSnapshot {
   return {
     schema: "kiln.bounded-work-accounting/v1",
     accountingLineageId: revision.accountingLineageId,
@@ -536,7 +558,7 @@ function emptySnapshot(revision: BoundedWorkContractRevision): BoundedWorkAccoun
     activeManagedInvocations: 0,
     reviewRounds: 0,
     remediationRounds: 0,
-    toolCalls: { kind: "unavailable" },
+    toolCalls: observedMetrics?.includes("tool_calls") ? { kind: "observed", value: 0 } : { kind: "unavailable" },
     activeDurationMs: { kind: "unavailable" },
   };
 }

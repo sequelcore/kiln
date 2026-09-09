@@ -1461,16 +1461,24 @@ export type {
   BoundedWorkReservationState,
   BoundedWorkRouteIdentity,
   BoundedWorkTerminalOutcome,
+  RuntimeSharedExecutionBudget,
+  RuntimeSharedExecutionBudgetScopeInput,
+  RuntimeSharedExecutionBudgetSnapshot,
+  RuntimeSharedToolBatchAdmission,
   RuntimeFormalVerificationObservation,
   SqliteBoundedWorkAuthorityOptions,
 } from "./work-governance/index.js";
 // Bounded-work runtime authority
 export {
   BoundedWorkAuthorityError,
+  createRuntimeSharedExecutionBudgetScope,
+  createRuntimeSharedExecutionBudgetScopeReference,
   captureArtifactCandidate,
   captureExternalStateCandidate,
   captureGitWorktreeCandidate,
   resolveCandidateSubjectDigests,
   SQLITE_BOUNDED_WORK_AUTHORITY_SCHEMA_VERSION,
   SqliteBoundedWorkAuthority,
+  RuntimeSharedExecutionBudgetScope,
+  RuntimeSharedExecutionBudgetScopeReference,
 } from "./work-governance/index.js";
