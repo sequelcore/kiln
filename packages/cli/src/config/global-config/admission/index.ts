@@ -25,6 +25,7 @@ import {
 import {
   validateComponents,
   validateGlobalWeb,
+  validateGlobalToolRules,
   validatePermissionCeiling,
   validateSessionTurnBudget,
 } from "./global-settings.js";
@@ -63,6 +64,7 @@ export function validateGlobalConfig(config: unknown): asserts config is KilnGlo
   validateRecordField(config, "targetRouting");
   validateRecordField(config, "permissions");
   validateAgentScopeInheritance(config.permissions, "permissions");
+  validateGlobalToolRules(config.permissions);
   validateRecordField(config, "permissionCeiling");
   validateRecordField(config, "mcp");
   validateRecordField(config, "hooks");

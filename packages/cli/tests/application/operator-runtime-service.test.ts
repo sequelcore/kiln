@@ -174,9 +174,10 @@ describe("createOperatorRuntimeService", () => {
   it("binds no-dispatch reconciliation to operator authority and rejects a native caller", async () => {
     const project = adoptedProject("economic-reconciliation");
     const reconcileNotDispatched = vi.fn((input: Parameters<OperatorEconomicReconciliationPort["reconcileNotDispatched"]>[0]) => ({ state: "released" as const, settlement: input.settlement }));
+    const reconcileExecution = vi.fn((input: Parameters<OperatorEconomicReconciliationPort["reconcileExecution"]>[0]) => ({ state: "released" as const, settlement: input.settlement }));
     const service = createOperatorRuntimeService({
       sessionSecret: SECRET, nowEpochSeconds: () => 100,
-      economicReconciliation: { reconcileNotDispatched },
+      economicReconciliation: { reconcileNotDispatched, reconcileExecution },
       createComposition: async () => { throw new Error("Child execution composition is unavailable."); },
     });
     const principal = { kind: "operator-surface", surface: "cli" } as const;
@@ -215,6 +216,28 @@ describe("createOperatorRuntimeService", () => {
       status: "error", error: { code: "invalid_request" },
     });
     expect(reconcileNotDispatched).toHaveBeenCalledTimes(1);
+    const executionRequest = { schemaVersion: 1, operation: "managed-economic.reconcile-execution", input: {
+      attestation: "confirmed-execution-stopped",
+      jobId: "job-2", economicAttemptId: "attempt-2", dispatchFenceId: "fence-2",
+      expectedPendingSettlementDigest: `sha256:${"1".repeat(64)}`,
+      sourceEvidenceDigest: `sha256:${"2".repeat(64)}`,
+      terminationEvidenceDigest: `sha256:${"3".repeat(64)}`,
+      settlement: { kind: "subscription" },
+    } } as const;
+    await expect(service.onApplicationRequest({ claims, request: executionRequest })).resolves.toMatchObject({
+      status: "ok", result: { state: "released", settlement: { kind: "subscription" } },
+    });
+    expect(reconcileExecution).toHaveBeenCalledWith({
+      ...executionRequest.input, authorityEvidenceDigest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+    });
+    await expect(service.onApplicationRequest({ claims: nativeClaims, request: executionRequest })).resolves.toMatchObject({
+      status: "error", error: { code: "principal_denied" },
+    });
+    const forgedExecutionRequest = { ...executionRequest, input: {
+      ...executionRequest.input, authorityEvidenceDigest: `sha256:${"4".repeat(64)}`,
+    } };
+    await expect(service.onApplicationRequest({ claims, request: forgedExecutionRequest })).resolves.toMatchObject({ status: "error", error: { code: "invalid_request" } });
+    expect(reconcileExecution).toHaveBeenCalledTimes(1);
     await service.close();
   });
 

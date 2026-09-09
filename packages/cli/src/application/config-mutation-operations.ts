@@ -358,6 +358,8 @@ function normalizeSettingSet(
   if (scope === "project" && nextContent && diagnostics.every((entry) => entry.severity !== "error")) {
     // Structural and semantic admission runs before the write, never after it.
     admitProjectStructure(nextContent, path, diagnostics);
+  } else if (scope === "global" && nextContent && diagnostics.every((entry) => entry.severity !== "error")) {
+    admitGlobalStructure(nextContent, diagnostics);
   }
 
   const governance = descriptor

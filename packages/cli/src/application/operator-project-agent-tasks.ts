@@ -1244,7 +1244,10 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
               economicDispatch: {
                 commitment: preparation.commitment,
                 dispatchFenceId: preparation.dispatchFenceId,
-                admissionId: preparation.actionClaim.admissionId,
+                // The durable dispatch claim remains bound to the accepted task.
+                // Direct provider and builtin effects are instead bounded by this
+                // derived child admission.
+                admissionId: childAuthorityAdmission.admissionId,
                 recordExecutionSettlementPending: preparation.recordExecutionSettlementPending,
                 recordExecutionNotDispatched: preparation.recordExecutionNotDispatched,
                 createExecutionSettlement: preparation.createExecutionSettlement,

@@ -200,12 +200,14 @@ export {
 export type {
   AgentTaskCapabilitySubmission,
   ManagedEconomicNotDispatchedReconciliationInput,
+  ManagedEconomicExecutionReconciliationInput,
   OperatorRuntimeApplicationRequest,
   OperatorRuntimeApplicationResponse,
 } from "./operator-runtime-application.js";
 export {
   AgentTaskCapabilitySubmissionSchema,
   ManagedEconomicNotDispatchedReconciliationInputSchema,
+  ManagedEconomicExecutionReconciliationInputSchema,
   OperatorRuntimeApplicationRequestSchema,
   OperatorRuntimeApplicationResponseSchema,
 } from "./operator-runtime-application.js";

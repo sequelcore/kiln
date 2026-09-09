@@ -1307,6 +1307,8 @@ describe("context efficiency diagnostic collector", () => {
     const dispatcher = createProductionContextEfficiencyDispatcher({
       repositoryRoot: resolve(import.meta.dirname, ".."),
       manifest,
+      // Exercise checkpoint retention independently of real Git fingerprint time.
+      now: () => 0,
       commandRunner: { run: async () => {
         commands += 1;
         return commands === 1

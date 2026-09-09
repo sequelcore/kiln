@@ -49,6 +49,20 @@ export const ManagedEconomicNotDispatchedReconciliationInputSchema = z.object({
 
 export type ManagedEconomicNotDispatchedReconciliationInput = z.infer<typeof ManagedEconomicNotDispatchedReconciliationInputSchema>;
 
+/** Stopped execution with recovered usage; the owner validates the settlement. */
+export const ManagedEconomicExecutionReconciliationInputSchema = z.strictObject({
+  attestation: z.literal("confirmed-execution-stopped"),
+  jobId: identifier,
+  economicAttemptId: identifier,
+  dispatchFenceId: identifier,
+  expectedPendingSettlementDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  sourceEvidenceDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  terminationEvidenceDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  settlement: opaqueRecord,
+});
+
+export type ManagedEconomicExecutionReconciliationInput = z.infer<typeof ManagedEconomicExecutionReconciliationInputSchema>;
+
 export const OperatorRuntimeApplicationRequestSchema = z.discriminatedUnion("operation", [
   z.object({
     schemaVersion: z.literal(1),
@@ -104,6 +118,11 @@ export const OperatorRuntimeApplicationRequestSchema = z.discriminatedUnion("ope
     operation: z.literal("managed-economic.reconcile-not-dispatched"),
     input: ManagedEconomicNotDispatchedReconciliationInputSchema,
   }).strict(),
+  z.strictObject({
+    schemaVersion: z.literal(1),
+    operation: z.literal("managed-economic.reconcile-execution"),
+    input: ManagedEconomicExecutionReconciliationInputSchema,
+  }),
   z.object({
     schemaVersion: z.literal(1),
     operation: z.literal("managed-economic.settle-execution"),

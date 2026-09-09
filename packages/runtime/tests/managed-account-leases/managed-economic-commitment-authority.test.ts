@@ -481,6 +481,186 @@ describe("managed economic commitment authority", () => {
     })).toMatchObject({ status: "committed" });
   });
 
+  it("reconciles an authenticated terminal provider settlement while retaining unknown evidence", () => {
+    const authority = create();
+    const adopted = accountSnapshot();
+    const { route, candidate } = accountCapacity(adopted);
+    const acquired = authority.acquireCommitment({
+      ...input(adopted),
+      routeCapacity: [{ routeId: "route-direct", route, affinityRequest: { continuity: "none" }, candidates: [candidate] }],
+    });
+    if (acquired.status !== "committed") throw new Error("fixture");
+    authority.fenceDispatch("job-a", "economic-attempt-a", "fence-a", actionClaim(acquired.record.ownerGeneration));
+    const pending = authority.recordExecutionSettlementPending(
+      "job-a", "economic-attempt-a", "fence-a", "provider outcome was incomplete",
+    );
+    if (pending.settlement?.kind !== "unknown") throw new Error("fixture");
+    const settlement = {
+      kind: "subscription" as const,
+      reservationId: acquired.record.commitment.reservation.reservationId,
+      dispatchFenceId: "fence-a",
+      actualIdentity: acquired.record.commitment.reservation.selectedIdentity,
+      units: [{ atoms: "7", scale: 0, unit: "input-token", scheme: { kind: "unit" as const } }],
+      evidence: adopted.routes[0]!.priceEvidence.identity.evidence,
+    };
+    const reconciliation = {
+      jobId: "job-a",
+      economicAttemptId: "economic-attempt-a",
+      dispatchFenceId: "fence-a",
+      attestation: "confirmed-execution-stopped" as const,
+      settlement,
+      expectedPendingSettlementDigest: digestManagedEconomicValue(pending.settlement),
+      sourceEvidenceDigest: `sha256:${"b".repeat(64)}`,
+      terminationEvidenceDigest: `sha256:${"c".repeat(64)}`,
+      authorityEvidenceDigest: `sha256:${"d".repeat(64)}`,
+    };
+
+    expect(() => authority.reconcileExecution({
+      ...reconciliation,
+      attestation: "execution-still-running" as never,
+    })).toThrow("stopped-execution attestation");
+    expect(() => authority.reconcileExecution({
+      ...reconciliation,
+      settlement: {
+        ...settlement,
+        actualIdentity: {
+          ...settlement.actualIdentity,
+          route: { ...settlement.actualIdentity.route, modelId: "other-model" },
+        },
+      },
+    })).toThrow("actual identity does not match commitment");
+    expect(() => authority.reconcileExecution({
+      ...reconciliation,
+      expectedPendingSettlementDigest: `sha256:${"e".repeat(64)}`,
+    })).toThrow("does not match the retained pending settlement");
+    for (const kind of ["unknown", "pending", "leaked", "not-dispatched", "runtime-not-dispatched"] as const) {
+      expect(() => authority.reconcileExecution({
+        ...reconciliation,
+        settlement: { ...settlement, kind } as never,
+      })).toThrow("terminal provider settlement");
+    }
+    expect(() => authority.reconcileExecution({ ...reconciliation, settlement: null as never }))
+      .toThrow("terminal provider settlement");
+    expect(() => authority.reconcileExecution({
+      ...reconciliation,
+      settlement: { ...settlement, units: null } as never,
+    })).toThrow("settlement units must be an array");
+    expect(authority.recoverCommitments()).toMatchObject([{
+      state: "settlement-pending", settlement: pending.settlement, lease: { lifecycleState: "held" },
+    }]);
+
+    const released = authority.reconcileExecution(reconciliation);
+    expect(released).toMatchObject({
+      state: "released",
+      settlement,
+      lease: { lifecycleState: "released" },
+      lifecycleEvidence: {
+        kind: "execution-reconciliation",
+        originalSettlement: pending.settlement,
+        attestation: "confirmed-execution-stopped",
+        sourceEvidenceDigest: reconciliation.sourceEvidenceDigest,
+        terminationEvidenceDigest: reconciliation.terminationEvidenceDigest,
+        authorityEvidenceDigest: reconciliation.authorityEvidenceDigest,
+      },
+    });
+    expect(authority.reconcileExecution(reconciliation)).toEqual(released);
+    expect(() => authority.reconcileExecution({
+      ...reconciliation,
+      terminationEvidenceDigest: `sha256:${"f".repeat(64)}`,
+    })).toThrow("terminal settlement");
+  });
+
+  it("reconciles a recovery-retained pending settlement only with the current owner and exact evidence", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-economic-execution-reconciliation-"));
+    roots.push(root);
+    const path = join(root, "authority.sqlite");
+    const first = createAt(path, "owner-a", () => 1_000);
+    const acquired = first.acquireCommitment(input());
+    if (acquired.status !== "committed") throw new Error("fixture");
+    first.fenceDispatch("job-a", "economic-attempt-a", "fence-a", actionClaim(acquired.record.ownerGeneration));
+    first.close();
+    authorities.splice(authorities.indexOf(first), 1);
+
+    const restarted = createAt(path, "owner-b", () => 2_000);
+    const [pending] = restarted.recoverCommitments();
+    if (pending?.settlement?.kind !== "pending") throw new Error("fixture");
+    const reconciliation = {
+      jobId: "job-a",
+      economicAttemptId: "economic-attempt-a",
+      dispatchFenceId: "fence-a",
+      attestation: "confirmed-execution-stopped" as const,
+      settlement: {
+        kind: "free" as const,
+        reservationId: acquired.record.commitment.reservation.reservationId,
+        dispatchFenceId: "fence-a",
+        actualIdentity: acquired.record.commitment.reservation.selectedIdentity,
+        units: [],
+        evidence: snapshot().routes[0]!.priceEvidence.identity.evidence,
+      },
+      expectedPendingSettlementDigest: digestManagedEconomicValue(pending.settlement),
+      sourceEvidenceDigest: `sha256:${"b".repeat(64)}`,
+      terminationEvidenceDigest: `sha256:${"c".repeat(64)}`,
+      authorityEvidenceDigest: `sha256:${"d".repeat(64)}`,
+    };
+    const released = restarted.reconcileExecution(reconciliation);
+    expect(released).toMatchObject({
+      state: "released",
+      lifecycleEvidence: { kind: "execution-reconciliation", originalSettlement: pending.settlement },
+    });
+    restarted.close();
+    authorities.splice(authorities.indexOf(restarted), 1);
+    const replay = createAt(path, "owner-c", () => 3_000);
+    expect(replay.reconcileExecution(reconciliation)).toEqual(released);
+    expect(() => replay.reconcileExecution({
+      ...reconciliation,
+      dispatchFenceId: "wrong-fence",
+    })).toThrow("does not own the durable dispatch fence");
+  });
+
+  it("rejects execution reconciliation from a stale owner without releasing the lease", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-economic-execution-reconciliation-stale-"));
+    roots.push(root);
+    const path = join(root, "authority.sqlite");
+    let clock = 1_000;
+    const stale = createAt(path, "owner-a", () => clock);
+    const adopted = accountSnapshot();
+    const { route, candidate } = accountCapacity(adopted);
+    const acquired = stale.acquireCommitment({
+      ...input(adopted),
+      routeCapacity: [{ routeId: "route-direct", route, affinityRequest: { continuity: "none" }, candidates: [candidate] }],
+    });
+    if (acquired.status !== "committed") throw new Error("fixture");
+    stale.fenceDispatch("job-a", "economic-attempt-a", "fence-a", actionClaim(acquired.record.ownerGeneration));
+    const pending = stale.recordExecutionSettlementPending("job-a", "economic-attempt-a", "fence-a", "incomplete provider settlement");
+    if (pending.settlement?.kind !== "unknown") throw new Error("fixture");
+    const reconciliation = {
+      jobId: "job-a", economicAttemptId: "economic-attempt-a", dispatchFenceId: "fence-a",
+      attestation: "confirmed-execution-stopped" as const,
+      settlement: {
+        kind: "free" as const,
+        reservationId: acquired.record.commitment.reservation.reservationId,
+        dispatchFenceId: "fence-a",
+        actualIdentity: acquired.record.commitment.reservation.selectedIdentity,
+        units: [], evidence: adopted.routes[0]!.priceEvidence.identity.evidence,
+      },
+      expectedPendingSettlementDigest: digestManagedEconomicValue(pending.settlement),
+      sourceEvidenceDigest: `sha256:${"b".repeat(64)}`,
+      terminationEvidenceDigest: `sha256:${"c".repeat(64)}`,
+      authorityEvidenceDigest: `sha256:${"d".repeat(64)}`,
+    };
+    clock = 3_000;
+    const current = createAt(path, "owner-b", () => clock);
+    current.recoverCommitments();
+
+    expect(() => stale.reconcileExecution(reconciliation)).toThrow("ownership was lost");
+    expect(current.recoverCommitments()).toMatchObject([{
+      state: "settlement-pending", settlement: pending.settlement, lease: { lifecycleState: "held" },
+    }]);
+    expect(current.reconcileExecution(reconciliation)).toMatchObject({
+      state: "released", lease: { lifecycleState: "released" }, settlement: { kind: "free" },
+    });
+  });
+
   it("shares physical account capacity with account-only gateway acquisition in both orders", () => {
     const adopted = accountSnapshot(); const { route, candidate } = accountCapacity(adopted);
     const economic = create();
@@ -603,6 +783,45 @@ describe("managed economic commitment authority", () => {
       status: "denied", policyId: "policy", policyDigest: `sha256:${"1".repeat(64)}`,
       rejections: [{ stage: "local-capacity", routeId: "route-direct", reason: "route-capacity-exhausted" }],
     });
+  });
+
+  it("accepts a canonical route price class while keeping replay projection and key validation strict", () => {
+    const authority = create();
+    const acquired = authority.acquireCommitment(input());
+    if (acquired.status !== "committed") throw new Error("fixture");
+    const path = join(roots.at(-1)!, "authority.sqlite");
+    const database = new Database(path, { strict: true });
+    const row = database
+      .query<{ commitment_json: string }, [string]>("SELECT commitment_json FROM economic_commitments WHERE job_id=?")
+      .get("job-a");
+    if (!row) throw new Error("fixture");
+    const commitment = JSON.parse(row.commitment_json) as {
+      reservation: { selectedIdentity: { route: Record<string, unknown> } };
+    };
+    commitment.reservation.selectedIdentity.route.priceClass = "metered";
+    database
+      .query("UPDATE economic_commitments SET commitment_json=? WHERE job_id=?")
+      .run(JSON.stringify(commitment), "job-a");
+    database.close();
+
+    const replay = authority.createAgentTaskReplayInspectionPort().inspect({
+      jobId: "job-a", economicAttemptId: "economic-attempt-a",
+    });
+    expect(replay).toMatchObject({
+      status: "held",
+      selectedRoute: { routeId: "route-direct", providerId: "provider", modelId: "model" },
+    });
+    expect(replay).not.toHaveProperty("selectedRoute.priceClass");
+
+    const corrupted = new Database(path, { strict: true });
+    commitment.reservation.selectedIdentity.route.priceClass = "not-a-price-class";
+    corrupted
+      .query("UPDATE economic_commitments SET commitment_json=? WHERE job_id=?")
+      .run(JSON.stringify(commitment), "job-a");
+    corrupted.close();
+    expect(() => authority.createAgentTaskReplayInspectionPort().inspect({
+      jobId: "job-a", economicAttemptId: "economic-attempt-a",
+    })).toThrow(/unprojectable/u);
   });
 
   it("fails visibly for malformed durable decision evidence", () => {

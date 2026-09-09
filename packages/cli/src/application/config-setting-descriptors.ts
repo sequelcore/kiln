@@ -364,6 +364,14 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
     reconciliationTargets: ["workflow-snapshot"],
   }),
   // Global permission posture is canonical for ordinary CLI operator surfaces.
+  descriptor({
+    key: "permissions.tools",
+    path: ["permissions", "tools"],
+    scopes: GLOBAL,
+    value: { kind: "json" },
+    section: "advanced",
+    reconciliationTargets: [],
+  }),
   // This row owns only the explicit file allow-list; deny and ask rules remain
   // operator-owned siblings in the same permissions document.
   descriptor({

@@ -22,6 +22,7 @@ import {
   type ManagedEconomicCommitmentAcquireInput,
   type ManagedEconomicCommitmentRecord,
   type ManagedEconomicNotDispatchedReconciliationInput,
+  type ManagedEconomicExecutionReconciliationInput,
 } from "@kilnai/runtime";
 import { NativeHarnessMcpTools, type AgentTaskApplicationPort } from "../native-harness/native-harness-mcp-tools.js";
 import { createNativeHarnessInspectionService } from "./native-harness-inspection.js";
@@ -106,6 +107,7 @@ export interface OperatorRuntimeMcpSdk {
 
 export interface OperatorEconomicReconciliationPort {
   reconcileNotDispatched(input: ManagedEconomicNotDispatchedReconciliationInput): Pick<ManagedEconomicCommitmentRecord, "state" | "settlement">;
+  reconcileExecution(input: ManagedEconomicExecutionReconciliationInput): Pick<ManagedEconomicCommitmentRecord, "state" | "settlement">;
 }
 
 export interface OperatorRuntimeServiceOptions {
@@ -489,6 +491,25 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
     requestCompletions.add(requestCompletion);
     try {
       const request = parsedRequest.data;
+      if (request.operation === "managed-economic.reconcile-execution") {
+        const authority = options.economicReconciliation ?? ensureGlobalEconomicAuthority();
+        const record = authority.reconcileExecution({
+          ...request.input,
+          settlement: request.input.settlement as unknown as ManagedEconomicExecutionReconciliationInput["settlement"],
+          authorityEvidenceDigest: digestManagedEconomicValue({
+            principal: session.principal,
+            projectRuntimeId,
+            request,
+          }),
+        });
+        return applicationSuccess({
+          jobId: request.input.jobId,
+          economicAttemptId: request.input.economicAttemptId,
+          dispatchFenceId: request.input.dispatchFenceId,
+          state: record.state,
+          settlement: record.settlement,
+        });
+      }
       if (request.operation === "managed-economic.reconcile-not-dispatched") {
         const reconciliation = request.input;
         const authority = options.economicReconciliation ?? ensureGlobalEconomicAuthority();

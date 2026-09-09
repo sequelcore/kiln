@@ -978,6 +978,7 @@ export type {
   ManagedEconomicAuthorityRejection,
   ManagedEconomicCommitmentAcquireInput,
   ManagedEconomicCommitmentAcquireResult,
+  ManagedEconomicExecutionReconciliationInput,
   ManagedEconomicNotDispatchedReconciliationInput,
   ManagedEconomicCommitmentRecord,
   ManagedEconomicCommitmentRecoveryInput,

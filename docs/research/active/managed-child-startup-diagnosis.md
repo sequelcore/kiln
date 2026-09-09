@@ -1,6 +1,8 @@
 # Managed-child startup diagnosis
 
-Status: startup, host-enforcement, and budget-settlement repairs verified offline; live diagnostic authorization exhausted.
+Status: historical economic commitments recovered with retained evidence. A
+bounded trial is authorized, but remains gated on preventive child/tool limits
+shared across parent and child. Temporary discovery grants are not applied.
 
 ## Primary finding
 
@@ -245,3 +247,120 @@ suites (107 tests) and benchmark command suite (21 tests), and three diagnostic
 collector/process/report suites (55 tests). The direct-child regression failed
 with an approval timeout when the old gate was temporarily restored and passed
 again after restoration. Documentation validation also passed.
+
+## Offline readiness verification (2026-09-08)
+
+The subsequent diagnostic at `b311a8fd`, summarized in the
+[advisor brief](managed-child-advisor-brief.md), completed with four settled
+physical requests and no managed invocation. Its valid collection and successful
+session do not satisfy the managed-child task oracle. The retained tool evidence
+contains calls and error flags, but does not establish the exact discovery
+rejection reasons.
+
+Read-only preparation inspected the current configuration and canonical global
+economic ledger. A probe of the real CLI permission evaluator and configured
+invocation admission confirms that `capability.search` and `capability.describe`
+fall through to `ask`, while `tool_catalog_search` and `managed_agent.invoke`
+have explicit allow rules. The retained parent admission bundle already permits
+the two discovery tools. Execution still intersects that bundle with configured
+invocation policy; the unattended surface cannot satisfy the additional approval
+requirement. This is a demonstrated current readiness blocker and a sufficient
+explanation under that policy, not a replay of the missing historical errors.
+
+An in-memory proposal with two exact discovery allow rules passed the same
+invocation-policy probe; an explicit deny remained denied. No operator policy
+was changed. Any actual change still needs scope review and authorization.
+The proposal does not establish valid capability identity, successful
+materialization, or a complete discovery-to-child workflow. In particular, the
+observed `capability.describe` call must not assume a tool name and `current`
+are the returned capability identity and revision.
+
+The global ledger still contains two settlement-pending commitments and two
+unreleased leases from earlier diagnostics. One settlement records unknown
+provider usage; the other remains pending after a dispatch fence. Associated
+diagnostics observed child provider execution, so the not-dispatched
+reconciliation command cannot truthfully settle these records. Preserve their
+uncertainty and fences until the economic owner can accept adequate settlement
+evidence. No ledger mutation occurred during preparation.
+
+The latest retained accounting is 654 known physical requests plus 25 reserved
+for uncertainty against 683 authorized, leaving four below the existing
+eight-request trial allocation. A private candidate protocol and proposal retain
+the proposed next allocation, unchanged bounded trial, recovery prerequisites,
+and rollback requirements. They are not authorized or frozen for execution.
+
+Verification used an isolated checkout at `10e0588b`, then adopted `4257ee9f`
+to include the intervening configuration-binding refactor. The unchanged Runtime
+boundary passed six focused files (66 tests). The updated CLI boundary passed
+nine focused files (102 tests), and the full workspace typecheck passed.
+The native Bun SQLite owner-open smoke also passed; it is not a settlement
+recovery proof.
+
+The collector checkpoint test failed twice because its one-second test budget
+included real Git fingerprint duration. A paired synthetic-command probe
+reproduced the early stop and exercised the intended later crash with an
+injected clock. The test now supplies that existing clock dependency, preserving
+its timeout and checkpoint assertions. All four selected collector, protocol,
+report-integrity, and subprocess-lifecycle files passed (67 tests), and scripts
+typechecking passed. Production deadlines are unchanged.
+
+Before another live diagnostic, resolve economic recovery, prove discovery and
+invocation through real configured admission with a synthetic provider, review
+any narrow configuration change, and freeze fresh source/configuration/account
+evidence with an authorized allocation. No provider request was dispatched for
+this preparation; no valid control or analyzer comparison is established.
+
+## Evidence-retaining recovery (2026-09-08)
+
+The operator subsequently authorized recovery and the proposed single bounded
+diagnostic. Recovery reconstructed three child requests from the first report's
+completed physical observations. For the interrupted second trial, the frozen
+canonical CLI path injected one eight-request transport authority into parent
+and child. Six distinct successful parent rounds and two successful child rounds
+require at least eight physical requests; the shared cap permits at most eight.
+This establishes exactly two child requests. It does not establish the missing
+token usage, token-envelope compliance, or historical cleanup completion.
+
+The new authenticated `managed-economic reconcile-execution` command released
+both historical global commitments and account leases through their owning
+Runtime service. Readback verified retained original `unknown` and `pending`
+settlements, evidence digests, and dispatch fences. The service required a managed
+restart to load the current code before accepting the recovery session. Historical
+benchmark outcomes and the 654 known plus 25 uncertain request accounting were
+preserved. Recovery itself used no provider requests.
+
+The synthetic configured AgentTask workflow also exposed two independent defects:
+the CLI forwarded the accepted task's admission identity alongside a derived
+child bundle, and the public economic replay parser rejected the canonical
+`priceClass` field. The CLI now forwards the identity of the actual child bundle
+without changing the durable task action claim. Runtime validates `priceClass`
+before producing its sanitized replay. The regression reaches child execution,
+a builtin call, terminal success, and released economic capacity. This fixture
+covers the configured AgentTask entry.
+
+A separate hermetic regression now exercises the real attached Runtime surface
+used by the benchmark's generic `managed_agent.invoke` path. Configured
+on-request discovery yields an approval requirement and no child. Adding only
+the two exact discovery grants passes the returned capability identity,
+revision and descriptor digest into describe, materializes the generic tool,
+executes a synthetic child builtin, and verifies terminal lease release and
+owner shutdown. The provider, builtin, claim stores and sandbox lease are
+synthetic; this proves the attached surface and configured admission, not full
+benchmark orchestration, real transport or provider behavior.
+
+The governed global settings surface now accepts `permissions.tools`, requires
+authority approval, and validates the resulting global document before writing.
+Tool-rule validation rejects malformed names, actions and unknown rule fields.
+The two exact discovery grants remain a separate temporary configuration action;
+their proposal retains all existing rules and an exact rollback requirement.
+
+Protocol review found a further readiness gate. The physical-request authority
+enforces eight requests across parent and child before transport. In contrast,
+the collector's one-child threshold is checked after execution, and parent and
+child each receive their own tool-call budget. The current report's tool count
+does not establish an aggregate parent-and-child limit of 32. Before executing
+under the proposed maxima, the owning Runtime path needs a shared preventive
+limit for child starts and tool execution, with matching aggregate evidence.
+The authorization must not be silently reinterpreted as permission to exceed
+these maxima and merely invalidate the resulting row. No discovery grant was
+applied and no new provider trial was dispatched during this recovery step.

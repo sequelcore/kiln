@@ -188,6 +188,39 @@ describe("governed configuration settings", () => {
     });
   });
 
+  it("governs discovery tool grants through global permission mutation", async () => {
+    mkdirSync(join(globalHome, "kiln"), { recursive: true });
+    const existing = [
+      { tool: "shell", action: "deny" },
+      { tool: "write", action: "ask" },
+    ];
+    writeFileSync(globalConfigPath(), stringify({
+      ...defaultGlobalConfig(),
+      permissions: { approval: "on-request", tools: existing },
+    }), "utf-8");
+    const tools = [...existing,
+      { tool: "capability.search", action: "allow" },
+      { tool: "capability.describe", action: "allow" },
+    ];
+    const record = propose({ scope: "global", key: "permissions.tools", value: tools });
+    expect(record.proposal.status).toBe("valid");
+    expect(record.proposal.approvalRequired).toBe(true);
+    expect(record.proposal.activation).toBe("next-session");
+    expect((await apply(record.proposal.proposalId)).settlement.outcome).toBe("rejected");
+    expect(parse(readFileSync(globalConfigPath(), "utf-8")).permissions.tools).toEqual(existing);
+    const approval = approveConfigMutation({
+      projectPath: tempDir,
+      projectStateBinding,
+      proposalId: record.proposal.proposalId,
+    });
+    expect((await apply(record.proposal.proposalId, approval.approvalId)).settlement.outcome).toBe("committed");
+    expect(parse(readFileSync(globalConfigPath(), "utf-8")).permissions).toEqual({
+      approval: "on-request", tools,
+    });
+    expect(propose({ scope: "project", key: "permissions.tools", value: tools }).proposal.status).toBe("invalid");
+    expect(propose({ scope: "global", key: "permissions.tools", value: [{ tool: "read", action: "invalid" }] }).proposal.status).toBe("invalid");
+  });
+
   it("refuses a key in a scope its descriptor does not admit", () => {
     seedGlobalConfig();
     const projectOnly = propose({ scope: "global", key: "permissions.sandbox", value: "read-only" });

@@ -1442,6 +1442,128 @@ export class SqliteManagedAccountLeaseAuthority {
     });
   }
 
+  /**
+   * Terminalizes an ambiguous provider outcome after an authenticated owner
+   * attests that execution has stopped and supplies a typed terminal settlement.
+   * The original pending evidence remains durable for replay and later audit.
+   */
+  reconcileExecution(input: ManagedEconomicExecutionReconciliationInput): ManagedEconomicCommitmentRecord {
+    return this.#transaction(() => {
+      this.#heartbeat();
+      requireCanonicalText(input.jobId, "Managed economic execution reconciliation job id is required.");
+      requireEconomicAttemptId(input.economicAttemptId);
+      requireCanonicalText(input.dispatchFenceId, "Managed economic execution reconciliation dispatch fence id is required.");
+      if (input.attestation !== "confirmed-execution-stopped") {
+        throw new TypeError("Managed economic execution reconciliation requires a stopped-execution attestation.");
+      }
+      if (!isTerminalExecutionReconciliationSettlement(input.settlement)) {
+        throw new TypeError("Managed economic execution reconciliation requires a terminal provider settlement.");
+      }
+      requireManagedEconomicDigest(
+        input.expectedPendingSettlementDigest,
+        "Managed economic execution reconciliation expected pending settlement digest is invalid.",
+      );
+      requireManagedEconomicDigest(
+        input.sourceEvidenceDigest,
+        "Managed economic execution reconciliation source evidence digest is invalid.",
+      );
+      requireManagedEconomicDigest(
+        input.terminationEvidenceDigest,
+        "Managed economic execution reconciliation termination evidence digest is invalid.",
+      );
+      requireManagedEconomicDigest(
+        input.authorityEvidenceDigest,
+        "Managed economic execution reconciliation authority evidence digest is invalid.",
+      );
+      const row = this.#requiredCommitmentRow(input.jobId, input.economicAttemptId);
+      if (row.dispatch_fence_id !== input.dispatchFenceId) {
+        throw new Error("Execution reconciliation does not own the durable dispatch fence.");
+      }
+      const commitment = JSON.parse(row.commitment_json!) as ManagedEconomicCommitment;
+      const expectation = {
+        reservationId: row.reservation_id,
+        dispatchFenceId: input.dispatchFenceId,
+        selectedIdentity: commitment.reservation.selectedIdentity,
+      } as const;
+      validateManagedEconomicSettlement(input.settlement, expectation);
+      if (row.state === "released") {
+        if (row.settlement_json === null || row.reconciliation_json === null) {
+          throw new Error("Execution reconciliation conflicts with the durable terminal settlement.");
+        }
+        const retained = JSON.parse(row.reconciliation_json) as {
+          readonly kind?: unknown;
+          readonly originalSettlement?: unknown;
+        };
+        if (
+          retained.kind !== "execution-reconciliation"
+          || !isExecutionReconciliationOriginalSettlement(retained.originalSettlement)
+        ) {
+          throw new Error("Execution reconciliation conflicts with the durable terminal settlement.");
+        }
+        const originalSettlement = retained.originalSettlement;
+        validateManagedEconomicSettlement(originalSettlement, expectation);
+        const reconciliation = executionReconciliationEvidence(originalSettlement, input);
+        if (
+          digestManagedEconomicValue(JSON.parse(row.settlement_json)) !== digestManagedEconomicValue(input.settlement)
+          || digestManagedEconomicValue(JSON.parse(row.reconciliation_json)) !== digestManagedEconomicValue(reconciliation)
+        ) {
+          throw new Error("Execution reconciliation conflicts with the durable terminal settlement.");
+        }
+        return recordFromCommitmentRow(row, this.#rowForOptionalLease(row.lease_id));
+      }
+      if (row.state !== "settlement-pending") {
+        throw new Error("Execution reconciliation requires an already pending settlement.");
+      }
+      if (row.owner_id !== this.#ownerId || row.owner_generation !== this.#ownerGeneration) {
+        throw new Error("Execution reconciliation is not owned by this authority.");
+      }
+      if (row.settlement_json === null) {
+        throw new Error("Execution reconciliation requires retained pending settlement evidence.");
+      }
+      const originalSettlement = JSON.parse(row.settlement_json) as ManagedEconomicSettlement;
+      if (!isExecutionReconciliationOriginalSettlement(originalSettlement)) {
+        throw new Error("Execution reconciliation requires a retained unknown or pending settlement.");
+      }
+      validateManagedEconomicSettlement(originalSettlement, expectation);
+      const reconciliation = executionReconciliationEvidence(originalSettlement, input);
+      if (row.lease_id !== null) {
+        const lease = this.#requiredRow(row.lease_id);
+        if (lease.lifecycle_state !== "held" || lease.owner_id !== this.#ownerId || lease.owner_generation !== this.#ownerGeneration) {
+          throw new Error("Execution reconciliation does not own a releasable account lease.");
+        }
+        this.#rollbackWinningAffinity(lease);
+        const released = this.#db
+          .query(
+            "UPDATE account_leases SET lifecycle_state='released',released_at=?,dispatch_fence_id=?,settlement_json=? WHERE lease_id=? AND lifecycle_state='held' AND owner_id=? AND owner_generation=?",
+          )
+          .run(
+            new Date(this.#now()).toISOString(),
+            input.dispatchFenceId,
+            JSON.stringify(input.settlement),
+            row.lease_id,
+            this.#ownerId,
+            this.#ownerGeneration,
+          );
+        if (released.changes !== 1) throw new Error("Execution reconciliation lost its account lease owner fence.");
+      }
+      const changed = this.#db
+        .query(
+          "UPDATE economic_commitments SET state='released',settlement_json=?,reconciliation_json=? WHERE commitment_id=? AND state='settlement-pending' AND dispatch_fence_id=? AND owner_id=? AND owner_generation=?",
+        )
+        .run(
+          JSON.stringify(input.settlement),
+          JSON.stringify(reconciliation),
+          row.commitment_id,
+          input.dispatchFenceId,
+          this.#ownerId,
+          this.#ownerGeneration,
+        );
+      if (changed.changes !== 1) throw new Error("Execution reconciliation lost its owner or dispatch fence.");
+      const reconciled = this.#requiredCommitmentRow(input.jobId, input.economicAttemptId);
+      return recordFromCommitmentRow(reconciled, this.#rowForOptionalLease(reconciled.lease_id));
+    });
+  }
+
   createAgentTaskCommitmentRecoveryPort(): ManagedEconomicCommitmentRecoveryPort {
     return {
       query: ({ jobId, economicAttemptId }) => {
@@ -1985,12 +2107,49 @@ export interface ManagedEconomicNotDispatchedReconciliationInput {
   readonly settlement: Extract<ManagedEconomicSettlement, { readonly kind: "not-dispatched" }>;
 }
 
+type ManagedEconomicTerminalExecutionSettlement = Extract<
+  ManagedEconomicSettlement,
+  { readonly kind: "charged" | "estimated" | "subscription" | "included" | "free" }
+>;
+
+type ManagedEconomicRetainedPendingSettlement = Extract<
+  ManagedEconomicSettlement,
+  { readonly kind: "unknown" | "pending" }
+>;
+
+/**
+ * Authenticated evidence for a terminal provider settlement that replaces one
+ * retained ambiguous outcome. The authority evidence is validated by the
+ * calling authenticated surface before this owner is reached.
+ */
+export interface ManagedEconomicExecutionReconciliationInput {
+  readonly jobId: string;
+  readonly economicAttemptId: string;
+  readonly dispatchFenceId: string;
+  readonly attestation: "confirmed-execution-stopped";
+  readonly settlement: ManagedEconomicTerminalExecutionSettlement;
+  readonly expectedPendingSettlementDigest: string;
+  readonly sourceEvidenceDigest: string;
+  readonly terminationEvidenceDigest: string;
+  readonly authorityEvidenceDigest: string;
+}
+
 interface ManagedEconomicNotDispatchedReconciliationEvidence {
   readonly kind: "not-dispatched-reconciliation";
   readonly originalSettlement: Extract<ManagedEconomicSettlement, { readonly kind: "unknown" }>;
   readonly expectedPendingSettlementDigest: string;
   readonly sourceEvidenceDigest: string;
   readonly denialEvidenceDigest: string;
+  readonly authorityEvidenceDigest: string;
+}
+
+interface ManagedEconomicExecutionReconciliationEvidence {
+  readonly kind: "execution-reconciliation";
+  readonly originalSettlement: ManagedEconomicRetainedPendingSettlement;
+  readonly attestation: "confirmed-execution-stopped";
+  readonly expectedPendingSettlementDigest: string;
+  readonly sourceEvidenceDigest: string;
+  readonly terminationEvidenceDigest: string;
   readonly authorityEvidenceDigest: string;
 }
 
@@ -2328,7 +2487,8 @@ function projectSanitizedReplayRoute(
   | Extract<ManagedEconomicReplayEvidence, { readonly status: ManagedEconomicCommitmentState }>["selectedRoute"]
   | undefined {
   if (
-    !isRecordWithExactKeys(value, MANAGED_ECONOMIC_ROUTE_IDENTITY_KEYS) ||
+    (!isRecordWithExactKeys(value, MANAGED_ECONOMIC_ROUTE_IDENTITY_KEYS)
+      && !isRecordWithExactKeys(value, MANAGED_ECONOMIC_ROUTE_IDENTITY_KEYS_WITH_PRICE_CLASS)) ||
     ![
       "routeId",
       "providerId",
@@ -2350,6 +2510,7 @@ function projectSanitizedReplayRoute(
     (value.accountPolicyId !== null && typeof value.accountPolicyId !== "string") ||
     !isPosture(value.fallbackPosture) ||
     !isPosture(value.overagePosture) ||
+    ("priceClass" in value && !isManagedEconomicPriceClass(value.priceClass)) ||
     typeof value.scheme !== "object" ||
     value.scheme === null
   )
@@ -2440,6 +2601,21 @@ const MANAGED_ECONOMIC_ROUTE_IDENTITY_KEYS = [
   "envelopeDigest",
 ] as const;
 
+/** `priceClass` is optional in the canonical route identity, but never projected to replay callers. */
+const MANAGED_ECONOMIC_ROUTE_IDENTITY_KEYS_WITH_PRICE_CLASS = [
+  ...MANAGED_ECONOMIC_ROUTE_IDENTITY_KEYS,
+  "priceClass",
+] as const;
+
+function isManagedEconomicPriceClass(value: unknown): boolean {
+  return value === "subscription"
+    || value === "included"
+    || value === "free"
+    || value === "metered"
+    || value === "estimated"
+    || value === "unknown";
+}
+
 function isReplaySettlement(value: unknown): value is Pick<ManagedEconomicSettlement, "kind"> & {
   readonly evidence?: ManagedEconomicEvidenceIdentity | null;
 } {
@@ -2488,6 +2664,47 @@ function notDispatchedReconciliationEvidence(
     sourceEvidenceDigest: settlement.sourceEvidenceDigest,
     denialEvidenceDigest: settlement.denialEvidenceDigest,
     authorityEvidenceDigest: settlement.authorityEvidenceDigest,
+  };
+}
+
+function isExecutionReconciliationOriginalSettlement(
+  value: unknown,
+): value is ManagedEconomicRetainedPendingSettlement {
+  return (
+    typeof value === "object"
+    && value !== null
+    && ((value as { readonly kind?: unknown }).kind === "unknown"
+      || (value as { readonly kind?: unknown }).kind === "pending")
+  );
+}
+
+function isTerminalExecutionReconciliationSettlement(
+  value: unknown,
+): value is ManagedEconomicTerminalExecutionSettlement {
+  if (typeof value !== "object" || value === null) return false;
+  const kind = (value as { readonly kind?: unknown }).kind;
+  return kind === "charged"
+    || kind === "estimated"
+    || kind === "subscription"
+    || kind === "included"
+    || kind === "free";
+}
+
+function executionReconciliationEvidence(
+  originalSettlement: ManagedEconomicRetainedPendingSettlement,
+  input: ManagedEconomicExecutionReconciliationInput,
+): ManagedEconomicExecutionReconciliationEvidence {
+  if (digestManagedEconomicValue(originalSettlement) !== input.expectedPendingSettlementDigest) {
+    throw new Error("Execution reconciliation does not match the retained pending settlement.");
+  }
+  return {
+    kind: "execution-reconciliation",
+    originalSettlement,
+    attestation: input.attestation,
+    expectedPendingSettlementDigest: input.expectedPendingSettlementDigest,
+    sourceEvidenceDigest: input.sourceEvidenceDigest,
+    terminationEvidenceDigest: input.terminationEvidenceDigest,
+    authorityEvidenceDigest: input.authorityEvidenceDigest,
   };
 }
 
@@ -2558,6 +2775,11 @@ function requireRoute(route: ProviderModelRouteIdentity): void {
 
 function requireCanonicalText(value: string, message: string): string {
   if (!value || value !== value.trim()) throw new TypeError(message);
+  return value;
+}
+
+function requireManagedEconomicDigest(value: string, message: string): string {
+  if (!/^sha256:[a-f0-9]{64}$/u.test(value)) throw new TypeError(message);
   return value;
 }
 

@@ -133,6 +133,12 @@ that admission identity and the child's route/account binding. It must not
 compare the child reservation with the parent's execution commitment or rewrite
 the parent bundle to make them match.
 
+The accepted task's durable action claim keeps its original admission identity.
+When the CLI derives the invocation admission with the committed child execution
+binding, it forwards that derived admission's identity to direct Runtime startup.
+The startup identity must match the bundle actually governing the child; it does
+not replace the already-fenced task action claim.
+
 Any interim failure that is proven pre-fence releases the commitment and its
 optional account lease before the job is projected terminal. Release is
 idempotent and owner-generation fenced. Once dispatch is fenced, unknown
@@ -173,6 +179,23 @@ original attempt cannot dispatch again. No billing class or consumed usage is
 invented. Historical source evidence must prove the denied path could not reach
 the named dispatch effect; adapter materialization may still have performed
 credential resolution or capability discovery.
+
+A stopped execution with recovered usage can instead use
+`kiln managed-economic reconcile-execution --evidence <file.json> --json`.
+Its input requires `attestation: "confirmed-execution-stopped"`, the job,
+attempt and dispatch fence, `expectedPendingSettlementDigest`,
+`sourceEvidenceDigest`, `terminationEvidenceDigest`, and a terminal execution
+`settlement`. The same authenticated global owner derives authority evidence,
+validates the settlement identity and runtime variant, and atomically releases
+the lease and commitment. It retains the original `unknown` or `pending`
+settlement and reconciliation evidence. Exact replay succeeds; a changed
+settlement, attestation, or evidence fails. This operation cannot accept a
+nonterminal or no-dispatch settlement.
+
+Recovered request counts do not establish provider-reported token usage or
+execution-envelope compliance. A request-unit subscription can retain calculated
+request evidence while its source record explicitly preserves unknown tokens.
+Recovery does not revise historical benchmark outcomes or uncertainty reserves.
 
 Execution settlement is a typed union. Provider-reported charge requires
 provider authority and the committed unit/scheme. A local rate-card calculation

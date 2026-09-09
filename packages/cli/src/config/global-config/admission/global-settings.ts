@@ -69,6 +69,25 @@ export function validatePermissionCeiling(value: unknown): void {
   }
 }
 
+export function validateGlobalToolRules(value: unknown): void {
+  if (!isRecord(value) || value.tools === undefined) return;
+  if (!Array.isArray(value.tools)) throw new KilnYamlError("permissions.tools must be an array");
+  for (const [index, rule] of value.tools.entries()) {
+    const path = `permissions.tools[${index}]`;
+    if (!isRecord(rule)) throw new KilnYamlError(`${path} must be an object`);
+    rejectUnknownFields(rule, ["tool", "action", "reason"], path);
+    if (typeof rule.tool !== "string" || rule.tool.trim().length === 0) {
+      throw new KilnYamlError(`${path}.tool must be a non-empty string`);
+    }
+    if (rule.action !== "allow" && rule.action !== "ask" && rule.action !== "deny") {
+      throw new KilnYamlError(`${path}.action must be allow, ask, or deny`);
+    }
+    if (rule.reason !== undefined && typeof rule.reason !== "string") {
+      throw new KilnYamlError(`${path}.reason must be a string`);
+    }
+  }
+}
+
 export function validateSessionTurnBudget(value: unknown): void {
   if (value === undefined) return;
   if (!isRecord(value)) throw new KilnYamlError("sessionTurnBudget must be an object");

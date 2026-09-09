@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import {
   ManagedEconomicNotDispatchedReconciliationInputSchema,
+  ManagedEconomicExecutionReconciliationInputSchema,
   OperatorRuntimeApplicationResponseSchema,
 } from "@kilnai/gateway-contracts";
 import { OPERATOR_RUNTIME_APPLICATION_PATH } from "@kilnai/runtime";
@@ -31,22 +32,24 @@ const defaultDependencies: ManagedEconomicCommandDependencies = {
   log: (message) => console.log(message),
 };
 
-/** Explicit operator attestation. Digests bind reviewed evidence; they do not prove no dispatch. */
+/** Explicit operator attestations bound to reviewed evidence, validated by the durable owner. */
 export async function managedEconomicCommand(
   args: readonly string[],
   overrides: Partial<ManagedEconomicCommandDependencies> = {},
 ): Promise<void> {
   const dependencies = { ...defaultDependencies, ...overrides };
   if (args.length === 0 || args[0] === "--help") {
-    dependencies.log("Usage: kiln managed-economic reconcile-not-dispatched --evidence <file.json> [--json]\nThe evidence file must attest confirmed-not-dispatched. This operator assertion releases reserved capacity; missing results are insufficient.");
+    dependencies.log("Usage: kiln managed-economic <reconcile-not-dispatched|reconcile-execution> --evidence <file.json> [--json]\nReconciliation requires evidence of no dispatch or stopped execution with recovered usage. Missing results are insufficient.");
     return;
   }
   const [operation, flag, path, format] = args;
-  if (operation !== "reconcile-not-dispatched" || flag !== "--evidence" || !path
+  if ((operation !== "reconcile-not-dispatched" && operation !== "reconcile-execution") || flag !== "--evidence" || !path
     || path.startsWith("--") || args.length > 4 || (format !== undefined && format !== "--json")) {
-    throw new Error("Expected reconcile-not-dispatched --evidence <file.json> [--json].");
+    throw new Error("Expected reconcile-not-dispatched or reconcile-execution --evidence <file.json> [--json].");
   }
-  const input = ManagedEconomicNotDispatchedReconciliationInputSchema.parse(
+  const input = (operation === "reconcile-execution"
+    ? ManagedEconomicExecutionReconciliationInputSchema
+    : ManagedEconomicNotDispatchedReconciliationInputSchema).parse(
     JSON.parse(await dependencies.readEvidence(path)) as unknown,
   );
   const session = dependencies.createSession();
@@ -54,14 +57,14 @@ export async function managedEconomicCommand(
     const response = await session.request(OPERATOR_RUNTIME_APPLICATION_PATH, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ schemaVersion: 1, operation: "managed-economic.reconcile-not-dispatched", input }),
+      body: JSON.stringify({ schemaVersion: 1, operation: `managed-economic.${operation}`, input }),
     });
     if (!response.ok) throw new Error(`Operator Runtime rejected economic reconciliation (${response.status}).`);
     const result = OperatorRuntimeApplicationResponseSchema.parse(await response.json());
     if (result.status === "error") throw new Error(`Economic reconciliation rejected (${result.error.code}): ${result.error.message}`);
     dependencies.log(format === "--json"
       ? JSON.stringify(result.result)
-      : `Reconciled ${input.jobId} as not dispatched; its reservation is released and replay remains fenced.`);
+      : `Reconciled ${input.jobId}; its reservation is released and replay remains fenced.`);
   } finally {
     session.close();
   }
